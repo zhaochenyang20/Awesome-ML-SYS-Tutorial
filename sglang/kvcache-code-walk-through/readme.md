@@ -159,7 +159,7 @@ This section would go deeper on `cache_finished_req` & `cache_finished_req`'s fl
 |------|--------------------------|--------------------------|
 | **1. Get `kv_indices`** from `req_to_token_pool.req_to_token` | - | - |
 | **2. Update Radix Cache** (`insert()`) | - | - |
-| **3. Free KV Cache** (`self.token_to_kv_pool.free()`) | - | requires verification |
+| **3. Free KV Cache** (`self.token_to_kv_pool.free()`) | - | release duplicate kv cache storage |
 | **4. Handle `req_to_token_pool`** | **Writes and updates** `req_to_token_pool | **Releases** `req_to_token_pool` as the request is completed. |
 | **5. Handle `req.last_node`** | **Increases** the reference count of `req.last_node` | **Decreases** the reference count of `req.last_node`, as `req` is finished. |
 
