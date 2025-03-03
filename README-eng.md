@@ -74,7 +74,7 @@ My learning notes/codes for ML SYS.  English version is under development and on
 ## ML System Fundamentals
 
 - **NCCL and NVIDIA TOPO**  
-  [English TODO] | [[中文版](./nccl/readme.md)]：An introduction to NCCL and NVIDIA topology.
+  [English](./nccl/readme_en.md) | [[中文版](./nccl/readme.md)]：An introduction to NCCL and NVIDIA topology.
 
 - **PyTorch Distributed**  
    [English TODO] | [[中文版](./torch-distributed/readme.md)]：Practical communication in `torch.distributed`.
