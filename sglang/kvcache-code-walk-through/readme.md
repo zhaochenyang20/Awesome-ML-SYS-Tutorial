@@ -19,6 +19,7 @@ The figure illustrates how the **Scheduler** directs requests from the `waiting_
 
 #### `waiting_queue`
 A data structure designed to hold active requests. The queue would be reordered on demand based on requests priority(in our assumption, the requests with longest prefix) or available memory to optimize batch processing time.
+> **SV**: `SchedulePolicy` determines priority via `calc_priority` in `get_new_batch_prefill`
 - **What to Enqueue?** 
   - Newly arrived requests.
   - Requests that are returned from `retract_decode`. 
@@ -51,6 +52,7 @@ Let's walk through the sequence in the diagram now.
 The Scheduler continuously calls `recv_requests` to collect newly arrived requests, validate them and place them into the `waiting_queue`. 
 
 In our example, `Req 7` are received and enqueued.
+> **SV**: The Scheduler listens in `event_loop_normal` and `process_input_requests` the `_request_dispatcher` decides on how to handle the request.
 
 #### 2. **Merge Batches**
 Before form the `cur_batch` for this round, Scheduler would merge the last round's `cur_batch` into `running_batch`. In the diagram, `cur_batch` from last round are shown as `cur_batch(i-1)` and `running_batch` are shown as `running_batch(i-1)`. In our example, `Req 0` and `Req 1` will be merged together into the new `running_batch`. 
@@ -65,13 +67,17 @@ Before form the `cur_batch` for this round, Scheduler would merge the last round
   3. After `Req 5a` is processed and its KV cache is stored, it's removed as a `being_chunked_request`
   4. In the current round, when trying to process `Req 5b`, it still exceeds the resource limit
   5. Therefore, `Req 5b` is further split into a new `Req 5b` (which goes into the global batch) and `Req 5c` (which stays in the waiting queue)
+> **SV**: The Scheduler uses `get_next_batch_to_run` to perform the merging. 
 
 #### 3. **Forming the `new_batch`**:
 The process of forming a `new_batch` consists of three main steps:
+> **SV**: A new batch is formed after after the Scheduler performed merging in `get_next_batch_to_run` by calling `get_new_batch_prefill`.
 
 1. **Reorder Waiting Queue**:
   - The scheduler reorders requests based on its scheduling policy
   - By default, it prioritizes requests with the longest prefix in the radix cache
+> **SV**: The Scheduler reorders requests based on its `SchedulePolicy`. 
+> **SV**: By default we sort requests by longest prefix, for different policies and their implementation please refer to `schedule_policy.py`
 
 2. **Request Selection**:
   - Requests are selected one by one from the reordered queue
@@ -85,15 +91,18 @@ The process of forming a `new_batch` consists of three main steps:
   Allocateing spaces in `req_to_token_pool` and `token_to_kv_pool` for the `new_batch` requests
   - If no `new_batch` can be formed, the scheduler will fallback to use `running_batch` as `cur_batch`, it will firstly remove finished requests like `Old Finished Req`. 
   - If GPU memory becomes insufficient, some decoding requests may be retracted according to the retraction policy. In our example, `Req 0` is retracted during this process.
+> **SV**: After determination of the `new_batch` inside `get_new_batch_prefill` we `prepare_for_extend`.
 
 #### 4. **Running the Batch**: 
 Once the **Global Batch** is determined, `run_batch` is called to run a forward pass.
+> **SV**: In `event_loop_overlap` the after determination of the `batch` `run_batch` is called to foward pass the `batch`.
 
 #### 5. **Result Processing**:
 After `run_batch`, the Scheduler calls `process_batch_result` to to determine which requests have finished and which continue. In our example, `Req 6` is finished and turns grey, `Req 5b` remains unfinished.
 
 #### 6. **Iteration**:
 The loop repeats until all requests are eventually completed. If insufficient memory is encountered, requests may be chunked (in prefill) or retracted (in decode), then reinserted into the waiting queue for later processing.
+> **SV**: `event_loop_overlap` keeps running until the `last_batch` is processed.
 
 ## A Request's Lifecycle
 This section zoom into one request's lifecycle, we would step-by-step walkthrough the key functions that updates the KV Cache & Memory Pools.
