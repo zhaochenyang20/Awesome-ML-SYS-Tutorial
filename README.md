@@ -25,7 +25,7 @@ $$
 - [图解大模型RLHF系列之：人人都能看懂的PPO原理与源码解读](https://zhuanlan.zhihu.com/p/677607581)以及[图解OpenRLHF中基于Ray的分布式训练流程](https://zhuanlan.zhihu.com/p/12871616401)：猛猿小姐姐的非常好的 RLHF 入门资料，看了之后会对 RLHF 的计算流以及 OpenRLHF PPO 的框架有很好的理解，我自己也补充了写自己的理解在 [RLHF 的计算流](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/OpenRLHF#rlhf-%E7%9A%84%E8%AE%A1%E7%AE%97%E6%B5%81)。
 - [Latency optimization for weight updates](./sglang/latency-accelerte-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
 - [浅析主流 Alignment 算法与 NeMo-Aligner 框架](https://zhuanlan.zhihu.com/p/5220718268)
-- [verl代码阅读笔记](https://github.com/lambda7xx/Awesome-ML-SYS-Tutorial/blob/verl-xiao/rlhf/verl/verl%20code%20walk%20through.pdf)
+- [verl代码阅读笔记](https://github.com/lambda7xx/Awesome-ML-SYS-Tutorial/blob/verl-xiao/rlhf/verl/verl_code.pdf)
 
 
 ## SGLang 学习笔记
