@@ -1,18 +1,16 @@
-# NCCL and SGLang
+# NCCL in SGLang
 
 Before we discuss NVIDIA Collective Communication Library (NCCL) and communication in SGLang, we introduce the parallelism and general communication primitives.
 
-
-
 ## Parallelism
 
-In this section, we introcue the parallelism - TP, DP, PP. Generally we assume the communication data size should be TP>DP>PP. (Therefore we prefer to have inter-node PP but intra-node TP. You might want to reference `_initialize_distributed` in Megatron-LM for this, although it is not the key-point of this documentation.)
+In this section, we introcue the parallelism - TP, DP, PP. Generally we assume the communication data size should be TP > DP > PP. (Therefore we prefer to have inter-node PP but intra-node TP. You might want to reference `_initialize_distributed` in Megatron-LM for this, although it is not the key-point of this documentation.)
 
 The figures are for training. But it still gives the rough idea of inference parallelism and why we need the communication operations included in the next section.
 
 ### DP: Data Parallelism
 
-The key idea is to distribute data on the replicated model of each GPU. We need to perform element-wise reduction across multiple GPUs (AR/AllReduce). 
+The key idea is to distribute data on the replicated model of each GPU. We need to perform element-wise reduction across multiple GPUs (AR/AllReduce).
 
 To reduce memory consumption, you might want to have a look at ZeRO.
 
@@ -292,7 +290,7 @@ GPU 0: NVIDIA H100 80GB HBM3
 - System memory access
 
 ## GPU Monitoring
-Tool recommendation: **[nvitop](https://github.com/Syllo/nvtop)**  
+Tool recommendation: **[nvitop](https://github.com/Syllo/nvtop)**
 Install via `pip install nvitop` for real-time GPU metrics visualization.
 
 
