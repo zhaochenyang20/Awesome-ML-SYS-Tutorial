@@ -177,7 +177,7 @@ actor_rollout_ref:
 - `tool_config_path` : Path to a YAML file defining all tool schemas and associated Python classes.
 - `format` : Format for tool interaction messages (currently supports `chatml` only).
 
-![Tool_Lifecycle_and_Request_State_Transaction](./Tool_Lifecycle_and_Request_State_Transaction.png)
+![Tool_Lifecycle_and_Request_State_Transaction](../imgs/Tool_Lifecycle_and_Request_State_Transaction.png)
 
 #### Example: GSM8K Tool Configuration
 
@@ -210,7 +210,7 @@ During rollout:
 
 With this plugin-style architecture, tools can be flexibly reused across tasks and agents without changing the core engine or rollout loop.
 
-![Multi-Turn_Rollout_Workflow](./Multi-Turn_Rollout_Workflow.png)
+![Multi-Turn_Rollout_Workflow](../imgs/Multi-Turn_Rollout_Workflow.png)
 
 ## Challenges and Methods
 
