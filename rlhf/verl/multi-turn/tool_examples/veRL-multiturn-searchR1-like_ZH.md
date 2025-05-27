@@ -1,25 +1,30 @@
-# [Async SGLang Rollout] 新特性：多轮RL训练中搜索工具调用
-- 作为 veRL 的用户，我们希望在 Actor rollout 期间，让模型能够调用特定工具，并将其返回结果无缝地融合到训练流程中。
-- 我们为 veRL-sglang MultiTurnRL 新增了搜索工具调用功能，使模型能够在 Actor rollout 阶段发起检索请求，并直接利用检索结果进行训练。
-- 为社区提供了一种 searchR1-like 的全新复现方案。
+# Search-R1 & veRL-SGLang：Train LLMs with Multi-Turn RL to Reason and Call a Search Engine
 
-- PR 链接：[volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
-- [训练曲线wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang "训练曲线wandb")
-- 感谢SGlang团队以及searchR1作者的高效支持！
-@BoWen @Chenyang Zhao @Xiang Long @yuhao @nan @ Jin Pan @Yuzhen Zhou @Shenggui Li
+大家好，SGLang 社区联合 Search R1 团队基于先前开源的 [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md) 快速复现了 Search-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning，欢迎大家上手体验，共同开发。具体来说，我们实现了如下的功能：
 
-# 如何使用
+- 先前 SGLang 社区已经实现了工具调用，支持在 Actor rollout 期间，让模型能够调用特定工具，并将返回结果无缝地融合到训练流程中。
+- 我们进一步为 Multi-Turn RL 新增了搜索工具调用功能，使模型能够在 Actor rollout 阶段发起检索请求，直接利用检索结果进行训练。**我们支持使用 local dense retriver 作为检索工具，也支持接入用户本地的检索引擎。**
+- 我们为为社区提供了一种 Search R1 工作的全新复现方案， 并已经集成到了 verl upstream，会持续维护并且更新我们的框架。此外，verl 在效率优化上的最新功能（诸如 FSDP2 和 Megatron）也能直接使用。这是我们相比其他不在主分支维护的工作的巨大优势。
 
-### 环境配置
+[PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
+[训练曲线 wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
 
-**创建新的 Docker 容器**
+感谢 SGLang 团队以及 searchR1 作者的高效支持！
 
-```docker 
+Project Member: Bowen Jin, Ling Chang, Nan Jiang, Chenyang Zhao, Long Xiang
+
+感谢贡献！
+
+## 快速复现
+
+### 创建新的 Docker 容器
+
+```bash
 docker run \
     -it \
     --shm-size 32g \
     --gpus all \
-    -v /models/shared/.cache:/root/.cache \
+    -v {Huggingface-Cache-Path}:/root/.cache \
     --ipc=host \
     --network=host \
     --privileged \
@@ -28,7 +33,6 @@ docker run \
     /bin/zsh
 ```
 
-
 如果退出容器后需要重新启动：
 
 ```bash 
@@ -36,7 +40,7 @@ docker start -i sglang_{your-name}
 ```
 
 
-**更新 Python 并使用虚拟环境**
+### 更新 Python 并使用 uv 配置虚拟环境
 
 ```bash 
 apt update
@@ -53,7 +57,7 @@ python3 -m pip install uv
 ```
 
 
-**安装 veRL upstream**
+### 安装 veRL upstream
 
 ```bash 
 cd ~
@@ -70,14 +74,14 @@ python3 -m uv pip install packaging
 python3 -m uv pip install flash-attn --no-build-isolation --no-deps
 ```
 
+### 搭建本地检索引擎
 
-**搭建自己的本地检索（如果用自己的服务可跳过**
+如果您使用本地的检索服务，可以跳过此步骤。我们选择 search-R1 示例中给出的local dense retriever，详细说明文档见[searchR1](https://raw.githubusercontent.com/PeterGriffinJin/Search-R1/refs/heads/main/docs/retriever.md "searchR1")。其中：
 
-- 这里选择searchR1示例中给出的local dense retriever，详细说明文档见[searchR1](https://raw.githubusercontent.com/PeterGriffinJin/Search-R1/refs/heads/main/docs/retriever.md "searchR1")
-  - 需要GPU（运行后每张卡占用5\~7G显存），精度较高，速度快
-  - 无GPU版本参考searchR1中的[详细文档](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md "详细文档")（简单测试代码可以使用，但检索精度差，也会导致训练效果差）
-- **注意**：**建议使用conda安装检索服务的环境**，venv中faiss-gpu安装未成功。（因为faiss有坑）
-  - 本配置中训练用的上面的venv环境。retriever使用的conda环境
+- 需要 GPU 的版本，精度较高，速度快；运行后每张卡占用 5~7G 显存。
+- 无 GPU 的版本参考 search-R1 中的[ retriever 文档](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md)，可以用于简单测试，但检索精度差，会导致训练效果差
+
+**注意**：为了启动训练进程和本地检索服务，我们启动了两个 Python 执行环境。其中训练使用 uv 搭建上述 veRL-multiturn-rollout 环境，而 retriver 使用 conda 来安装 `faiss-cpu`。
 
 ```bash 
 #  下载 Miniconda 安装脚本
@@ -112,9 +116,9 @@ conda install faiss-gpu=1.8.0 -c pytorch -c nvidia -y
 pip install uvicorn fastapi
 ```
 
+### 下载 indexing 和 corpus
 
-- 下载indexing和corpus
-  - 下载文件大约60~70GB（解压后共132G左右）
+本地检索文件体积较大，请准备充分的磁盘；下载文件大约 60~70GB，解压后在 132G 左右。
 
 ```bash 
 conda activate retriever
@@ -125,11 +129,11 @@ cat $save_path/part_* > $save_path/e5_Flat.index
 gzip -d $save_path/wiki-18.jsonl.gz
 ```
 
+### 启动本地 flat e5 检索服务器
 
-- 启动本地 flat e5 检索服务器
-  - 首次启动会下载模型，加载索引等。
-    - 除去下载过程，正常启动时间1~2分钟。
-  - 启动后每张gpu占用显存大约5\~7GB(可以在同一节点上进行RL训练）
+1. 首次启动会下载模型，加载索引等。
+2. 除去下载过程，正常启动时间 1~2 分钟。
+3. 启动后每张 GPU 占用显存大约 5~7 GB，节点上余下空间可供 multi-turn RL训练。
 
 ```bash 
 conda activate retriever
@@ -143,11 +147,9 @@ python examples/sglang_multiturn/searchR1_like/local_dense_retriever/retrieval_s
 ```
 
 
-### 在 8 x H20 上展开测试
+### 设置 WANDB_API_KEY
 
-**设置**`WANDB_API_KEY`
-
-如果不理解如何获取 API Key，请参考[此处](https://community.wandb.ai/t/where-can-i-find-the-api-token-for-my-project/7914 "此处")。
+如果不理解如何获取 API Key，请参考[此处](https://community.wandb.ai/t/where-can-i-find-the-api-token-for-my-project/7914)。
 
 ```bash 
 export WANDB_API_KEY={YOUR_WANDB_API_KEY}
@@ -159,16 +161,18 @@ function now() {
 ```
 
 
-**预处理数据集**（以下数据处理以及训练命令在venv的veRL-multiturn-rollout环境中进行
+### **预处理数据集**
+
+注意，以下数据处理以及训练命令需要在 veRL-multiturn-rollout 执行环境中进行。
 
 ```bash 
-# 若要定义自己的prompt，在examples/data_preprocess/prompt.yaml中修改
-# 默认存储在~/data/searchR1_processed_direct下
+# 若要定义自己的 prompt template，请在 examples/data_preprocess/prompt.yaml 中进行修改
+# 预处理好的数据默认存储在 ~/data/searchR1_processed_direct 下
 python3 examples/data_preprocess/preprocess_searchR1_dataset.py --config examples/data_preprocess/prompt.yaml
 ```
 
 
-**进行测试**
+### 在 8 X H20 上进行测试
 
 ```bash 
 # 确保 now() 函数已经定义
@@ -180,11 +184,35 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 nohup bash examples/sglang_multiturn/searchR1_like/run_qwen2.5-3b_instruct_search_multiturn.sh trainer.experiment_name=qwen2.5-3b-it_rm-searchR1-like-sgl-multiturn-$(now) > logs/searchR1-like$(now).log 2>&1 &s
 ```
+## 注意事项
 
+1. 总训练时长 27 小时左右；同时，validation 数据集非常大（51k），进行一次 validation 需 6000s 左右。
+2. 需要 debug 以快速开发时，可以删去 `ray_trainer.py` 中 `fit` 函数初始的 validation 过程，具体修改如下：
 
-### 自定义配置
+```python
 
-**基础配置**
+# verl/trainer/ppo/ray_trainer.py
+
+# perform validation before training
+# currently, we only support validation using the reward_function.
+# if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+#     val_metrics = self._validate()
+#     assert val_metrics, f"{val_metrics=}"
+#     pprint(f"Initial validation metrics: {val_metrics}")
+#     logger.log(data=val_metrics, step=self.global_steps)
+#     if self.config.trainer.get("val_only", False):
+#         return
+```
+
+3. 训练效果相比原论文在合理范围内存在波动，我们已于 search-R1 作者分析了相关原因：
+   
+- special token（如 `<tool_call>、<tool_response>`）等未完全对齐，有待后续开发
+- 我们修改了 search-R1 初始实现中的 EM reward 以及对 response 中 `\<answer>, \</answer>` 数量过多的惩罚
+- 少部分超参难以完全对齐，计算资源有限，有待社区贡献
+  
+4. 请控制训练时的 `micro_batch_size_per_gpu`，过大容易 OOM
+
+## 自定义搜索配置
 
 启用多轮推理需在配置中设置以下字段：
 
@@ -196,8 +224,7 @@ actor_rollout_ref:
       enable: True
 ```
 
-
-需要在examples/sglang\_multiturn/config/tool\_config/search\_tool\_config.yaml中指定retrieval\_service\_url，并支持设置并发
+需要在 `examples/sglang_multiturn/config/tool_config/search_tool_config.yaml` 中指定 `retrieval_service_url`，并设置是否支持并发：
 
 ```yaml 
 tools:
@@ -210,32 +237,9 @@ tools:
     }
 ```
 
-
-## 注：
-
-1. 总训练时长27小时左右，val一次6000s左右（val数据集太大：51k）。
-仅进行debug时，可以注释掉`ray_trainer.py`中`fit`函数开始的val过程，如下
-- verl/trainer/ppo/ray\_trainer.py
-
-```python 
-# perform validation before training
-# currently, we only support validation using the reward_function.
-# if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-#     val_metrics = self._validate()
-#     assert val_metrics, f"{val_metrics=}"
-#     pprint(f"Initial validation metrics: {val_metrics}")
-#     logger.log(data=val_metrics, step=self.global_steps)
-#     if self.config.trainer.get("val_only", False):
-#         return
-```
-2. 训练效果相比原论文略有降低，与searchR1作者对齐后，潜在原因分析：
-  - special token（如<tool_call>、<tool_response>）等未完全对齐
-  - 修改了原版searchR1的EM reward，加上对于模型response中\<answer>及\</answer>数量过多的惩罚
-  - 少部分未对齐超参影响等
-3. micro_batch_size_per_gpu开大易oom
-
 ## References
-感谢 [search-r1](https://github.com/xxx/search-r1) 项目的帮助和启发. 若您在我们的研究中有所借鉴，感谢同时引用原始项目：
+
+感谢 [search-R1](https://github.com/xxx/search-r1) 项目的帮助和启发. 若您在我们的研究中有所借鉴，感谢同时引用原始项目：
 
 ```bibtex
 @article{jin2025search,
