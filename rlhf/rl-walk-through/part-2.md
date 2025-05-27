@@ -66,20 +66,19 @@ V = R + \gamma P V
 $$
 
 $$
+\begin{aligned}
 \begin{bmatrix}
 V(s_1) \\
 V(s_2) \\
 \vdots \\
 V(s_n)
-\end{bmatrix}
-=
+\end{bmatrix} &= 
 \begin{bmatrix}
 r(s_1) \\
 r(s_2) \\
 \vdots \\
 r(s_n)
-\end{bmatrix}
-+ \gamma
+\end{bmatrix} + \gamma
 \begin{bmatrix}
 P(s_1|s_1) & P(s_2|s_1) & \cdots & P(s_n|s_1) \\
 P(s_1|s_2) & P(s_2|s_2) & \cdots & P(s_n|s_2) \\
@@ -92,6 +91,7 @@ V(s_2) \\
 \vdots \\
 V(s_n)
 \end{bmatrix}
+\end{aligned}
 $$
 
 我们可以直接将矩阵运算写成转移要求解，得到以下解桥解：
