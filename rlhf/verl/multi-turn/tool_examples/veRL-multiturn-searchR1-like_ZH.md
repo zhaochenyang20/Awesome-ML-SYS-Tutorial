@@ -1,8 +1,12 @@
-# 新特性：多轮RL训练中搜索工具调用
+# [Async SGLang Rollout] 新特性：多轮RL训练中搜索工具调用
+- 作为 veRL 的用户，我们希望在 Actor rollout 期间，让模型能够调用特定工具，并将其返回结果无缝地融合到训练流程中。
+- 我们为 veRL-sglang MultiTurnRL 新增了搜索工具调用功能，使模型能够在 Actor rollout 阶段发起检索请求，并直接利用检索结果进行训练。
+- 为社区提供了一种 searchR1-like 的全新复现方案。
 
-- 为 veRL-sglang MultiTurnRL 增加了搜索工具调用能力，使模型在 Actor rollout 阶段能够调用搜索接口，并将检索结果直接融入训练流程。
 - PR 链接：[volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
 - [训练曲线wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang "训练曲线wandb")
+- 感谢SGlang团队以及searchR1作者的高效支持！
+@BoWen @Chenyang Zhao @Xiang Long @yuhao @nan @ Jin Pan @Yuzhen Zhou @Shenggui Li
 
 # 如何使用
 
@@ -22,7 +26,6 @@ docker run \
     --name sglang_{your-name} \
     lmsysorg/sglang:dev \
     /bin/zsh
-
 ```
 
 
@@ -65,8 +68,6 @@ python3 -m uv pip install -r ./requirements_sglang.txt
 python3 -m uv pip install wheel
 python3 -m uv pip install packaging
 python3 -m uv pip install flash-attn --no-build-isolation --no-deps
-
-
 ```
 
 
@@ -75,7 +76,8 @@ python3 -m uv pip install flash-attn --no-build-isolation --no-deps
 - 这里选择searchR1示例中给出的local dense retriever，详细说明文档见[searchR1](https://raw.githubusercontent.com/PeterGriffinJin/Search-R1/refs/heads/main/docs/retriever.md "searchR1")
   - 需要GPU（运行后每张卡占用5\~7G显存），精度较高，速度快
   - 无GPU版本参考searchR1中的[详细文档](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md "详细文档")（简单测试代码可以使用，但检索精度差，也会导致训练效果差）
-- **注意**：**建议使用conda安装检索服务的环境**，venv中faiss-gpu安装未成功。
+- **注意**：**建议使用conda安装检索服务的环境**，venv中faiss-gpu安装未成功。（因为faiss有坑）
+  - 本配置中训练用的上面的venv环境。retriever使用的conda环境
 
 ```bash 
 #  下载 Miniconda 安装脚本
@@ -112,6 +114,7 @@ pip install uvicorn fastapi
 
 
 - 下载indexing和corpus
+  - 下载文件大约60~70GB（解压后共132G左右）
 
 ```bash 
 conda activate retriever
@@ -124,8 +127,9 @@ gzip -d $save_path/wiki-18.jsonl.gz
 
 
 - 启动本地 flat e5 检索服务器
-  - 首次启动会下载模型，加载索引等。网速正常两三分钟。
-  - 启动后每张gpu占用显存大约5\~7GB(可以在同一节点上训练）
+  - 首次启动会下载模型，加载索引等。
+    - 除去下载过程，正常启动时间1~2分钟。
+  - 启动后每张gpu占用显存大约5\~7GB(可以在同一节点上进行RL训练）
 
 ```bash 
 conda activate retriever
@@ -136,7 +140,6 @@ retriever_name=e5
 retriever_path=intfloat/e5-base-v2
 
 python examples/sglang_multiturn/searchR1_like/local_dense_retriever/retrieval_server.py --index_path $index_file --corpus_path $corpus_file --topk 3 --retriever_name $retriever_name --retriever_model $retriever_path --faiss_gpu
-
 ```
 
 
@@ -162,8 +165,6 @@ function now() {
 # 若要定义自己的prompt，在examples/data_preprocess/prompt.yaml中修改
 # 默认存储在~/data/searchR1_processed_direct下
 python3 examples/data_preprocess/preprocess_searchR1_dataset.py --config examples/data_preprocess/prompt.yaml
-
-
 ```
 
 
@@ -212,9 +213,9 @@ tools:
 
 ## 注：
 
-仅进行debug时，可以注释掉`ray_trainer.py`中`fit`函数开始的val过程（val数据集太大，一次验证需要6000s左右），如下
-
-verl/trainer/ppo/ray\_trainer.py
+1. 总训练时长27小时左右，val一次6000s左右（val数据集太大：51k）。
+仅进行debug时，可以注释掉`ray_trainer.py`中`fit`函数开始的val过程，如下
+- verl/trainer/ppo/ray\_trainer.py
 
 ```python 
 # perform validation before training
@@ -226,4 +227,21 @@ verl/trainer/ppo/ray\_trainer.py
 #     logger.log(data=val_metrics, step=self.global_steps)
 #     if self.config.trainer.get("val_only", False):
 #         return
+```
+2. 训练效果相比原论文略有降低，与searchR1作者对齐后，潜在原因分析：
+  - special token（如<tool_call>、<tool_response>）等未完全对齐
+  - 修改了原版searchR1的EM reward，加上对于模型response中\<answer>及\</answer>数量过多的惩罚
+  - 少部分未对齐超参影响等
+3. micro_batch_size_per_gpu开大易oom
+
+## References
+感谢 [search-r1](https://github.com/xxx/search-r1) 项目的帮助和启发. 若您在我们的研究中有所借鉴，感谢同时引用原始项目：
+
+```bibtex
+@article{jin2025search,
+  title={Search-r1: Training llms to reason and leverage search engines with reinforcement learning},
+  author={Jin, Bowen and Zeng, Hansi and Yue, Zhenrui and Yoon, Jinsung and Arik, Sercan and Wang, Dong and Zamani, Hamed and Han, Jiawei},
+  journal={arXiv preprint arXiv:2503.09516},
+  year={2025}
+}
 ```
