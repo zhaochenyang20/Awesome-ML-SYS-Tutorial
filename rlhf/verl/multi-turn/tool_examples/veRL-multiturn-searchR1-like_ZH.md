@@ -4,7 +4,7 @@
 
 - 先前 SGLang 社区已经实现了工具调用，支持在 Actor rollout 期间，让模型能够调用特定工具，并将返回结果无缝地融合到训练流程中。
 - 我们进一步为 Multi-Turn RL 新增了搜索工具调用功能，使模型能够在 Actor rollout 阶段发起检索请求，直接利用检索结果进行训练。**我们支持使用 local dense retriver 作为检索工具，也支持接入用户本地的检索引擎。**
-- 我们为为社区提供了一种 Search R1 工作的全新复现方案， 并已经集成到了 verl upstream，会持续维护并且更新我们的框架。此外，verl 在效率优化上的最新功能（诸如 FSDP2 和 Megatron）也能直接使用。这是我们相比其他不在主分支维护的工作的巨大优势。
+- 我们为社区提供了一种 Search R1 工作的全新复现方案， 并已经集成到了 verl upstream，会持续维护并且更新我们的框架。此外，verl 在效率优化上的最新功能（诸如 FSDP2 和 Megatron）也能直接使用。这是我们相比其他不在主分支维护的工作的巨大优势。
 
 [PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
 [训练曲线 wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
