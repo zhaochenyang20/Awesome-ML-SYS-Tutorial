@@ -166,9 +166,7 @@ function now() {
 注意，以下数据处理以及训练命令需要在 veRL-multiturn-rollout 执行环境中进行。
 
 ```bash 
-# 若要定义自己的 prompt template，请在 examples/data_preprocess/prompt.yaml 中进行修改
-# 预处理好的数据默认存储在 ~/data/searchR1_processed_direct 下
-python3 examples/data_preprocess/preprocess_searchR1_dataset.py --config examples/data_preprocess/prompt.yaml
+python3 examples/data_preprocess/preprocess_search_r1_dataset.py
 ```
 
 
@@ -182,27 +180,11 @@ mkdir -p logs
 # 设置 GPU 并运行，使用合适的日志路径
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-nohup bash examples/sglang_multiturn/search_r1_like/run_qwen2.5-3b_instruct_search_multiturn.sh trainer.experiment_name=qwen2.5-3b-it_rm-searchR1-like-sgl-multiturn-$(now) > logs/searchR1-like$(now).log 2>&1 &s
+nohup bash examples/sglang_multiturn/search_r1_like/run_qwen2.5-3b_instruct_search_multiturn.sh trainer.experiment_name=qwen2.5-3b-it_rm-searchR1-like-sgl-multiturn-$(now) > logs/searchR1-like$(now).log 2>&1 &
 ```
 ## 注意事项
 
-1. 总训练时长 27 小时左右；同时，validation 数据集非常大（51k），进行一次 validation 需 6000s 左右。
-2. 需要 debug 以快速开发时，可以删去 `ray_trainer.py` 中 `fit` 函数初始的 validation 过程，具体修改如下：
-
-```python
-
-# verl/trainer/ppo/ray_trainer.py
-
-# perform validation before training
-# currently, we only support validation using the reward_function.
-# if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-#     val_metrics = self._validate()
-#     assert val_metrics, f"{val_metrics=}"
-#     pprint(f"Initial validation metrics: {val_metrics}")
-#     logger.log(data=val_metrics, step=self.global_steps)
-#     if self.config.trainer.get("val_only", False):
-#         return
-```
+1. 总训练时长 27 小时左右；同时，validation 数据集非常大（51k），进行一次 validation 需 6000s 左右。（因此默认`val_before_train=False`）
 
 3. 训练效果相比原论文在合理范围内存在波动，我们已于 search-R1 作者分析了相关原因：
    
@@ -224,7 +206,7 @@ actor_rollout_ref:
       enable: True
 ```
 
-需要在 `examples/sglang_multiturn/config/tool_config/search_tool_config.yaml` 中指定 `retrieval_service_url`，并设置是否支持并发：
+需要在 `examples/sglang_multiturn/config/tool_config/search_tool_config.yaml` 中指定 `retrieval_service_url`，并设置并发：
 
 ```yaml 
 tools:
@@ -232,9 +214,31 @@ tools:
     config: {
       "retrieval_service_url": "http://127.0.0.1:8000/retrieve",
       "num_workers": 120,
-      "rate_limit": 150,
+      "rate_limit": 120,
       "default_timeout": 30
     }
+```
+retriever的入参出参如下，如果您的检索服务参数一致，仅修改`retrieval_service_url`即可，也支持在`search_r1_like_utils.py`中自定义。
+```python
+Input format:
+{
+  "queries": ["What is Python?", "Tell me about neural networks."],
+  "topk": 3,
+  "return_scores": true 
+}
+
+Output format (when return_scores=True，similarity scores are returned):
+{
+    "result": [
+        [   # Results for each query
+            {
+                {"document": doc, "score": score}
+            },
+            # ... more documents
+        ],
+        # ... results for other queries
+    ]
+}
 ```
 
 ## References

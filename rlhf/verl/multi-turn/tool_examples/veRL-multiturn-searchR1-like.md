@@ -1,30 +1,30 @@
-# [Feat]: Search Tool Invocation in Multi-Turn RL Training
+# Search-R1 & veRL-SGLang：Train LLMs with Multi-Turn RL to Reason and Call a Search Engine
 
-### What does this PR do?
-- As veRL users, we want the model to invoke designated tools during the Actor rollout phase and seamlessly integrate their outputs into the training pipeline.
+Hello everyone, the SGLang community, in collaboration with the Search R1 team, has quickly reproduced Search-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning based on the previously open-sourced [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md). We welcome you to get hands-on experience and develop together. Specifically, we have implemented the following features:
 
-- We have added **search-tool** invocation capability to **veRL-sglang MultiTurnRL**, enabling the model to issue retrieval requests during Actor rollout and directly leverage the returned results for training.
+* The SGLang community had already implemented tool calling, supporting the model to invoke specific tools during the Actor rollout and seamlessly integrate the returned results into the training process.
+* We have further added a search tool calling function to Multi-Turn RL, enabling the model to initiate retrieval requests during Actor rollout and directly use retrieval results for training. **We support using a local dense retriever as the retrieval tool, as well as integrating with your own local retrieval engine.**
+* We provide the community with a brand new reproduction solution for Search R1, already integrated into the verl upstream and continuously maintained and updated. In addition, the latest efficiency-optimization features of verl (such as FSDP2 and Megatron) can be used directly. This is a huge advantage compared to other efforts not maintained on the main branch.
 
-- providing the community with a reimplementation similar to searchR1.
+[PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
+[Training curves on wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
 
-- PR Link: [volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)  
+Thanks to the SGLang team and the authors of searchR1 for their efficient support!
 
-- Training curves on Wandb: [search_async_rl](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)  
-- Thanks to the SGlang team and the author of searchR1 for their efficient support!  
-@BoWen @Chenyang Zhao @Xiang Long @yuhao @nan @Jin Pan @Yuzhen Zhou @Shenggui Li
+Project Member: Bowen Jin, Ling Chang, Nan Jiang, Chenyang Zhao, Long Xiang
 
-# How to Use
+Thanks for your contributions!
 
-### Environment Setup
+## Quick Reproduction
 
-**Create a new Docker container**
+### Create a New Docker Container
 
-```docker
+```bash
 docker run \
     -it \
     --shm-size 32g \
     --gpus all \
-    -v /models/shared/.cache:/root/.cache \
+    -v {Huggingface-Cache-Path}:/root/.cache \
     --ipc=host \
     --network=host \
     --privileged \
@@ -39,13 +39,13 @@ If you need to restart after exiting the container:
 docker start -i sglang_{your-name}
 ```
 
-**Update Python and use a virtual environment**
+### Update Python and Configure the Virtual Environment using uv
 
 ```bash
 apt update
 apt install -y python3.10 python3.10-venv
 
-# Create the virtual environment
+# Create a virtual environment
 python3 -m venv ~/.python/veRL-multiturn-rollout
 
 # Activate the virtual environment
@@ -55,7 +55,7 @@ source ~/.python/veRL-multiturn-rollout/bin/activate
 python3 -m pip install uv
 ```
 
-**Install veRL upstream**
+### Install veRL Upstream
 
 ```bash
 cd ~
@@ -72,14 +72,14 @@ python3 -m uv pip install packaging
 python3 -m uv pip install flash-attn --no-build-isolation --no-deps
 ```
 
-**Set up your own local retrieval (skip if using your own service)**
+### Set Up a Local Retrieval Engine
 
-* Here we choose the local dense retriever provided in the searchR1 example; see [searchR1](https://raw.githubusercontent.com/PeterGriffinJin/Search-R1/refs/heads/main/docs/retriever.md) for detailed documentation.
+If you are using your own local retrieval service, you can skip this step. We chose the local dense retriever provided in the search-R1 example; detailed instructions are in the [searchR1 docs](https://raw.githubusercontent.com/PeterGriffinJin/Search-R1/refs/heads/main/docs/retriever.md). In brief:
 
-  * Requires GPU (approximately 5–7 GB GPU memory per card during operation), high accuracy, fast.
-  * For a GPU-free version, refer to the [detailed documentation](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md) in searchR1 (simple test code can be used, but lower retrieval accuracy may degrade training performance).
-* **Note**: **It is recommended to use conda to install the environment for the retrieval service**, as faiss-gpu installation often fails in venv (due to issues with faiss).
-* In this configuration, the above venv environment is used for training; the retriever uses the conda environment.
+* The GPU version offers higher accuracy and speed; each GPU uses about 5–7 GB of memory.
+* The CPU version can be used for simple testing but has lower retrieval precision, which will degrade training performance. See the [retriever documentation](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md) in search-R1 for details.
+
+**Note**: To start both the training process and the local retrieval service, we launch two separate Python environments. The training uses uv in the veRL-multiturn-rollout environment, while the retriever uses conda to install `faiss-cpu`.
 
 ```bash
 # Download the Miniconda installer script
@@ -91,10 +91,10 @@ bash ~/miniconda.sh -b -p $HOME/miniconda3
 # Activate conda (only in the current shell)
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
-# (Optional) Add conda to your default shell startup script for automatic availability
+# (Optional) Add conda to your default shell startup
 conda init
 
-# Reload shell configuration
+# Reload shell config
 source ~/.bashrc
 
 # Create and activate the retriever environment with Python 3.10
@@ -114,9 +114,9 @@ conda install faiss-gpu=1.8.0 -c pytorch -c nvidia -y
 pip install uvicorn fastapi
 ```
 
-* Download indexing and corpus
+### Download the Indexing and Corpus
 
-  * The download is about 60–70 GB (approximately 132 GB when uncompressed)
+The local retrieval files are large—prepare sufficient disk space. Downloading is about 60–70 GB, and uncompressed takes about 132 GB:
 
 ```bash
 conda activate retriever
@@ -127,10 +127,11 @@ cat $save_path/part_* > $save_path/e5_Flat.index
 gzip -d $save_path/wiki-18.jsonl.gz
 ```
 
-* **Start the local flat e5 retrieval server**
+### Start the Local flat e5 Retrieval Server
 
-  * The first startup will download the model and load the index. Excluding the download, normal startup time is 1–2 minutes.
-  * After startup, each GPU uses about 5–7 GB of memory (RL training can be performed on the same node).
+1. The first startup will download models and load the index.
+2. Apart from the download, startup takes about 1–2 minutes.
+3. After startup, each GPU uses about 5–7 GB of memory, leaving the rest for multi-turn RL training.
 
 ```bash
 conda activate retriever
@@ -149,11 +150,9 @@ python examples/sglang_multiturn/search_r1_like/local_dense_retriever/retrieval_
   --faiss_gpu
 ```
 
-### Testing on 8 × H20
+### Set Up WANDB\_API\_KEY
 
-**Set** `WANDB_API_KEY`
-
-If you do not know how to get an API key, refer to [here](https://community.wandb.ai/t/where-can-i-find-the-api-token-for-my-project/7914).
+If you don’t know how to get an API key, please refer to [this link](https://community.wandb.ai/t/where-can-i-find-the-api-token-for-my-project/7914).
 
 ```bash
 export WANDB_API_KEY={YOUR_WANDB_API_KEY}
@@ -164,22 +163,22 @@ function now() {
 }
 ```
 
-**Preprocess the dataset** (the following data processing and training commands are executed in the veRL-multiturn-rollout venv environment)
+### **Preprocess the Dataset**
+
+> **Note:** The following data processing and training commands must be run in the veRL-multiturn-rollout environment.
 
 ```bash
-# To define your own prompt, modify examples/data_preprocess/prompt.yaml
-# Default storage directory is ~/data/searchR1_processed_direct
-python3 examples/data_preprocess/preprocess_searchR1_dataset.py --config examples/data_preprocess/prompt.yaml
+python3 examples/data_preprocess/preprocess_search_r1_dataset.py
 ```
 
-**Run tests**
+### Testing on 8 x H20
 
 ```bash
-# Ensure now() is defined
-# Create log directory
+# Ensure the now() function is defined
+# Create a logs directory
 mkdir -p logs
 
-# Set GPUs and run, using an appropriate log path
+# Set GPUs and run with a suitable log path
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 nohup bash examples/sglang_multiturn/search_r1_like/run_qwen2.5-3b_instruct_search_multiturn.sh \
@@ -187,11 +186,21 @@ nohup bash examples/sglang_multiturn/search_r1_like/run_qwen2.5-3b_instruct_sear
   > logs/searchR1-like$(now).log 2>&1 &
 ```
 
-### Custom Configuration
+## Notes
 
-**Basic Configuration**
+1. The total training time is about 27 hours; meanwhile, the validation dataset is very large (51 k), and each validation takes about 6000 s. (Therefore, `val_before_train=False` by default)
 
-Enable multi-turn inference by setting the following fields in your config:
+2. Training performance may fluctuate within a reasonable range compared to the original paper. We analyzed the reasons with the search-R1 authors:
+
+   * Special tokens (such as `<tool_call>`, `<tool_response>`) are not fully aligned and await future development
+   * We modified the EM reward in the initial search-R1 implementation and added penalties for overly many `\<answer>\`, `\</answer>\` in the response
+   * A few hyperparameters are difficult to fully align; limited computing resources; awaiting community contributions
+
+3. Please control the `micro_batch_size_per_gpu` during training; too large may cause OOM.
+
+## Custom Search Configuration
+
+To enable multi-turn reasoning, set the following fields in your config:
 
 ```yaml
 actor_rollout_ref:
@@ -201,7 +210,7 @@ actor_rollout_ref:
       enable: True
 ```
 
-In `examples/sglang_multiturn/config/tool_config/search_tool_config.yaml`, specify `retrieval_service_url` and concurrency settings:
+You must specify `retrieval_service_url` in `examples/sglang_multiturn/config/tool_config/search_tool_config.yaml`, and configure concurrency:
 
 ```yaml
 tools:
@@ -209,40 +218,38 @@ tools:
     config: {
       "retrieval_service_url": "http://127.0.0.1:8000/retrieve",
       "num_workers": 120,
-      "rate_limit": 150,
+      "rate_limit": 120,
       "default_timeout": 30
     }
 ```
 
-## Notes:
+The retriever input/output formats are as follows. If your service parameters match, only modify `retrieval_service_url`. You can also customize in `search_r1_like_utils.py`.
 
-1. Total training time is about 27 hours, and each validation takes about 6000 s (validation dataset is too large: 51 k). 
-For debugging only, you can comment out the val process at the beginning of the `fit` function in `ray_trainer.py`, as follows:
-- verl/trainer/ppo/ray\_trainer.py
+```python
+Input format:
+{
+  "queries": ["What is Python?", "Tell me about neural networks."],
+  "topk": 3,
+  "return_scores": true
+}
 
-
-   ```python
-   # perform validation before training
-   # currently, we only support validation using the reward_function.
-   # if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-   #     val_metrics = self._validate()
-   #     assert val_metrics, f"{val_metrics=}"
-   #     pprint(f"Initial validation metrics: {val_metrics}")
-   #     logger.log(data=val_metrics, step=self.global_steps)
-   #     if self.config.trainer.get("val_only", False):
-   #         return
-   ```
-
-2. The training performance is slightly lower compared to the original paper. After aligning with the searchR1 author, potential reasons are:
-
-   * Special tokens (e.g., `<tool_call>`, `<tool_response>`) are not fully aligned.
-   * Modified the original searchR1 EM reward, adding penalties for excessive occurrences of `<answer>` and `</answer>` in the model responses.
-   * Minor misaligned hyperparameters, etc.
-
-3. Increasing `micro_batch_size_per_gpu` too much can easily cause OOM.
+Output format (when return_scores=True, similarity scores are returned):
+{
+    "result": [
+        [   # Results for each query
+            {
+                "document": doc, "score": score
+            },
+            # ... more documents
+        ],
+        # ... results for other queries
+    ]
+}
+```
 
 ## References
-We would like to thank the [search-r1](https://github.com/xxx/search-r1) project for its valuable support and inspiration. If you find our work helpful, we kindly ask that you also cite the original project:
+
+Thanks to [search-R1](https://github.com/xxx/search-r1) for its help and inspiration. If you use our work in your research, please also cite the original project:
 
 ```bibtex
 @article{jin2025search,
