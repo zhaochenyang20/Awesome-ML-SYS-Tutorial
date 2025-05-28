@@ -11,7 +11,14 @@ Hello everyone, the SGLang community, in collaboration with the Search R1 team, 
 
 Thanks to the SGLang team and the authors of searchR1 for their efficient support!
 
-Project Member: Bowen Jin, Ling Chang, Nan Jiang, Chenyang Zhao, Long Xiang
+Project Member:
+
+- Ling Chang (Author)
+- Bowen Jin (Advisor on Training)
+- Xiaocheng Wang (Advisor on Implementation)
+- Nan Jiang (Reproduce)
+- Chenyang Zhao (PM)
+- Xiang Long (Reviewer, PM)
 
 Thanks for your contributions!
 
@@ -214,13 +221,12 @@ You must specify `retrieval_service_url` in `examples/sglang_multiturn/config/to
 
 ```yaml
 tools:
-  - class_name: "verl.tools.search_tool.SearchTool"
-    config: {
-      "retrieval_service_url": "http://127.0.0.1:8000/retrieve",
-      "num_workers": 120,
-      "rate_limit": 120,
-      "default_timeout": 30
-    }
+  - class_name: verl.tools.search_tool.SearchTool
+    config:
+      retrieval_service_url: http://127.0.0.1:8000/retrieve
+      num_workers: 120
+      rate_limit: 120
+      timeout: 30
 ```
 
 The retriever input/output formats are as follows. If your service parameters match, only modify `retrieval_service_url`. You can also customize in `search_r1_like_utils.py`.

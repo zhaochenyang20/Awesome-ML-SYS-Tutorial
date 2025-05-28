@@ -11,7 +11,14 @@
 
 感谢 SGLang 团队以及 searchR1 作者的高效支持！
 
-Project Member: Bowen Jin, Ling Chang, Nan Jiang, Chenyang Zhao, Long Xiang
+Project Member:
+
+- Ling Chang (Author)
+- Bowen Jin (Advisor on Training)
+- Xiaocheng Wang (Advisor on Implementation)
+- Nan Jiang (Reproduce)
+- Chenyang Zhao (PM)
+- Xiang Long (Reviewer, PM)
 
 感谢贡献！
 
@@ -210,13 +217,12 @@ actor_rollout_ref:
 
 ```yaml 
 tools:
-  - class_name: "verl.tools.search_tool.SearchTool"
-    config: {
-      "retrieval_service_url": "http://127.0.0.1:8000/retrieve",
-      "num_workers": 120,
-      "rate_limit": 120,
-      "default_timeout": 30
-    }
+  - class_name: verl.tools.search_tool.SearchTool
+    config:
+      retrieval_service_url: http://127.0.0.1:8000/retrieve
+      num_workers: 120
+      rate_limit: 120
+      timeout: 30
 ```
 retriever的入参出参如下，如果您的检索服务参数一致，仅修改`retrieval_service_url`即可，也支持在`search_r1_like_utils.py`中自定义。
 ```python
