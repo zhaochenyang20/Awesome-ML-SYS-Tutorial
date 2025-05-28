@@ -7,6 +7,7 @@
 - 我们为社区提供了一种 Search R1 工作的全新复现方案， 并已经集成到了 verl upstream，会持续维护并且更新我们的框架。此外，verl 在效率优化上的最新功能（诸如 FSDP2 和 Megatron）也能直接使用。这是我们相比其他不在主分支维护的工作的巨大优势。
 
 [PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
+
 [训练曲线 wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
 
 感谢 SGLang 团队以及 searchR1 作者的高效支持！
