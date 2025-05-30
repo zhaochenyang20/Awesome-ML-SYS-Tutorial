@@ -161,15 +161,17 @@ $$
 基于此，我们继续推导贝尔曼期望方程（Bellman Expectation Equation），看着很复杂，其实就是基于基础定义相互展开：
 
 $$
-\begin{aligned}
-V^{\pi}(s) &= \mathbb{E}_{\pi}[R_t + \gamma V^{\pi}(S_{t+1})|S_t = s] \\
-&= \sum_{a \in A} \pi(a|s) \left( r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a)V^{\pi}(s') \right)
-\end{aligned}
+V^{\pi}(s) = \mathbb{E}_{\pi}[R_t + \gamma V^{\pi}(S_{t+1})|S_t = s]
 $$
 
 $$
-\begin{aligned}
-Q^{\pi}(s,a) &= \mathbb{E}_{\pi}[R_t + \gamma Q^{\pi}(S_{t+1}, A_{t+1})|S_t = s, A_t = a] \\
-&= r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a) \sum_{a' \in A} \pi(a'|s') Q^{\pi}(s', a')
-\end{aligned}
+V^{\pi}(s) = \sum_{a \in A} \pi(a|s) \left( r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a)V^{\pi}(s') \right)
+$$
+
+$$
+Q^{\pi}(s,a) = \mathbb{E}_{\pi}[R_t + \gamma Q^{\pi}(S_{t+1}, A_{t+1})|S_t = s, A_t = a]
+$$
+
+$$
+Q^{\pi}(s,a) = r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a) \sum_{a' \in A} \pi(a'|s') Q^{\pi}(s', a')
 $$
