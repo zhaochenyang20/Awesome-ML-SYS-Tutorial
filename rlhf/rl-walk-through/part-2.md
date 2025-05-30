@@ -161,7 +161,7 @@ $$
 基于此，我们继续推导贝尔曼期望方程（Bellman Expectation Equation），看着很复杂，其实就是基于基础定义相互展开：
 
 $$
-V^{\pi}(s) = \mathbb{E}_{\pi}[R_t + \gamma V^{\pi}(S_{t+1})|S_t = s]
+V^{\pi}(s) = E_{\pi}[R_t + \gamma V^{\pi}(S_{t+1})|S_t = s]
 $$
 
 $$
@@ -169,7 +169,7 @@ V^{\pi}(s) = \sum_{a \in A} \pi(a|s) \left( r(s,a) + \gamma \sum_{s' \in S} p(s'
 $$
 
 $$
-Q^{\pi}(s,a) = \mathbb{E}_{\pi}[R_t + \gamma Q^{\pi}(S_{t+1}, A_{t+1})|S_t = s, A_t = a]
+Q^{\pi}(s,a) = E_{\pi}[R_t + \gamma Q^{\pi}(S_{t+1}, A_{t+1})|S_t = s, A_t = a]
 $$
 
 $$
