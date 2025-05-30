@@ -94,7 +94,7 @@ V(s_n)
 \end{aligned}
 $$
 
-我们可以直接将矩阵运算写成转移要求解，得到以下解桥解：
+我们可以直接将矩阵运算写成转移要求解，得到以下解析解：
 
 $$
 V = R + \gamma P V
@@ -161,11 +161,15 @@ $$
 基于此，我们继续推导贝尔曼期望方程（Bellman Expectation Equation），看着很复杂，其实就是基于基础定义相互展开：
 
 $$
-V^{\pi}(s) = \mathbb{E}_{\pi}[R_t + \gamma V^{\pi}(S_{t+1})|S_t = s] \\
-= \sum_{a \in A} \pi(a|s) \left( r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a)V^{\pi}(s') \right)
+\begin{aligned}
+V^{\pi}(s) &= \mathbb{E}_{\pi}[R_t + \gamma V^{\pi}(S_{t+1})|S_t = s] \\
+&= \sum_{a \in A} \pi(a|s) \left( r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a)V^{\pi}(s') \right)
+\end{aligned}
 $$
 
 $$
-Q^{\pi}(s,a) = \mathbb{E}_{\pi}[R_t + \gamma Q^{\pi}(S_{t+1}, A_{t+1})|S_t = s, A_t = a] \\
-= r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a) \sum_{a' \in A} \pi(a'|s') Q^{\pi}(s', a')
+\begin{aligned}
+Q^{\pi}(s,a) &= \mathbb{E}_{\pi}[R_t + \gamma Q^{\pi}(S_{t+1}, A_{t+1})|S_t = s, A_t = a] \\
+&= r(s,a) + \gamma \sum_{s' \in S} p(s'|s,a) \sum_{a' \in A} \pi(a'|s') Q^{\pi}(s', a')
+\end{aligned}
 $$
