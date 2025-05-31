@@ -17,7 +17,8 @@ $$
 
 ## RLHF System 开发笔记
 
-- [SGLang, verl, OpenBMB 与清华大学团队联合开源：在主流 RLHF 框架上首次支持多轮交互与工具调用](./rlhf/verl/multi-turn/verl-multiturn-rollout-Release_ZH.md)：在主流 RLHF 框架上首次支持多轮交互与工具调用，同样刊载于[知乎：SGLang, verl, OpenBMB 与清华大学团队联合开源：在主流 RLHF 框架上首次支持多轮交互与工具调用](https://zhuanlan.zhihu.com/p/1906007821889283171)。
+- [Search-R1 & veRL-SGLang: Train LLMs with Multi-Turn RL to Reason and Call a Search Engine](rlhf/verl/multi-turn//tool_examples/verl-multiturn-searchR1-like_ZH.md)整合 Search-R1 framework 到 verl-sglang 生态，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1912156329751081620)。
+- [SGLang, verl, OpenBMB 与清华大学团队联合开源：在主流 RLHF 框架上首次支持多轮交互与工具调用](rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md)：在主流 RLHF 框架上首次支持多轮交互与工具调用，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1906007821889283171)。
 - [Kimi K1.5: Long Context RL 的成功实践](./rlhf/partial-rollout/readme.md)：Long Context RLHF 的工业级实现，一直很喜欢 kimi 团队的技术报告，同样刊载于 [Kimi K1.5: Long Context RL 的成功实践](https://zhuanlan.zhihu.com/p/1894282607325344277)。
 - [SGLang-veRL Server：从 Engine 到 Server，我们需要更灵活的 RLHF rollout 接口](rlhf/verl/server-based/veRL-server-based-rollout.md)：为了实现更复杂的 RLHF 系统，我们逐步将 veRL 当中的 rollout engine 替代为 rollout server，同样刊载于[知乎：SGLang-veRL Server](https://zhuanlan.zhihu.com/p/1890631652486665464)。
 - [Rule-based Reward](https://zhuanlan.zhihu.com/p/13211508979)：这篇只有知乎，浅浅写了写，老实说原文写的我并不太喜欢，但是 determined reward 确实 charming。
