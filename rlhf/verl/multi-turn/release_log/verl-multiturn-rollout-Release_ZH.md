@@ -170,7 +170,7 @@ actor_rollout_ref:
 - `tool_config_path`：指向定义所有工具 schema 和关联 Python 类的 YAML 文件路径。
 - `format`：工具交互消息的格式（目前仅支持 `chatml`）。
 
-![Tool_Lifecycle_and_Request_State_Transaction](./Tool_Lifecycle_and_Request_State_Transaction.png)
+![Tool_Lifecycle_and_Request_State_Transaction](../imgs/Tool_Lifecycle_and_Request_State_Transaction.png)
 
 ### 示例：GSM8K 工具配置
 
@@ -203,7 +203,7 @@ actor_rollout_ref:
 
 通过这种插件式的架构，工具可以在不同的任务和 Agent 中灵活复用，而无需更改训练的核心代码。
 
-![Multi-Turn_Rollout_Workflow](./Multi-Turn_Rollout_Workflow.png)
+![Multi-Turn_Rollout_Workflow](../imgs/Multi-Turn_Rollout_Workflow.png)
 
 ## 整体技术方案
 
