@@ -86,7 +86,7 @@ If you are using your own local retrieval service, you can skip this step. We ch
 * The GPU version offers higher accuracy and speed; each GPU uses about 5–7 GB of memory.
 * The CPU version can be used for simple testing but has lower retrieval precision, which will degrade training performance. See the [retriever documentation](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md) in search-R1 for details.
 
-**Note**: To start both the training process and the local retrieval service, we launch two separate Python environments. The training uses uv in the veRL-multiturn-rollout environment, while the retriever uses conda to install `faiss-cpu`.
+**Note**: To start both the training process and the local retrieval service, we launch two separate Python environments. The training uses uv in the veRL-multiturn-rollout environment, while the retriever uses conda to install `faiss-gpu`.
 
 ```bash
 # Download the Miniconda installer script
