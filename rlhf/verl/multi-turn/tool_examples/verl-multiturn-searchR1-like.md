@@ -7,6 +7,7 @@ Hello everyone, the SGLang community, in collaboration with the Search R1 team, 
 * We provide the community with a brand new reproduction solution for Search R1, already integrated into the verl upstream and continuously maintained and updated. In addition, the latest efficiency-optimization features of verl (such as FSDP2 and Megatron) can be used directly. This is a huge advantage compared to other efforts not maintained on the main branch.
 
 [PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
+
 [Training curves on wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
 
 Thanks to the SGLang team and the authors of searchR1 for their efficient support!
