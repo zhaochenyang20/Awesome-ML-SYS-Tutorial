@@ -89,7 +89,7 @@ python3 -m uv pip install flash-attn --no-build-isolation --no-deps
 - 需要 GPU 的版本，精度较高，速度快；运行后每张卡占用 5~7G 显存。
 - 无 GPU 的版本参考 search-R1 中的[ retriever 文档](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md)，可以用于简单测试，但检索精度差，会导致训练效果差
 
-**注意**：为了启动训练进程和本地检索服务，我们启动了两个 Python 执行环境。其中训练使用 uv 搭建上述 veRL-multiturn-rollout 环境，而 retriver 使用 conda 来安装 `faiss-cpu`。
+**注意**：为了启动训练进程和本地检索服务，我们启动了两个 Python 执行环境。其中训练使用 uv 搭建上述 veRL-multiturn-rollout 环境，而 retriver 使用 conda 来安装 `faiss-gpu`。
 
 ```bash 
 #  下载 Miniconda 安装脚本

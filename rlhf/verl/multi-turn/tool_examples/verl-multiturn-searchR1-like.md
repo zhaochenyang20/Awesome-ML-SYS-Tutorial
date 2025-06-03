@@ -1,12 +1,13 @@
 # Search-R1 & veRL-SGLang：Train LLMs with Multi-Turn RL to Reason and Call a Search Engine
 
-Hello everyone, the SGLang community, in collaboration with the Search R1 team, has quickly reproduced Search-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning based on the previously open-sourced [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md). We welcome you to get hands-on experience and develop together. Specifically, we have implemented the following features:
+Hello everyone, the SGLang community, in collaboration with the Search R1 team, has quickly reproduced Search-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning based on the previously open-sourced [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release.md). We welcome you to get hands-on experience and develop together. Specifically, we have implemented the following features:
 
 * The SGLang community had already implemented tool calling, supporting the model to invoke specific tools during the Actor rollout and seamlessly integrate the returned results into the training process.
 * We have further added a search tool calling function to Multi-Turn RL, enabling the model to initiate retrieval requests during Actor rollout and directly use retrieval results for training. **We support using a local dense retriever as the retrieval tool, as well as integrating with your own local retrieval engine.**
 * We provide the community with a brand new reproduction solution for Search R1, already integrated into the verl upstream and continuously maintained and updated. In addition, the latest efficiency-optimization features of verl (such as FSDP2 and Megatron) can be used directly. This is a huge advantage compared to other efforts not maintained on the main branch.
 
 [PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
+
 [Training curves on wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
 
 Thanks to the SGLang team and the authors of searchR1 for their efficient support!
@@ -86,7 +87,7 @@ If you are using your own local retrieval service, you can skip this step. We ch
 * The GPU version offers higher accuracy and speed; each GPU uses about 5–7 GB of memory.
 * The CPU version can be used for simple testing but has lower retrieval precision, which will degrade training performance. See the [retriever documentation](https://github.com/PeterGriffinJin/Search-R1/blob/main/docs/retriever.md) in search-R1 for details.
 
-**Note**: To start both the training process and the local retrieval service, we launch two separate Python environments. The training uses uv in the veRL-multiturn-rollout environment, while the retriever uses conda to install `faiss-cpu`.
+**Note**: To start both the training process and the local retrieval service, we launch two separate Python environments. The training uses uv in the veRL-multiturn-rollout environment, while the retriever uses conda to install `faiss-gpu`.
 
 ```bash
 # Download the Miniconda installer script
