@@ -170,13 +170,103 @@ docker run -it --name my_container_new ubuntu bash
 
 ## 镜像构建
 
-TODO
+之前的操作，我们都是在 "拉取" 别人已经做好的镜像。但在实际工程领域中，我们经常需要定制自己的环境：可能要安装特定版本的 CUDA、PyTorch，或者加入一些自己写的脚本、代码，配置环境变量等。避免每次进容器都重新配置一遍，浪费生命。这时候，我们就需要自己**构建**镜像了。
+
+想象一下，你要给新来的实习生配一台电脑，你会怎么做？你可能会列一个清单：
+
+1. 装个 Ubuntu 20.04 系统
+2. 装 tmux, git, python 3.10, cuda 12.4.1 等软件
+3. 把项目代码拷到 `/workspace`
+4. 设置一些必要的环境变量
+
+Docker 构建镜像的过程和这个非常类似，只不过这份 "装机单/菜谱" 就是 `Dockerfile`。`Dockerfile` 是一个文本文件，里面包含了一条条的指令，每一条指令构建一层镜像。Docker 会严格按照这些指令来一步步 "装配" 出我们想要的镜像。
+
+### 常见语句
+
+`Dockerfile` 的常见语句：
+
+1. `FROM <base-image>:<tag>`：指定基础镜像
+   - 告诉 Docker 要基于哪个现有的镜像开始构建
+2. `WORKDIR /path/to/workdir`：设置工作目录
+   - 后续指令都会在这个目录下执行。
+   - 如果目录不存在，`WORKDIR` 会自动创建它。
+3. `RUN <command>`：在镜像内部执行命令
+   - 每条 `RUN` 指令都会在当前镜像的基础上创建一个新的层。为了减少镜像层数和体积，加快构建速度，通常把多个 `apt-get install` 或者 `pip install` 命令用 `&&` 连在一条 `RUN` 指令里。
+4. `COPY <host-path> <container-path>`：将宿主机的文件或目录复制到镜像内的指定路径
+5. `CMD ["command", "param1", "param2"]`：指定容器启动时默认执行的命令。
+   - 还可写成 `CMD command param1 param2` (shell form)
+   - 一个 Dockerfile 里只能有一条 `CMD` 指令，如果有多条，只有最后一条生效。如果在 `docker run` 时指定了命令，那么 `CMD` 的命令会被覆盖。
+6. `ENV <key>=<value>`：设置容器**运行**时的环境变量
+   - 镜像构建时不生效
+7. `ARG <key>=<value>`：设置镜像**构建**时的临时变量
+   - 容器运行时不生效
+
+### 示例代码
+
+```dockerfile
+# 导入 Nvidia 官方镜像
+# 该镜像把 CUDA 12.1.1 和 cuDNN 8.9.0 都装好了，不需要再处理版本兼容问题
+FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+
+# 设置工作目录为 /sgl-workspace
+WORKDIR /sgl-workspace
+
+# 设置环境变量，如 huggingface token 用于下载模型
+ENV HF_TOKEN=hf_xxxyyyzzz
+
+# 安装开发工具
+RUN apt-get update && apt-get install -y \
+    vim \
+    tmux \
+    wget \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 将当前目录下的 app.py 文件复制到容器内的工作目录
+COPY app.py /sgl-workspace/app.py
+
+# 默认执行命令，启动 Python 脚本
+CMD ["python3", "app.py"]
+```
+
+### COMMAND
+
+在命令行构建 docker 的指令：
+
+```
+docker build -t <image-name>:<tag> -f <docker-file> <path>
+```
+
+1. `-t <image-name>:<tag>`：镜像的名字和标签
+2. `-f <docker-file>`：`Dockerfile` 的路径
+3. `<path>`：表示 `Dockerfile` 的上下文路径 (context path)。通常设置成 `.`
 
 ## 镜像上传
 
-TODO
+镜像构建好以后，我们可以把本地镜像 `docker push`到远程镜像仓库，如 Docker Hub 等。这样就可以分享给别人了。
 
+### 给镜像打标签
 
+对于 Docker Hub，镜像名通常是 `<dockerhub-username>/<repo-name>:<tag>`。 如果你在 `docker build` 时已经用了这个格式，那这步可以跳过。如果没用，或者你想推送到不同的仓库/用户下，就需要重新打标签。
 
+```
+docker tag <source-image>:<tag> <target-image>:<tag>
+```
 
+### 登陆到镜像仓库
+
+在 docker hub 注册账号后，使用 docker login 在本地登录
+
+```
+docker login
+```
+
+### 推送镜像
+
+确保 `<image-name>:<tag>` 是你上一步打好标签的、符合仓库规范的完整名称。然后 push 即可
+
+```
+docker push <image-name>:<tag>
+```
 
