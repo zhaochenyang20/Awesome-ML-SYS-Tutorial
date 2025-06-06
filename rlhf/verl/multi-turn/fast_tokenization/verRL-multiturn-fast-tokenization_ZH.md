@@ -15,6 +15,8 @@ git checkout tokenization
 
 conda create -n verl python==3.10
 conda activate verl
+# 官方脚本没有使用 uv。
+# 为了加快安装速度，可以自行在其中的 pip 命令前加上 uv 前缀。
 bash scripts/install_vllm_sglang_mcore.sh
 pip install --no-deps -e .
 ```
@@ -26,9 +28,9 @@ cd examples/data_preprocess
 python3 gsm8k_multiturn_w_tool.py
 ```
 
-这将下载并预处理 GSM8K 数据集到 ~/data/gsm8k/。
+这将下载并预处理 GSM8K 数据集到 `~/data/gsm8k/`。
 
-### 步骤 2：使用默认快速分词运行多轮推理
+### 步骤 2：验证 Qwen2.5-3B 的多轮推理
 
 如果你有 8 块 GPU
 使用标准的 8-GPU 脚本：
@@ -44,15 +46,10 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn_4xgpu.sh 
 ```
 
-### 步骤 3：使用传统全分词和 Sanity Check 模式运行多轮推理
+### 步骤 3：验证 Qwen3-4B 的多轮推理
 
-本分支还实现了另外两种分词模式：
-1. 传统全分词模式，每一轮都对整个对话进行分词
-2. 用于调试的 sanity check 模式，同时运行快速和全分词，并断言它们结果一致。
+该脚本使用 8 张 GPU：
 
 ```bash
-# 运行全分词模式
-bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh actor_rollout_ref.rollout.multi_turn.tokenization_mode=full
-# 运行 sanity check 模式
-bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh actor_rollout_ref.rollout.multi_turn.tokenization_mode=sanity_check
+bash examples/sglang_multiturn/run_qwen3-4b_gsm8k_multiturn.sh
 ```
