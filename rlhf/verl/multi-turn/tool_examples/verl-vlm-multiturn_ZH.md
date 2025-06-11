@@ -1,14 +1,14 @@
 # veRL-SGLang：Train LLMs with Multi-Turn RL to Reason and Call a Search Engine
 
-大家好，SGLang 社区 和 Amazon SF AGI Lab 成员在先前开源的 [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md) 加入了多模态支持，欢迎大家上手体验，共同开发。具体来说，我们实现了如下的功能：
+大家好，SGLang 社区, Amazon SF AGI Lab 和 PolyU 成员在先前开源的 [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md) 加入了多模态支持，欢迎大家上手体验，共同开发。具体来说，我们实现了如下的功能：
 
 - 先前 SGLang 社区已经实现了工具调用，支持在 Actor rollout 期间，让模型能够调用特定工具，并将返回结果无缝地融合到训练流程中。
 - 现在我们进一步为 Multi-Turn RL 新增了多模态输入，使模型能够在 Actor rollout 阶段处理多模态数据。
 - 我们正在加入对于工具生成图像的支持，请尽情期待
 
-[PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/1682)
+[PR: volcengine/verl#1682](https://github.com/volcengine/verl/pull/)
 
-[训练曲线 wandb](https://wandb.ai/lingchang-ustc/search_async_rl/workspace?nw=nwuserlingchang)
+[训练曲线 wandb](tbd)
 
 感谢 SGLang 团队以及 searchR1 作者的高效支持！
 
