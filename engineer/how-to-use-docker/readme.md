@@ -2,10 +2,11 @@
 
 ## Docker 的用途
 
-我们经常诟病深度学习代码的不可复现性，因此，我认为学术圈的人要是真的在乎自己工作的 real impact，而不是留下一堆没法复现的代码让几年后的 reviewer 拿出来恶心人，都应该学会如何用 docker。从我上述讨论中，想必大家已经感受到了，docker 是一种将开发环境连同代码复制并分发的强大软件。在我的日常工作中，docker 起到了如下作用：
+我们经常诟病深度学习代码的不可复现性，某次在小红书见人锐评——学术圈的哥们要是真在乎自己工作的 real impact，都应该学会如何用 docker，而不是留下一堆没法复现的代码让几年后的 reviewer 拿出来恶心人。从我上述讨论中，想必大家已经感受到了，docker 是一种将开发环境连同代码复制并分发的强大软件。在我的日常工作中，docker 起到了如下作用：
 
 1. 提供高度可复现且隔离的开发环境：Docker 不仅确保了代码的可复现性，还提供了一个隔离的沙箱环境。在开发过程中，我们可以在容器内自由安装依赖、修改系统配置，而不会影响宿主机的环境。这种隔离性特别适合在共享集群上工作，因为即使没有 sudo 权限，我们也能在容器内完成所有必要的环境配置。同时，通过使用统一的 Docker 镜像，我们确保了所有开发者都使用完全相同的环境，**避免了"在我机器上能跑"的问题**。Talk is cheap, show me your code.
-3. 便于我们在集群上 share 磁盘空间：这是一个非常现实的问题，在我们的开发集群上，磁盘空间往往是不够用的，比如 8 * H100 集群可能磁盘只有 3T，倘若大量开发者共用集群，各自建立各自的用户。每个人都会在自己的用户路径下存放自己的 huggingface cache，即便强行指定 huggingface cache 为一个统一路径，其实 huggingface 也会根据登录用户的不同来鉴权，每个用户还是独立存了自己的 cache。模型的磁盘大小都不低，而且几十号人可能都得用 Llama 3.1 8B 这种模型，磁盘当然是吃不消的。因此，我们的集群强制每个人必须使用统一的账号登录，然后建立自己的 docker，并且将外部的 huggingface cache 路径统一映射到 docker 内部，避免了 huggingface 的 cache 被反复存放，显著节省了磁盘空间。当然，给我们的开发者带来了一定不便。不过，也促进了每个人都得搞明白 docker 如何使用。当然，坏处也明显，总有人隔三差五会把别人的 docker 误删了，反过来促进了大家随时 commit and push 代码。
+2. 便于我们在集群上 share 磁盘空间：这是一个非常现实的问题，在我们的开发集群上，磁盘空间往往是不够用的，比如 8 * H100 集群可能磁盘只有 3T，倘若大量开发者共用集群，各自建立各自的用户。每个人都会在自己的用户路径下存放自己的 huggingface cache，即便强行指定 huggingface cache 为一个统一路径，其实 huggingface 也会根据登录用户的不同来鉴权，每个用户还是独立存了自己的 cache。模型的磁盘大小都不低，而且几十号人可能都得用 Llama 3.1 8B 这种模型，磁盘当然是吃不消的。因此，我们的集群强制每个人必须使用统一的账号登录，然后建立自己的 docker，并且将外部的 huggingface cache 路径统一映射到 docker 内部，避免了 huggingface 的 cache 被反复存放，显著节省了磁盘空间。当然，给我们的开发者带来了一定不便。不过，也促进了每个人都得搞明白 docker 如何使用。当然，坏处也明显，总有人隔三差五会把别人的 docker 误删了，反过来促进了大家随时 commit and push 代码。
+3. ~~便于绕开 sudo 用户直接 kill 僵尸进程。~~
 
 总之，为了共同塑造良好的科研环境，避免有人用 baseline "在我的机器上能跑"来恶心别人，学习 docker 对任何人都是必不可少的。
 
@@ -170,36 +171,26 @@ docker run -it --name my_container_new ubuntu bash
 
 ## 镜像构建
 
-之前的操作，我们都是在 "拉取" 别人已经做好的镜像。但在实际工程领域中，我们经常需要定制自己的环境：可能要安装特定版本的 CUDA、PyTorch，或者加入一些自己写的脚本、代码，配置环境变量等。避免每次进容器都重新配置一遍，浪费生命。这时候，我们就需要自己**构建**镜像了。
+在我们的日常开发中，为 CI 测试机器发布稳定的 docker 镜像必不可少。具体而言，细心的读者可能早已发现，verl-sglang 的不少 docker 都是我们自己 build 的，比如 `ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3`。自己 build docker 可以要安装特定版本的 CUDA、PyTorch 驱动，或者加入一些自己写的脚本、代码，配置环境变量等。比如说，我们希望：
 
-想象一下，你要给新来的实习生配一台电脑，你会怎么做？你可能会列一个清单：
-
-1. 装个 Ubuntu 20.04 系统
-2. 装 tmux, git, python 3.10, cuda 12.4.1 等软件
+1. 配置 Ubuntu 20.04 系统
+2. 配置 tmux, git, python 3.10, cuda 12.4.1
 3. 把项目代码拷到 `/workspace`
 4. 设置一些必要的环境变量
 
-Docker 构建镜像的过程和这个非常类似，只不过这份 "装机单/菜谱" 就是 `Dockerfile`。`Dockerfile` 是一个文本文件，里面包含了一条条的指令，每一条指令构建一层镜像。Docker 会严格按照这些指令来一步步 "装配" 出我们想要的镜像。
+Docker 构建镜像的过程就基于 `Dockerfile` 忠实地执行这些操作。
 
-### 常见语句
+### Dockerfile 语法
 
-`Dockerfile` 的常见语句：
+`Dockerfile` 的常见指令：
 
-1. `FROM <base-image>:<tag>`：指定基础镜像
-   - 告诉 Docker 要基于哪个现有的镜像开始构建
-2. `WORKDIR /path/to/workdir`：设置工作目录
-   - 后续指令都会在这个目录下执行。
-   - 如果目录不存在，`WORKDIR` 会自动创建它。
-3. `RUN <command>`：在镜像内部执行命令
-   - 每条 `RUN` 指令都会在当前镜像的基础上创建一个新的层。为了减少镜像层数和体积，加快构建速度，通常把多个 `apt-get install` 或者 `pip install` 命令用 `&&` 连在一条 `RUN` 指令里。
-4. `COPY <host-path> <container-path>`：将宿主机的文件或目录复制到镜像内的指定路径
-5. `CMD ["command", "param1", "param2"]`：指定容器启动时默认执行的命令。
-   - 还可写成 `CMD command param1 param2` (shell form)
-   - 一个 Dockerfile 里只能有一条 `CMD` 指令，如果有多条，只有最后一条生效。如果在 `docker run` 时指定了命令，那么 `CMD` 的命令会被覆盖。
-6. `ENV <key>=<value>`：设置容器**运行**时的环境变量
-   - 镜像构建时不生效
-7. `ARG <key>=<value>`：设置镜像**构建**时的临时变量
-   - 容器运行时不生效
+1. `FROM <base-image>:<tag>`：指定基础镜像，告诉 Docker 要基于哪个现有的镜像开始构建；
+2. `WORKDIR /path/to/workdir`：设置工作目录，后续指令都会在这个目录下执行。如果目录不存在，`WORKDIR` 会自动创建；
+3. `RUN <command>`：在镜像内部执行命令，每条 `RUN` 指令都会在当前镜像的基础上创建一个新的层。为了减少镜像层数和体积，加快构建速度，通常把多个 `apt-get install` 或者 `pip install` 命令用 `&&` 连在一条 `RUN` 指令里；
+4. `COPY <host-path> <container-path>`：将宿主机的文件或目录复制到镜像内的指定路径；
+5. `CMD ["command", "param1", "param2"]`：指定容器启动时默认执行的命令。还可写成 `CMD command param1 param2` (shell form)。注意，一个 Dockerfile 里只能有一条 `CMD` 指令，如果有多条，只有最后一条生效。如果在 `docker run` 时指定了命令，那么 `CMD` 的命令会被覆盖；
+6. `ENV <key>=<value>`：设置容器**运行**时的环境变量，镜像构建时不生效；
+7. `ARG <key>=<value>`：设置镜像**构建**时的临时变量，容器运行时不生效；
 
 ### 示例代码
 
@@ -238,13 +229,13 @@ CMD ["python3", "app.py"]
 docker build -t <image-name>:<tag> -f <docker-file> <path>
 ```
 
-1. `-t <image-name>:<tag>`：镜像的名字和标签
-2. `-f <docker-file>`：`Dockerfile` 的路径
-3. `<path>`：表示 `Dockerfile` 的上下文路径 (context path)。通常设置成 `.`
+1. `-t <image-name>:<tag>`：镜像的名字和标签；
+2. `-f <docker-file>`：`Dockerfile` 的路径；
+3. `<path>`：指定 Docker 构建镜像时的构建上下文路径，即 Docker 可以访问的文件和目录的根路径。它决定了 Dockerfile 中文件引用（如 `COPY、ADD`）的查找范围。通常设为 `.` 表示当前目录，但也可以是其他本地目录或 Git 仓库 URL；
 
 ## 镜像上传
 
-镜像构建好以后，我们可以把本地镜像 `docker push`到远程镜像仓库，如 Docker Hub 等。这样就可以分享给别人了。
+镜像构建好以后，我们可以把本地镜像 `docker push`到远程镜像仓库，如 Docker Hub 等。
 
 ### 给镜像打标签
 
