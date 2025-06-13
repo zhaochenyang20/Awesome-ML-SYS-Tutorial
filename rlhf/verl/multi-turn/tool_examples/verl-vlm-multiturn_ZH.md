@@ -64,7 +64,7 @@ python3 -m pip install uv
 
 ```bash 
 cd ~
-git clone https://github.com/volcengine/verl.git
+git clone -b feat/add-multimodal-multiturn-sglang https://github.com/nanjiangwill/verl.git
 cd verl
 
 # 安装 verl
