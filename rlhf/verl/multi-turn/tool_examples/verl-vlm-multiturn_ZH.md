@@ -96,7 +96,7 @@ function now() {
 注意，以下数据处理以及训练命令需要在 veRL-multiturn-rollout 执行环境中进行。
 
 ```bash 
-python3 examples/data_preprocess/geo3k.py
+python3 examples/data_preprocess/geo3k_multiturn_w_tool.py
 ```
 
 
@@ -110,6 +110,6 @@ mkdir -p logs
 # 设置 GPU 并运行，使用合适的日志路径
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-nohup bash examples/sglang_multiturn/geo3k/run_qwen2.5-3b_instruct_multiturn.sh trainer.experiment_name=qwen2.5-3b-it_rm-geo3k-sgl-multiturn-$(now) > logs/geo3k$(now).log 2>&1 &
+nohup bash examples/sglang_multiturn/geo3k/run_qwen2.5-3b_geo3k_multiturn.sh trainer.experiment_name=qwen2.5-3b-it_rm-geo3k-sgl-multiturn-$(now) > logs/geo3k$(now).log 2>&1 &
 ```
 ## 注意事项
