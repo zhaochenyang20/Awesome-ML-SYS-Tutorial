@@ -64,7 +64,7 @@ $$
 
 ## 开发指南
 
-- [How to use docker](./engineer/how-to-use-docker/readme.md)：如何使用 docker 来管理开发环境。请注意，为了共同塑造良好的科研环境，避免有人用 baseline "在我的机器上能跑"来恶心别人，学习 docker 对任何人都是必不可少的。同样我们也有[英文版本](./engineer/how-to-use-docker/readme_en.md)和[知乎]()。
+- [How to use docker](./engineer/how-to-use-docker/readme.md)：如何使用 docker 来管理开发环境。请注意，为了共同塑造良好的科研环境，避免有人用 baseline "在我的机器上能跑"来恶心别人，学习 docker 对任何人都是必不可少的。同样我们也有[英文版本](./engineer/how-to-use-docker/readme_en.md)和[知乎](https://zhuanlan.zhihu.com/p/1916764175230801287)。
 - [配置清爽的开发环境](./engineer/uv/readme.md)：配置清爽的开发环境，同样刊载于[知乎：配置清爽的开发环境](https://zhuanlan.zhihu.com/p/23440683394)。
 - [一文理解 special tokens 和 chat template](./transformers/special_tokens/special_tokens.md)：同样记录于知乎 [一文理解 special tokens 和 chat template](https://zhuanlan.zhihu.com/p/17052593700)。
 - [在 CI 上编译 jupyter notebook 并部署为文档](https://zhuanlan.zhihu.com/p/2382351079)
