@@ -233,7 +233,19 @@ loss_mask = new_token_ids if messages[i]["role"] == "assistant" else [-100] * le
 
 ### 仍旧存在问题
 
-令人遗憾的是，我们发现这种方法在推理模型中失败了，因为这些模型会根据 message 的位置不同，以不同的方式进行 tokenization。比如 `Qwen/QwQ-32B`，它会自动从非最终 assistant message 中删除推理内容（用 `<think></think>` 标签标记）：
+令人遗憾的是，我们发现这种方法会在推理模型中失效。这是由于推理模型对 think token 会有特殊的处理。具体来说，参考下图：
+
+<div align="center"><img src="./think.jpg" width="60%"></div>
+
+在第一轮对话中，我们发给 engine 的是 `system prompt -> user message 1`。然后 engine 会进行推理，得到 `system prompt -> user message 1 -> think token 1 -> assistant message 1`。然后，我们接着进行第二轮对话，输入 `user message 2`。直观来看，我们给 engine 的输入是 `system prompt -> user message 1 -> think token 1 -> assistant message 1 -> user message 2`。但是，think model 的 tokenizer 会在这种情况（think token 不是最后一条消息）下，自动把 think token 删去。engine 实际上得到的输入是 `system prompt -> user message 1 -> assistant message 1 -> user message 2`。
+
+我们有如下的观察：
+
+1. 这么做节省了显著的 context window，因为 think content 通常比较长；
+2. 无论如何，模型返回给用户的输出只有一段 think content，在训练中也是只有最后一个 assistant message 之前会有一个 think content；
+3. 这么做其实浪费了一定的 KV cache；会损失一段 think token + assistant message；
+
+具体来说，可以看下面这个例子：
 
 ```python
 messages = [
