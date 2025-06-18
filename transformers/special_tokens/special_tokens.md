@@ -1,5 +1,6 @@
 # 一文理解 special tokens 和 chat template
 
+【[English](special_tokens_en.md) | [中文](special_tokens.md)】
 和 LLM 打交道的朋友无论如何都绕不过 special tokens 和 chat template 这两个概念。说来神奇，既然是每天打交道的概念，总该有很好的参考资料吧，但是为了写这篇文档，我和朋友四处寻找，能找到的只有 HuggingFace 零星的文档。然而，如果处理不好 special tokens 和 chat template，无论是 training 还是 inference，模型的 performance 都会受到极大影响。令人惊异的是，即便影响巨大，居然也没有很好的博客来讲这事，所以我们在此简述下这两个概念。
 
 PS：这篇文章是我和 [Shuai Shi](https://shuaills.github.io/) 在 debug openrlhf 的时候所写，在 SGLang 也重新检查了 token in token out 的 inference 模式。

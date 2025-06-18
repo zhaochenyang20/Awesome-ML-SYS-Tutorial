@@ -1,10 +1,12 @@
 # Latency Accelerate for Weight Updates
 
-## 前言
+## [English version](./readme.md) | [简体中文](./readme-CN.md)
 
-本文是一篇 debug 笔记，因此比较详细地描述了我的 debug 过程，实际上结论非常简单，我们可以一段话总结完：
+## Preface
 
-1. 为了准确测量 GPU 的 latency，我们们要在测速的语句前后加上无数的 `torch.cuda.synchronize()`，否则经常会出现 CPU 跑的飞起，早早 print 了，而 GPU 还卡在之前。具体而言：
+This is a debug note, so it describes my debugging process in detail. However, the conclusion is actually very simple and can be summarized in a few sentences:
+
+1. To accurately measure GPU latency, we must add numerous `torch.cuda.synchronize()` statements before and after the timing code. Otherwise, the CPU might race ahead and print results early, while the GPU is still stuck processing the previous operations. Specifically:
 
 ```python
 torch.cuda.synchronize()
@@ -15,36 +17,35 @@ time_end = time.time()
 print(f"latency: {time_end - time_begin:.3f}s")
 ```
 
-2. 为了准确使用 `dist.barrier()`，最好指定 `device_ids`，否则在 CI 可能莫名其妙会因为 device error 卡死。
+2. To correctly use `dist.barrier()`, it is best to specify `device_ids`. Otherwise, in CI, it may mysteriously hang due to a device error.
 
+## Background
 
-## 背景
-
-费劲千番力气，我终于成功实现了 `update_parameter_from_distributed` 这个接口。按照 advisor 的意思，这个函数 OpenRLHF 基于 vllm 的实现不超过 50 行。某种意义上，我的实现并不繁琐，只是由于缺乏经验，反复折腾了两周。终于，到 2024 年感恩节的前一天，我成功自顶向下实现了如下的三个接口：
+After much effort, I finally managed to implement the `update_parameter_from_distributed` interface. According to my advisor, the OpenRLHF implementation based on vLLM does not exceed 50 lines. In a way, my implementation is not particularly complex; I just struggled for two weeks due to a lack of experience. Finally, on the day before Thanksgiving 2024, I successfully implemented the following three interfaces from top to bottom:
 
 1. `init_parameter_update_group`
 2. `update_parameter_from_distributed`
 3. `get_weights_by_parameter_name`
 
-三个函数为了达成一个功能，前一个用于建立进程组。我们假定将 Training Engine 传递的 weights 放在 rank 0 上（尽管 rank 0 上可能并不足以存下整个模型，但是 training engine 总可以从 rank 0 上将 weights 传出去）。接着，我们的 sglang server 将会和 rank 0 建立进程组，并从 rank 0 上广播得到 weights，并且 load 到所有的 tensor parall device 上。然后，我们通过 `get_weights_by_parameter_name` 这个函数检查 sglang inference engine 的更新是否完善。注意到，training engine 不必然需要将 model 存储为 huggingface 格式，事实上工业界大规模使用的引擎肯定是整个训练过程利用自身的模型格式，然后训练完成了才将 checkpoint 转为 huggingface 格式用于发布。然而，OpenRLHF 作为偏学术界的开源产品，会使用 huggingface model 作为通用的 protocol。
+These three functions serve a single purpose. The first function is used to establish a process group. We assume that the weights passed by the Training Engine are stored on rank 0 (even though rank 0 might not be able to store the entire model, the training engine can always distribute weights from rank 0). Then, our SGLang server will establish a process group with rank 0, broadcast the weights from rank 0, and load them onto all tensor parallel devices. Finally, we use `get_weights_by_parameter_name` to check whether the SGLang inference engine has been updated correctly.
 
-
-<details>
-<summary>为什么会有两个 engine？</summary>
-
-这里需要提出一个看上去很显然的问题，为什么 RLHF 流程需要 training 和 inference 两个 engine？对于前者，主流系统有非常多选择，譬如 DeepSpeed，而后者，我们希望支持 SGLang。换句话说，为什么不能用 training engine 做 inference，用 inference engine 做 training？
-
-1. training engine 只有 forward，但是得到 logits 之后，无论是为了 evaluate 还是 roll out，都需要实际让模型做 decoding。decoding 就大有文章了，SGLang 的主要贡献是 continuous batching and KV cache management，因此天然适合为了整个训练流程做 evaluation 或者 roll out。
-2. 反过来，inference engine 没有 back propagation，当然不可能做 training。不过，inference engine 可以用于计算 KL divergence 么？答曰，不可，因为 KL divergence 需要 logits 的精度较高，而 inference engine 的 logits 精度目前并不满足（不满足的原因我也还在理解）。
-
-</details>
-
-总之，实现了这三个接口之后，我终于手写了单测，然后成功通过了测试，效率却不尽如人意。
-
-## 测试效果
+It is important to note that the training engine does not necessarily have to store the model in Hugging Face format. In fact, in large-scale industrial applications, the training engine typically uses its own model format throughout the training process and only converts the checkpoint to the Hugging Face format upon completion for release. However, as an academic-oriented open-source product, OpenRLHF uses Hugging Face models as a common protocol.
 
 <details>
-<summary> 具体的单测 </summary>
+<summary>Why are there two engines?</summary>
+
+Here’s an obvious question: Why does the RLHF process require both a training engine and an inference engine? There are many mainstream options for the former, such as DeepSpeed. As for the latter, we want to support SGLang. In other words, why can’t we use the training engine for inference or the inference engine for training?
+
+1. The training engine only performs forward passes, but once logits are obtained, whether for evaluation or rollout, the model must perform decoding. Decoding is a complex process. SGLang’s main contributions lie in continuous batching and KV cache management, making it naturally suitable for evaluation or rollout in the entire training pipeline.
+
+2. Conversely, the inference engine does not perform backpropagation, so it obviously cannot be used for training. However, can the inference engine be used to compute KL divergence? The answer is no because KL divergence requires high precision in logits, which the inference engine currently does not meet (I am still investigating why this is the case).
+
+After implementing these three interfaces, I finally wrote a unit test by hand, and while the test passed successfully, the efficiency was far from ideal.
+
+## Test Results
+
+<details>
+<summary>Unit Test</summary>
 
 ```python
 
@@ -395,26 +396,25 @@ if __name__ == "__main__":
 
 </details>
 
+To summarize the test logic, for 8B Llama 3.1 and 1B Llama 3.2, we evaluate correctness and efficiency when the tensor parallelism (TP) of the SGLang engine is set to 1 and 2:
 
-简单来说，这个测试的逻辑如下，对于 model 为 8B llama 3.1 和 1B llama 3.2 分别测试在 sglang engine 的 tp 为 1 和 2 时的正确性和效率：
+1. Rank 0 (Simulating the Training Engine)
+- Loads the instruct model and base model using Hugging Face.
+- Extracts representative parameters as verification samples (each type of parameter is randomly sampled).
+- Initializes the process group.
+- Broadcasts all parameters of the base model.
 
-1. rank 0 (模拟 training engine)
-- 利用 huggingface 加载 instruct model 和 base model
-- 读取代表性参数作为验证样本（每一类参数都做了抽查）
-- 初始化进程组
-- 广播 base model 的全部参数
+2. Rank 1 (SGLang Inference Engine)
+- Initializes the engine and loads the instruct model.
+- Extracts representative parameters from the instruct model.
+- Initializes the parameter update group.
+- Receives and updates all parameters.
+- Retrieves updated base model parameters for verification.
 
-2. rank 1 (SGLang inference engine)
-- 初始化 engine，加载 instruct model
-- 读取 instruct model 的代表性参数
-- 初始化参数更新组
-- 接收并更新全部参数
-- 获取更新后的 base model 参数进行验证
-
-整体上，在满血 8 卡 H100 上，居然整体测试结束需要 431.264s，我感到非常费解。注意到，实际上的更新函数如下：
+On an 8x H100 system, the entire test took 431.264s, which left me very confused. The actual update function is as follows:
 
 <details>
-<summary>实际的更新函数</summary>
+<summary>Code for the weight update function</summary>
 
 ```python
 
@@ -461,7 +461,7 @@ if __name__ == "__main__":
 
 </details>
 
-看上去每一步都不该很慢，但是出现了非常神奇的事情。在我的 uint test 上，我把每个参数的更新用时都在这几行打印出来了。
+Each step shouldn’t be slow, but something strange happened. In my unit test, I logged the update time for each parameter using the following lines:
 
 ```python
 
@@ -482,10 +482,10 @@ if __name__ == "__main__":
 
 ```
 
-同时，我在最底层实际调用的 `update_parameter_from_distributed` 函数中试图打印每一步的用时：
+At the same time, in the lowest-level call to the  `update_parameter_from_distributed` function, I attempted to log the execution time for each step:
 
 <details>
-<summary>测试更新代码每一步的耗时</summary>
+<summary>Testing the execution time of each update step</summary>
 
 ```python
 
@@ -553,31 +553,31 @@ if __name__ == "__main__":
 
 </details>
 
-对于整个更新函数，我几乎怀疑到了每一步头上。首先是开头的几个检查用的 assert，接着是创建 weights 的 empty tensor，然后是广播，最后是 load weights。
+For the entire update function, I suspected almost every step. First the assertion checks at the beginning, then creating the empty tensor for weights, then broadcasting, and finally loading the weights.
 
-惊人的是，单独每一步的耗时都是 0.000s，然而单测中的返回时间居然是 0.032s。此外，8B model 和 1B model 的单步更新时间完全一致。太有意思了，这样以来我更新整个 1B 模型的用时达到了 7.047s。考虑到 H100 的满血 NV Link 带宽单位是 TB / s，而 1B 模型的 weights 在 bf16 也就 2GB 左右，这样的时间消耗显然是不合理的。
+Surprisingly, each individual step took 0.000s, yet the return time in the unit test was 0.032s. Additionally, the single-step update times for 8B and 1B models were identical. This is fascinating - it means updating the entire 1B model took 7.047s. Considering that a full H100 NV Link bandwidth is measured in TB/s, and the weights of a 1B model in bf16 are only about 2GB, this time consumption is clearly unreasonable.
 
-所以，时间都去哪儿了？
+So, where did all the time go?
 
-## 时间都去哪儿了？
+## Where Did All the Time Go?
 
-好问题，八千余日夜已经在我的生命中流逝，而我的人生也不过三万多天。初中时，曾经教过我一段时间的数学竞赛的一位老师老师常说，“人生啊，不过三万多天，我也曾年轻过，哦豁，就老咯...”十年前的我绝不曾感受过时间的流逝，然而十年后，我已经二十二岁，想到人类世界的荒诞和虚无，原来时间是对人的惩罚。一方面，我感念，毕竟我只有一生这么短，讨好他人对我而言无疑是在浪费生命，另一方面，如果我的生命的开始和结束都是虚无的，那么我的人生到底有什么意义？
+Good question. Over eight thousand days and nights have already passed in my life, and my entire lifespan is likely only about thirty thousand days. In middle school, a math competition teacher who taught me briefly used to say, "Life is just over thirty thousand days. I was young once too, and whoops, now I'm old..." Ten years ago, I never felt the passage of time, but now at twenty-two, thinking about the absurdity and emptiness of the human world, I realize that time is humanity's punishment. On one hand, I'm mindful that I only have this short life, and pleasing others is undoubtedly wasting my life. On the other hand, if both the beginning and end of my life are emptiness, what meaning does my life really have?
 
-至少，想办法将这 7.047s 的传输开销降到 1s 以内，是我理解的人生意义的一部分。
+At the very least, figuring out how to reduce this 7.047s transmission overhead to under 1s is part of what I consider the meaning of life.
 
-我合理怀疑，这些开销有如下可能：
+I reasonably suspect these overheads might come from:
 
-1. `https` 请求太慢了：在 sglang 的设计模式中，有两层 `https` 请求，一层是最顶层的 `RunTime` 通过一个 fastapi 向下调用 tokenizer manager，另一层是 `tokenizer manager` 通过另一个 fast api 的 `https` 请求向 `scheduler -> tp worker -> model runner` 传递请求。
+1. `https` requests being too slow: In sglang's design pattern, there are two layers of `https` requests - one where the top-level `RunTime` calls the `tokenizer manager` through fastapi, and another where the tokenizer manager passes requests to `scheduler -> tp worker -> model runner` through another fastapi https request.
 
-2. python 的函数传递开销太大了：Model Runner 的 `update_parameter_from_distributed` 居然每一步都是 0.000s，那么自顶向下，从 `RunTime` 到 `tokenizer manager` 再到 `scheduler -> tp worker -> model runner` 是否存在很大的传递开销。究竟是哪一层显著增大了开销？
+2. Python function call overhead being too large: If each step in Model Runner's `update_parameter_from_distributed` is 0.000s, then going top-down from `RunTime` to `tokenizer manager` to `scheduler -> tp worker -> model runner`, is there significant overhead in passing requests between layers? Which layer significantly increases the overhead?
 
-3. 我没有异步更新参数：实际上，`update_parameter_from_distributed` 并不会重复写同一片 weights，似乎异步是一个解。
+3. Not updating parameters asynchronously: Since `update_parameter_from_distributed` doesn't repeatedly write to the same weights, asynchronous updates seem like a solution.
 
-4. update 的时候，是不是在 blocking 状态下？试试只 launch kernel，这样可以全部 overlap 起来（from advisor）
+4. Being in a blocking state during updates: Perhaps we should try just launching kernels so everything can overlap (as suggested by my advisor).
 
-5. nccl 太慢了：这是我觉得很不现实的，因为我的测试机器是 NVDA 提供的满血 H100。
+5. NCCL being too slow: I think this is unlikely since my test machine is a full-spec H100 provided by NVIDIA.
 
-无所谓，我先进行这样一个测试：
+Regardless, I'll first run this test:
 
 ```python
 
@@ -608,17 +608,16 @@ if __name__ == "__main__":
 
 ```
 
-让我看看，传输效率究竟和什么有关系。
+Let me see what the transmission efficiency is actually related to.
 
 ```bash
 model_name meta-llama/Llama-3.1-8B-Instruct rank 1 update lm_head.weight torch.Size([128256, 4096]) from distributed time: 0.055s
 fully update model_name meta-llama/Llama-3.1-8B-Instruct rank 1 parameter from distributed time: 0.055s
 ```
 
-Well，看上去结果不太妙，这似乎是 python 编译器的作用域问题（我没学好编原，也就只知道这个词了）。
+Well, the results don't look good. This seems to be a scope issue with the Python compiler (I didn't study compiler principles well, so I only know this term).
 
-
-我们换种方式来 print 时间：
+Let's try a different way to print the time:
 
 ```python
 
@@ -649,7 +648,7 @@ Well，看上去结果不太妙，这似乎是 python 编译器的作用域问�
 
 ```
 
-这样应该不会相互覆盖了。拿到的结果很有趣：
+This way they shouldn't overwrite each other. The results are interesting:
 
 ```bash
 
@@ -670,19 +669,19 @@ model_name meta-llama/Llama-3.2-1B-Instruct rank 1 update model.layers.1.self_at
 rank 0 broadcast model.layers.1.self_attn.k_proj.weight time: 0.000s
 ```
 
-这些太玄学了，我一时捋不出问题，像极了高中时物理竞赛的同学做的物理实验报告...
+These results are too mysterious - I can't figure out the problem right away. It reminds me of physics experiment reports written by high school physics competition students...
 
-但是我还是观察到了这么一件事情：
+But I still observed one thing:
 
 ```bash
 rank 0 init process group time: 44.275s
 rank 1 init parameter update group time: 0.005s
 ```
 
-有点逆天，process group 的创立绝对是同步的，但是两个 process group 的创建时间居然差了 44s。我感到非常费解，遂做如下测试：
+This is incredible - creating a process group is definitely synchronous, but the creation times of the two process groups differ by 44s. I'm very confused, so I did the following test:
 
 <details>
-<summary>process group 创建时间</summary>
+<summary>Process group creation time</summary>
 
 ```python
 import time
@@ -773,7 +772,7 @@ if __name__ == "__main__":
 
 </details>
 
-得到的结果如下：
+The results are as follows:
 
 ```bash
 rank 1 init engine time: 20.817s
@@ -781,12 +780,12 @@ rank 1 init process group time: 0.014s
 rank 0 init process group time: 20.934s
 ```
 
-okay，确实创建通讯组非常快，rank 0 卡住的原因是要和 rank 1 的 engine 同步，而 engine 启动耗时 20s，实际上 process group 的创建时间几乎可以忽略不计。
+Okay, creating communication groups is indeed very fast. The reason rank 0 got stuck is that it needs to synchronize with rank 1's engine, and starting the engine takes 20s. In reality, the time to create the process group is almost negligible.
 
-有了这个思路，我决定把我复杂的测例简化下，不读取参数，只测试更新时间，为了避免太多繁琐的同步影响我的测速：
+With this idea, I decided to simplify my complex test case by not reading parameters and only testing update time, to avoid having too many complicated synchronizations affecting my speed measurements:
 
 <details>
-<summary>只测试 broad cast and update 的时间</summary>
+<summary>Only testing broadcast and update time</summary>
 
 ```python
 import gc
@@ -978,10 +977,10 @@ if __name__ == "__main__":
 
 </details>
 
-这一次，我拿到很多有趣的事情：
+This time, I discovered many interesting things:
 
-1. update parameter 的时间和上次复杂的测例几乎一样；
-2. ModelRunner 实际上的更新时间非常快，但是接口返回的速度很慢；
+1. The update parameter time is almost the same as in the previous complex test case.
+2. The actual update time in ModelRunner is very fast, but the interface return speed is slow.
 
 ```bash
 ModelRunner update model.layers.0.self_attn.q_proj.weight time: 0.001s
@@ -989,7 +988,7 @@ Rank 1 update model.layers.0.self_attn.q_proj.weight torch.Size([2048, 2048]) ti
 Rank 0 broadcast model.layers.0.self_attn.q_proj.weight torch.Size([2048, 2048]) time: 0.001s
 ```
 
-3. `model.embed_tokens.weight torch.Size([128256, 2048])` 参数异常的慢，而且慢的很同步：
+3. The `model.embed_tokens.weight torch.Size([128256, 2048])` parameter is unusually slow, and the slowness is very synchronized:
 
 ```bash
 Rank 0 broadcast model.embed_tokens.weight torch.Size([128256, 2048]) time: 1.812s
@@ -997,7 +996,7 @@ Rank 1 update model.embed_tokens.weight torch.Size([128256, 2048]) time: 1.819s
 ModelRunner update model.embed_tokens.weight time: 1.786s
 ```
 
-4. `model.layers.12.mlp.up_proj.weight torch.Size([8192, 2048])` 在 Model Runner 上正常，broadcast 似乎卡顿了，而最后整体的 update 时间和其他 update 时间几乎一致：
+4. `model.layers.12.mlp.up_proj.weight torch.Size([8192, 2048])` is normal on the Model Runner, but the broadcast seems to have stalled, while the overall update time is almost the same as other update times:
 
 ```bash
 ModelRunner update model.layers.12.mlp.up_proj.weight time: 0.001s
@@ -1005,9 +1004,9 @@ Rank 0 broadcast model.layers.12.mlp.up_proj.weight torch.Size([8192, 2048]) tim
 Rank 1 update model.layers.12.mlp.up_proj.weight torch.Size([8192, 2048]) time: 0.032s
 ```
 
-`embed_tokens.weight` 和 `up_proj.weight` 不太好解决，但是我明显感受到了其实在 `ModelRunner` 上，broad cast 和 update 的时间几乎可以忽略不计，但是实际回传的时间却很长。那么，我们每一层都打印一次时间，看看究竟是哪儿慢了下来。具体来说，从 `Engine -> scheduler -> tp worker -> model runner` 的每一层都打印一次时间，看看究竟是哪儿慢了下来。
+The `embed_tokens.weight` and `up_proj.weight` issues aren't easy to solve, but I clearly sensed that on the `ModelRunner`, the broadcast and update times are almost negligible, yet the actual return time is quite long. So, I decided to print the time at each layer to see exactly where the slowdown occurs. Specifically, I printed timing data at each layer from `Engine -> scheduler -> tp worker -> model runner` to identify the bottleneck.
 
-在这个过程中，我看到几行，瞬间就有了感觉：
+During this process, I saw a few lines that immediately gave me a clue:
 
 ```python
 async def update_parameter_from_distributed(
@@ -1059,14 +1058,13 @@ async def update_parameter_from_distributed(
         )
 ```
 
-这三个 `await asyncio.sleep(0.01)` 不是一眼导致了 `0.03` 的 update latency 吗？我试图去掉，并且 print 出来。果然，这次很快时间就降下来了：
+Aren't these three `await asyncio.sleep(0.01)` statements the obvious cause of the `0.03` update latency? I tried removing them and printing the results. Sure enough, the time quickly decreased:
 
 ```bash
 fully update model_name meta-llama/Llama-3.2-1B-Instruct rank 1 parameter from distributed time: 2.202s
 ```
 
-虽然速度快了很多，但是还是大于 1s，而且继续观察到了这个 `model.embed_tokens.weight torch.Size([128256, 2048])` 占据了超过 1.6s 的时间，甚至是从 broadcast 那一步就开始超过了 1.6s。是因为第一个参数的 broad cast 需要 init NCCL 很慢，还是就这个参数很慢呢？我们跳过这个参数，直接从 `[1:]` 开始，看看结果如何：
-
+Although the speed improved significantly, it's still over 1s, and I continued to observe that `model.embed_tokens.weight torch.Size([128256, 2048])` took over 1.6s, starting from the broadcast step. Is this because the first parameter broadcast needs to initialize NCCL which is slow, or is just this parameter slow? Let's skip this parameter and start directly from `[1:]` to see the results:
 
 ```bash
 In server: update parameter from distributed time: model.layers.0.self_attn.q_proj.weight torch.Size([2048, 2048]) 0.000s
@@ -1075,7 +1073,7 @@ In server time function update parameter from distributed time: model.layers.0.s
 model_name meta-llama/Llama-3.2-1B-Instruct rank 1 update model.layers.0.self_attn.q_proj.weight torch.Size([2048, 2048]) from distributed time: 1.727s
 ```
 
-很有意思，就是第一个被广播的参数很慢，其他参数都很快。这是因为没有同步么？我决定加个 barrier 试试同步一次：
+Very interesting - just the first broadcast parameter is slow, while all others are fast. Is this because there's no synchronization? I decided to add a barrier to try synchronizing once:
 
 ```bash
 Rank 1 before barrier
@@ -1086,10 +1084,10 @@ In server time function update parameter from distributed time: model.embed_toke
 Rank 1 update model.embed_tokens.weight torch.Size([128256, 2048]) time: 1.445s
 ```
 
-看上去还是很寄，的确是第一次通讯的用时特别长。但是似乎也没那么寄，我转手问了下 gpt，貌似第一次通讯的建立一定是慢的，而我可以在 init process group 的时候就 barrier 一次（一次 barrier 实际上等价于一次小的 all reduce），看看此后的效果如何。
+It still looks problematic - the first communication indeed takes an especially long time. But perhaps it's not that bad. I quickly asked GPT, and it seems the first communication establishment is inevitably slow, but I could add a barrier right after initializing the process group (a barrier is essentially equivalent to a small all-reduce operation) to see how that affects subsequent performance.
 
 ...
 
-大功告成，在我的本地机器上，1B 模型更新时间降到了 0.5s 左右，8B 模型降到了 0.6s 左右。想见大部分的开销其实也不是通讯 😂
+Mission accomplished! On my local machine, the update time for the 1B model decreased to around 0.5s, and for the 8B model to around 0.6s. As it turns out, most of the overhead wasn't actually from communication 😂
 
-PS：在 process group init 之后马上 warm up 一次是非常常见的，然后我发现很有趣的事情，直接用 `dist.barrier()` 不指定 devices_id 的话，会在 CI 上因为 device error 卡死，但是本地不会，所以一个更好的尝试是：`dist.barrier(device_ids=[0], group=pg)`
+PS: It's very common to warm up once immediately after process group initialization. Then I discovered something interesting: using `dist.barrier()` without specifying `device_ids` will hang in CI due to device errors, but this doesn't happen locally. So a better approach is: `dist.barrier(device_ids=[0], group=pg)`

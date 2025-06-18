@@ -1,13 +1,13 @@
 # Walk Through SGLang / VLLM Worker
-[English Version](readme_eng.md)
 
-为了实现 SGLang 支持 OpenRLHF 的接口，我们需要在 SGLang 中接入这[两个接口](https://github.com/OpenRLHF/OpenRLHF/blob/main/openrlhf/trainer/ray/vllm_worker_wrap.py)：
+## [English version](./readme.md) | [简体中文](./readme-CN.md)
 
+To enable SGLang to support OpenRLHF interfaces, we need to implement two [interfaces](https://github.com/OpenRLHF/OpenRLHF/blob/main/openrlhf/trainer/ray/vllm_worker_wrap.py) in SGLang:
 - `init_process_group`
 - `update_weight`
 
 <details>
-<summary>OpenRLHF 的 VLLM Worker Wrap</summary>
+<summary>OpenRLHF's VLLM Worker Wrap</summary>
 
 ```python
 class WorkerWrap(Worker):
@@ -43,18 +43,17 @@ class WorkerWrap(Worker):
 
 </details>
 
-`WorkerWrap` 类继承并包装了 vllm 的 `Worker` 类，实现了 `init_process_group` 和 `update_weight` 方法，这两个接口当然不麻烦，但是我们可以借一步来捋清楚 SGLang 和 VLLM 的相关代码模块，也作为 SGLang code walk through 的一部分。因此，本文先从 vllm 的 `Worker, Executor, LLMEngine` 开始引入代码，然后对 SGLang 进行简单的 code walk through。
+The `WorkerWrap` class inherits from and wraps vllm's `Worker` class, implementing the `init_process_group` and `update_weight` methods. While these two interfaces are straightforward, we can use this opportunity to understand the code modules of SGLang and VLLM, as part of our SGLang code walk-through. Therefore, this article will first introduce the code from vllm's `Worker`, `Executor`, and `LLMEngine`, then proceed with a simple code walk-through of SGLang.
 
-这里放一张 SGLang 的镇楼，此图出自 [slides/lmsys_1st_meetup_sglang.pdf](https://github.com/sgl-project/sgl-learning-materials/blob/main/slides/lmsys_1st_meetup_sglang.pdf)，欢迎大家关注我们的 [learning materials](https://github.com/sgl-project/sgl-learning-materials)：
+Here's an architectural diagram of SGLang to guide us through this article. This image is from [slides/lmsys_1st_meetup_sglang.pdf](https://github.com/sgl-project/sgl-learning-materials/blob/main/slides/lmsys_1st_meetup_sglang.pdf). We welcome everyone to check out our [learning materials](https://github.com/sgl-project/sgl-learning-materials):
 
 ![SGLang Architecture](./SGLang-Archi.png)
 
-
 # vllm
 
-## `Worker`
+## Worker
 
-代码见 [vllm/vllm/worker/worker.py](https://github.com/vllm-project/vllm/blob/main/vllm/worker/worker.py)。`Worker` 类有清晰的注释：
+The code can be found at [vllm/vllm/worker/worker.py](https://github.com/vllm-project/vllm/blob/main/vllm/worker/worker.py). The `Worker` class has clear documentation:
 
 ```python
     """A worker class that executes (a partition of) the model on a GPU.
@@ -65,25 +64,25 @@ class WorkerWrap(Worker):
     """
 ```
 
-可见 `Worker` 类负责单一 GPU 的管理，维护 KV cache，并执行模型推理。再分类看看 `Worker` 类的方法：
+As we can see, the `Worker` class is responsible for managing a single GPU, maintaining the KV cache, and executing model inference. Let's examine the `Worker` class methods by category:
 
-1. **初始化**
+1. **Initialization**
 
 ```python
 def __init__(self, vllm_config, local_rank, rank, distributed_init_method, ...)
-def init_device(self) -> None  # 初始化GPU设备
-def load_model(self)  # 加载模型
-def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None  # 初始化 KV cache
+def init_device(self) -> None  # Initialize GPU device
+def load_model(self)  # Load model
+def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None  # Initialize KV cache
 ```
 
-2. **内存管理**
+2. **Memory Management**
 
 ```python
-def determine_num_available_blocks(self) -> Tuple[int, int]  # 确定可用的 KV cache 块数
-def get_cache_block_size_bytes(self) -> int  # 获取缓存块大小
+def determine_num_available_blocks(self) -> Tuple[int, int]  # Determine available KV cache blocks
+def get_cache_block_size_bytes(self) -> int  # Get cache block size
 ```
 
-3. **推理**
+3. **Inference**
 
 ```python
 def prepare_worker_input(self, execute_model_req: ExecuteModelRequest) -> WorkerInput
@@ -109,21 +108,21 @@ def pin_prompt_adapter(self, prompt_adapter_id: int) -> bool
 def list_prompt_adapters(self) -> Set[int]
 ```
 
-6. **状态保存**
+6. **State Saving**
 
 ```python
 def save_sharded_state(self, path: str, pattern: Optional[str], max_size: Optional[int])
 def save_tensorized_model(self, tensorizer_config: TensorizerConfig)
 ```
 
-7. **性能分析**
+7. **Profiling**
 
 ```python
 def start_profile(self)
 def stop_profile(self)
 ```
 
-8. **属性访问**
+8. **Property Access**
 
 ```python
 @property
@@ -136,78 +135,75 @@ def max_model_len(self) -> int
 def vocab_size(self) -> int
 ```
 
-写的可以说是非常全面，基本在一张 GPU 上的方方面面都有涉及。
+The implementation is quite comprehensive, covering virtually every aspect of managing a single GPU.
 
 ## `ExecutorBase`
 
-`Worker` 类负责管理单张 GPU，很自然我们进一步看看 `Worker` 类之上更大的管理类。[ExecutorBase](https://github.com/vllm-project/vllm/blob/main/vllm/executor/executor_base.py) 负责做的是一个抽象的管理基类（各种 Executor 的基类），定义各类 Executor 的接口规范。
+The `Worker` class is responsible for managing a single GPU, so it naturally follows to look at a higher-level management class above the `Worker` class.  `ExecutorBase` is responsible for serving as an abstract management base class (the base class for various Executors), defining interface specifications for different Executors.
 
-1. **定义接口**：
+1. **Interface Definitions**:
+- Model execution (`execute_model`)
+- KV cache management (`initialize_cache`, `determine_num_available_blocks`)
+- LoRA and Prompt Adapter management
+- Service status checks
 
-- 模型执行 (`execute_model`)
-- KV cache 管理 (`initialize_cache`, `determine_num_available_blocks`)
-- LoRA 和 Prompt Adapter 管理
-- 服务状态检查
+2. **Concrete Executor Subclasses**:
+- [GPUExecutor](https://github.com/vllm-project/vllm/blob/main/vllm/executor/gpu_executor.py): Single GPU executor, creates and uses one Worker internally
+- [MultiprocessingGPUExecutor](https://github.com/vllm-project/vllm/blob/main/vllm/executor/multiproc_gpu_executor.py): Uses multiprocessing to manage multiple Workers
+- [RayGPUExecutor](https://github.com/vllm-project/vllm/blob/main/vllm/executor/ray_gpu_executor.py): Uses Ray framework to manage distributed Workers
 
-2. **具体的 Executor 子类**：
+## LLMEngine
 
-- [GPUExecutor](https://github.com/vllm-project/vllm/blob/main/vllm/executor/gpu_executor.py): 单 GPU 执行器，内部会创建和使用一个 Worker
-- [MultiprocessingGPUExecutor](https://github.com/vllm-project/vllm/blob/main/vllm/executor/multiproc_gpu_executor.py): 使用多进程管理多个 Worker
-- [RayGPUExecutor](https://github.com/vllm-project/vllm/blob/main/vllm/executor/ray_gpu_executor.py): 使用 Ray 框架管理分布式 Worker
+[LLMEngine](https://github.com/vllm-project/vllm/blob/main/vllm/engine/llm_engine.py#L136): This is the management class above `ExecutorBase/Executor`, responsible for handling user requests and selecting appropriate `Executor` based on configuration.
 
-## `LLMEngine`
-
-[LLMEngine](https://github.com/vllm-project/vllm/blob/main/vllm/engine/llm_engine.py#L136)：是 `ExecutorBase/Executor` 之上的管理类，负责处理用户请求，并根据配置选择合适的 `Executor`。
-
-
-1. **初始化**
+1. **Initialization**
 
 ```python
 def __init__(self, vllm_config: VllmConfig, executor_class: Type[ExecutorBase], ...):
-    # 管理各种配置：模型、缓存、并行、调度等
+    # Manage various configurations: model, cache, parallel, scheduling, etc.
     self.model_config = vllm_config.model_config
     self.cache_config = vllm_config.cache_config
     self.parallel_config = vllm_config.parallel_config
     # ...
     
-    # 初始化关键组件
+    # Initialize key components
     self.tokenizer = self._init_tokenizer()
     self.input_preprocessor = InputPreprocessor(...)
     self.model_executor = executor_class(vllm_config=vllm_config)
     self.scheduler = [Scheduler(...) for _ in range(parallel_config.pipeline_parallel_size)]
 ```
 
-2. **处理请求**
+2. **Request Processing**
 
 ```python
 def add_request(self, request_id: str, prompt: PromptType, params: Union[SamplingParams, PoolingParams], ...):
-    # 处理新的生成请求
-    # 预处理输入
-    # 创建序列组
-    # 将请求添加到调度器
+    # Handle new generation requests
+    # Preprocess input
+    # Create sequence groups
+    # Add request to scheduler
 ```
 
-3. **执行调度与生成**
+3. **Execution Scheduling and Generation**
 
 ```python
 def step(self) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
-    # 核心执行循环
-    # 调度序列组
-    # 执行模型前向传播
-    # 处理输出
-    # 更新序列状态
+    # Core execution loop
+    # Schedule sequence groups
+    # Execute model forward pass
+    # Process output
+    # Update sequence states
 ```
 
-4. **资源管理**
+4. **Resource Management**
 
 ```python
 def _initialize_kv_caches(self):
-    # 初始化 KV cache
+    # Initialize KV cache
     num_gpu_blocks, num_cpu_blocks = self.model_executor.determine_num_available_blocks()
     self.model_executor.initialize_cache(num_gpu_blocks, num_cpu_blocks)
 ```
 
-5. **LoRA 和 Prompt Adapter 管理**
+5. **LoRA and Prompt Adapter Management**
 
 ```python
 def add_lora(self, lora_request: LoRARequest) -> bool
@@ -215,386 +211,384 @@ def remove_lora(self, lora_id: int) -> bool
 def add_prompt_adapter(self, prompt_adapter_request: PromptAdapterRequest) -> bool
 ```
 
-6. **监控和统计**
+6. **Monitoring and Statistics**
 
 ```python
 def do_log_stats(self, scheduler_outputs: Optional[SchedulerOutputs] = None, ...):
-    # 记录性能指标
-    # 统计资源使用情况
-    # 追踪请求状态
+    # Record performance metrics
+    # Track resource usage
+    # Monitor request status
 ```
 
-7. **请求状态管理**
+7. **Request Status Management**
 
 ```python
 def abort_request(self, request_id: Union[str, Iterable[str]]):
-    # 中止指定请求
+    # Abort specified requests
     
 def has_unfinished_requests(self) -> bool:
-    # 检查是否有未完成的请求
+    # Check for unfinished requests
 ```
 
-可见，`LLMEngine` 是 vLLM 的核心协调类，负责整体工作流程：
+As we can see, `LLMEngine` is vLLM's core coordination class, responsible for the overall workflow:
 
-   - 请求管理和调度
-   - 资源分配和管理
-   - 执行流程协调
-   - 状态监控和统计
+   - Request management and scheduling
+   - Resource allocation and management
+   - Execution process coordination
+   - Status monitoring and statistics
 
-其下具有多个主要组件：
-
-   - `Executor` 负责计算
-   - `Scheduler` 负责调度
-   - `Tokenizer` 处理文本
-   - `InputPreprocessor` 处理输入
+It has several main components:
+   - `Executor` for computation
+   - `Scheduler` for scheduling
+   - `Tokenizer` for text processing
+   - `InputPreprocessor` for input processing
 
 # SGLang
 
-相比于 vllm 中 all in one 的 `Worker` 类，SGLang 中对于单张 GPU 上的模型管理分拆为了 [TpModelWorker](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py) 和 [ModelRunner](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py) 类：
+Compared to vllm's all-in-one `Worker` class, SGLang splits the model management on a single GPU into [TpModelWorker](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py) and [ModelRunner](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py) classes:
 
-- `TpModelWorker`：类似于 vllm 的 `Worker`，也是管理单个 GPU 上的模型。但功能相对简单，主要负责初始化模型和分布式环境、管理内存池、执行模型的前向传播、分类处理 embedding 和生成任务。
-- `ModelRunner`：负责执行模型推理，并提供接口给 `TpModelWorker` 调用。
+- `TpModelWorker`: Similar to vllm's Worker, also manages model on a single GPU. However, its functionality is relatively simpler, mainly responsible for initializing model and distributed environment, managing memory pool, executing model's forward propagation, and handling embedding and generation tasks.
+- `ModelRunner`: Responsible for executing model inference and providing interfaces for `TpModelWorker` to call.
 
-对比来看:
+Comparing the two:
 
-- sglang 的 `TpModelWorker` 更类似于 vllm 的 `Worker`，都是高层次的模型管理器
-- sglang 将具体的模型执行逻辑分离到了 `ModelRunner` 中，而 vllm 的这部分逻辑大多在 `Worker` 类中
-- sglang 的设计更模块化，将模型执行和管理分成了两个类
-- vllm 的 `Worker` 功能更丰富，包含了更多高级特性的支持，但是维护和二次开发相对复杂
+- SGLang's `TpModelWorker` is more similar to vllm's `Worker`, both being high-level model managers
+- SGLang separates specific model execution logic into `ModelRunner`, while vllm keeps most of this logic in the `Worker` class
+- SGLang's design is more modular, separating model execution and management into two classes
+- vllm's `Worker` has richer functionality, including support for more advanced features, but is more complex to maintain and extend
 
-## `TpModelWorker`
+## TpModelWorker
 
-源码地址：[sglang/sglang/srt/managers/tp_worker.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py)
+Source code: [sglang/sglang/srt/managers/tp_worker.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker.py)
 
-1. **初始化**
+1. **Initialization**
 ```python
 def __init__(self, server_args, gpu_id, tp_rank, dp_rank, nccl_port)
 ```
 
-- 初始化模型配置和 `ModelRunner`
-- 初始化 `Tokenizer`
-- 设置内存和请求相关参数
-- 同步多 GPU 间的随机种子（`TpModelWorker` 只管理单张 GPU）
+- Initialize model configuration and `ModelRunner`
+- Initialize `Tokenizer`
+- Set memory and request-related parameters
+- Synchronize random seeds between multiple GPUs (`TpModelWorker` only manages a single GPU)
 
-2. **读取工作状态**
-
-```python
-def get_worker_info(self)  # 返回worker关键参数
-def get_pad_input_ids_func(self)  # 获取padding函数
-def get_tp_cpu_group(self)  # 获取tensor parallel CPU组
-def get_memory_pool(self)  # 获取内存池
-```
-
-3. **前向计算**
+2. **Reading Work Status**
 
 ```python
-def forward_batch_generation(self, model_worker_batch)  # 生成任务
-def forward_batch_embedding(self, model_worker_batch)  # embedding 任务
+def get_worker_info(self)  # Return worker key parameters
+def get_pad_input_ids_func(self)  # Get padding function
+def get_tp_cpu_group(self)  # Get tensor parallel CPU group
+def get_memory_pool(self)  # Get memory pool
 ```
 
-4. **模型更新**
+3. **Forward Computation**
 
 ```python
-def update_weights(self, recv_req)  # 更新模型权重
+def forward_batch_generation(self, model_worker_batch)  # Generation tasks
+def forward_batch_embedding(self, model_worker_batch)  # Embedding tasks
 ```
 
-注意到其中有大量的请求实际上是调用 `ModelRunner` 的接口。比如：
+4. **Model Updates**
 
-1. `forward_batch_generation` 和 `forward_batch_embedding` 都是调用 `ModelRunner` 的 `forward` 方法；
-2. `update_weights` 调用 `ModelRunner` 的 `update_weights` 方法，而这是 OpenRLHF 的一个关键接口；
+```python
+def update_weights(self, recv_req)  # Update model weights
+```
 
-从中可见，OpenRLHF 在 vllm `Worker` 的基础上扩充的[两个接口](https://github.com/OpenRLHF/OpenRLHF/blob/main/openrlhf/trainer/ray/vllm_worker_wrap.py)，应该在 `TpModelWorker` 中实现。
+Note that many of these requests actually call `ModelRunner` interfaces. For example:
+
+1. `forward_batch_generation` and `forward_batch_embedding` both call `ModelRunner`'s `forward` method
+2. `update_weights` calls `ModelRunner`'s `update_weights` method, which is a key interface for OpenRLHF
+
+From this, we can see that OpenRLHF's [two interfaces](https://github.com/OpenRLHF/OpenRLHF/blob/main/openrlhf/trainer/ray/vllm_worker_wrap.py) added to vllm's `Worker` should be implemented in `TpModelWorker`.
 
 ## `ModelRunner`
 
-`ModelRunner` 类负责实际上的模型推理，并提供接口给 `TpModelWorker` 调用。
+The `ModelRunner` class is responsible for actual model inference and provides interfaces for `TpModelWorker` to call.
 
-源码地址：[sglang/sglang/srt/model_executor/model_runner.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py)
+Source code: [sglang/sglang/srt/model_executor/model_runner.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/model_executor/model_runner.py)
 
-1. 负责具体的模型执行逻辑
-2. 管理模型的内存和计算资源
-3. 处理模型的前向计算和采样
-4. 优化计算性能(CUDA 图、attention backend 等)
-5. 支持模型权重的动态更新
+1. Responsible for specific model execution logic
+2. Manages model's memory and compute resources
+3. Handles model's forward computation and sampling
+4. Optimizes computation performance (CUDA graphs, attention backend, etc.)
+5. Supports dynamic model weight updates
 
-1. **初始化**
+1. **Initialization**
 
 ```python
 def __init__(self, model_config, mem_fraction_static, gpu_id, tp_rank, tp_size, nccl_port, server_args)
 ```
-- 初始化模型配置和设备
-- 设置分布式训练参数
-- 初始化内存池和注意力后端
-- 配置 CUDA Graphs
+- Initialize model configuration and devices
+- Set distributed training parameters
+- Initialize memory pool and attention backend
+- Configure CUDA Graphs
 
-2. **模型加载与更新**
+2. **Model Loading and Updates**
 
 ```python
-def load_model(self)  # 加载模型权重
-def update_weights(self, model_path, load_format)  # 更新模型权重
+def load_model(self)  # Load model weights
+def update_weights(self, model_path, load_format)  # Update model weights
 ```
 
-3. **前向计算**
+3. **Forward Computation**
 
 ```python
-def forward(self, forward_batch)  # 执行前向计算
-def forward_decode(self, forward_batch)  # 解码阶段的前向计算
-def forward_extend(self, forward_batch)  # 扩展阶段的前向计算
+def forward(self, forward_batch)  # Execute forward computation
+def forward_decode(self, forward_batch)  # Forward computation in decoding phase
+def forward_extend(self, forward_batch)  # Forward computation in extension phase
 ```
 
-4. **采样和 logits 处理**
+4. **Sampling and Logits Processing**
 
 ```python
-def sample(self, logits_output, forward_batch)  # 采样下一个 token
-def apply_logits_bias(self, logits, sampling_info)  # 应用 logits 偏置和惩罚
+def sample(self, logits_output, forward_batch)  # Sample next token
+def apply_logits_bias(self, logits, sampling_info)  # Apply logits bias and penalties
 ```
 
-5. **内存管理**
+5. **Memory Management**
 
 ```python
-def profile_max_num_token(self, total_gpu_memory)  # 计算最大 token 数
-def init_memory_pool(self, total_gpu_memory, max_num_reqs, max_total_tokens)  # 初始化内存池
+def profile_max_num_token(self, total_gpu_memory)  # Calculate maximum token count
+def init_memory_pool(self, total_gpu_memory, max_num_reqs, max_total_tokens)  # Initialize memory pool
 ```
-6. **CUDA 和性能优化**
+
+6. **CUDA and Performance Optimization**
 
 ```python
-def init_cublas(self)  # 初始化 cuBLAS
-def init_cuda_graphs(self)  # 初始化 CUDA 图
-def init_attention_backend(self)  # 初始化注意力后端
+def init_cublas(self)  # Initialize cuBLAS
+def init_cuda_graphs(self)  # Initialize CUDA graphs
+def init_attention_backend(self)  # Initialize attention backend
 ```
 
 ## `TpModelWorkerClient`
 
-在 vllm 的 `Worker` 类之上封装了一层 `Executor`，二者完成对一张 GPU 的管理，而 `Executor` 之上又封装了一次 `LLMEngine`，管理多卡间的多种并行策略。
+While vllm wraps its `Worker` class with an `Executor` layer (both managing a single GPU), and then wraps `Executor` with `LLMEngine` to manage various parallel strategies across multiple cards, SGLang takes a different approach.
 
-在 SGLang 中，`ModelRunner` 其上封装了 `TpModelWorker`，而 `TpModelWorker` 之上又封装了一层 `TpModelWorkerClient`。注意到，这并不是一个多 GPU 的管理类，而是对 `TpModelWorker` 进行的异步包装，支持 SGLang 0.3.5 （即将发布）的 overlap 优化，通过多线程实现计算和数据传输的重叠，提高吞吐量。因此，`TpModelWorkerClient` 和 `TpModelWorker` 还在同一个层面。
+In SGLang, above `ModelRunner` is wrapped by `TpModelWorker`, which is then wrapped by `TpModelWorkerClient`. Note that this is not a multi-GPU management class, but rather an asynchronous wrapper for `TpModelWorker`, supporting SGLang 0.3.5's (upcoming) overlap optimization, achieving computation and data transfer overlap through multi-threading. Therefore, `TpModelWorkerClient` remains on the same level as `TpModelWorker`.
 
-源码地址：[sglang/sglang/srt/managers/tp_worker_client.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker_overlap_thread.py)
+Source code: [sglang/sglang/srt/managers/tp_worker_client.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tp_worker_overlap_thread.py)
 
-1. 通过多线程实现计算和数据传输的重叠
-2. 使用 future token 机制处理依赖关系
-3. 支持异步批处理
-4. 优化 GPU-CPU 数据传输
-5. 保持与 `TpModelWorker` 接口的兼容性
+1. Implements computation and data transfer overlap through multi-threading
+2. Uses future token mechanism to handle dependencies
+3. Supports asynchronous batch processing
+4. Optimizes GPU-CPU data transfer
+5. Maintains compatibility with `TpModelWorker` interfaces
 
-1. **初始化**
+1. **Initialization**
 ```python
 def __init__(self, server_args, gpu_id, tp_rank, dp_rank, nccl_port)
 ```
-- 创建底层的 TpModelWorker
-- 初始化 future token 映射
-- 启动前向计算和数据复制线程
+- Create underlying TpModelWorker
+- Initialize future token mapping
+- Launch forward computation and data copy threads
 
-2. **异步计算线程**
-
-```python
-def forward_thread_func(self)  # 前向计算线程入口
-def forward_thread_func_(self)  # 实际的计算逻辑
-```
-
-- 从输入队列获取批次数据
-- 解析 future tokens
-- 执行模型前向计算
-- 更新 future token 映射
-- 异步复制结果到 CPU
-
-3. **数据复制线程**
+2. **Asynchronous Computation Thread**
 
 ```python
-def copy_thread_func(self)  # 数据复制线程
+def forward_thread_func(self)  # Forward computation thread entry
+def forward_thread_func_(self)  # Actual computation logic
 ```
 
-- 等待 GPU 计算完成
-- 将结果从 GPU 复制到 CPU
-- 处理 logprobs
-- 将结果放入输出队列
+- Get batch data from input queue
+- Parse future tokens
+- Execute model forward computation
+- Update future token mapping
+- Asynchronously copy results to CPU
 
-4. **批处理接口**
+3. **Data Copy Thread**
 
 ```python
-def forward_batch_generation(self, model_worker_batch)  # 生成任务
-def forward_batch_embedding(self, model_worker_batch)  # embedding 任务
+def copy_thread_func(self)  # Data copy thread
 ```
 
-- 提交批次到输入队列
-- 分配 future token IDs
-- 返回占位符结果
+- Wait for GPU computation completion
+- Copy results from GPU to CPU
+- Process logprobs
+- Put results in output queue
 
-5. **结果获取**
+4. **Batch Processing Interface**
 
 ```python
-def resulve_batch_result(self, bid)  # 获取计算结果
+def forward_batch_generation(self, model_worker_batch)  # Generation tasks
+def forward_batch_embedding(self, model_worker_batch)  # Embedding tasks
 ```
 
-- 从输出队列获取结果
-- 等待批次启动完成
-- 返回实际结果
+- Submit batch to input queue
+- Allocate future token IDs
+- Return placeholder results
 
-`TpModelWorkerClient` 的代码量不大，还是负责单卡的管理，那么再往上呢？
+5. **Result Retrieval**
+
+```python
+def resolve_batch_result(self, bid)  # Get computation results
+```
+
+- Get results from output queue
+- Wait for batch launch completion
+- Return actual results
+
+The `TpModelWorkerClient` code is not large and still manages a single card, so what's next up?
 
 ## `Scheduler`
 
-`Scheduler` 还是在管理单卡，这次是为了 `TpModelWorker/TpModelWorkerClient` 做调度，确实是一个调度器。
+The `Scheduler` is still managing a single card, this time for scheduling `TpModelWorker/TpModelWorkerClient`. It is indeed a scheduler.
 
-源码地址：[sglang/sglang/srt/managers/scheduler.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py)
+Source code: [sglang/sglang/srt/managers/scheduler.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py)
 
-1. **初始化与配置**
+1. **Initialization and Configuration**
 
 ```python
 def __init__(self, server_args, port_args, gpu_id, tp_rank, dp_rank)
 ```
 
-- 初始化进程间通信（ZMQ sockets）
-- 创建 tokenizer 和 model config
-- 根据 overlap 特性初始化 TpModelWorker/TpModelWorkerClient
-- 初始化内存池和缓存系统
-- 设置调度策略和批处理参数
+- Initialize inter-process communication (ZMQ sockets)
+- Create tokenizer and model config
+- Initialize TpModelWorker/TpModelWorkerClient based on overlap features
+- Initialize memory pool and cache system
+- Set scheduling strategies and batch processing parameters
 
-2. **请求管理**
+2. **Request Management**
 
-- 维护请求队列（waiting_queue）
-- 管理当前运行的批次（running_batch）
-- 处理请求的生命周期（添加、执行、完成）
-- 支持请求的中止和撤回
+- Maintain request queue (waiting_queue)
+- Manage currently running batches (running_batch)
+- Handle request lifecycle (add, execute, complete)
+- Support request abortion and withdrawal
 
-3. **批处理调度**
+3. **Batch Scheduling**
 
 ```python
-def event_loop_normal(self)  # 普通调度循环
-def event_loop_overlap(self)  # 重叠调度循环
+def event_loop_normal(self)  # Normal scheduling loop
+def event_loop_overlap(self)  # Overlap scheduling loop
 ```
 
-- 实现两种调度模式：普通和重叠
-- 动态批处理大小管理
-- 请求优先级处理
-- 负载均衡
+- Implement two scheduling modes: normal and overlap
+- Dynamic batch size management
+- Request priority processing
+- Load balancing
 
-4. **内存管理**
+4. **Memory Management**
 
-- 管理 token 池和 KV 缓存
-- 实现 RadixCache 和 ChunkCache
-- 支持缓存刷新和重置
-- 内存使用优化
+- Manage token pool and KV cache
+- Implement RadixCache and ChunkCache
+- Support cache refresh and reset
+- Memory usage optimization
 
-5. **性能优化**
+5. **Performance Optimization**
 
-- 支持 chunked prefill
-- 实现 grammar cache
-- 提供性能指标收集
-- 支持性能分析（profiling）
+- Support chunked prefill
+- Implement grammar cache
+- Provide performance metrics collection
+- Support profiling
 
-6. **结果处理**
+6. **Result Processing**
 
-- 处理批处理结果
-- 管理 token 生成
-- 处理 logprobs
-- 更新请求状态
+- Handle batch processing results
+- Manage token generation
+- Process logprobs
+- Update request status
 
-7. **监控和维护**
+7. **Monitoring and Maintenance**
 
-- watchdog 线程监控
-- 指标收集和统计
-- 错误处理和恢复
-- 日志记录
+- Watchdog thread monitoring
+- Metrics collection and statistics
+- Error handling and recovery
+- Logging
 
 ## `DataParallelController`
 
-从 `DataParallelController` 开始，终于到了管理多 GPU 的控制器。目前为止，我们梳理过：
+Starting with `DataParallelController`, we finally reach the multi-GPU controller. So far, we've covered:
 
 ```python
 ModelRunner -> TpModelWorker / TpModelWorkerClient -> Scheduler
 ```
 
-到这里，所有的文章都是集中在单卡上的 TP 做的，为什么突然就到了 DP 多卡呢？直观上，显然 DP 相比 TP 是更上一层，为什么 SGLang 没有 `TensorParallelController`，而直接到了 `DataParallelController`？
+Until now, all the components have focused on Tensor Parallelism (TP) on a single card. Why do we suddenly jump to Data Parallelism (DP) across multiple cards? Intuitively, DP is clearly a higher level than TP, so why doesn't SGLang have a `TensorParallelController` before moving directly to `DataParallelController`?
 
-**事实上，SGLang 的 `DataParallelController` 同时也进行了 TP 和 DP 的统一管理。TP 需要管理的内容不多，大家都是一致的，做好 `broadcast input` 和 `allreduce activations` 即可。所以，`DataParallelController` 将 TP 的管理和更上层的 DP 管理统一到了这一层，换言之，这是个多级并行控制器。**
+**In fact, SGLang's `DataParallelController` manages both TP and DP simultaneously. TP doesn't require much management, as everyone is consistent - just handle `broadcast input` and `allreduce activations`. Therefore, `DataParallelController` unifies TP management with higher-level DP management at this layer. In other words, this is a multi-level parallel controller.**
 
-源码地址：[sglang/sglang/srt/managers/data_parallel_controller.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py)
+Source code: [sglang/sglang/srt/managers/data_parallel_controller.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/data_parallel_controller.py)
 
-
-1. **多级并行架构管理**
+1. **Multi-level Parallel Architecture Management**
 
 ```python
 def __init__(self, server_args, port_args):
-    # 初始化多级并行结构
+    # Initialize multi-level parallel structure
     self.workers = []  # DP workers
     for dp_rank in range(server_args.dp_size):
-        # 每个 DP worker 内部包含多个 TP workers
+        # Each DP worker contains multiple TP workers
         self.launch_tensor_parallel_group(...)
 ```
-- 管理数据并行(DP)和张量并行(TP)的多级结构
-- 为每个 DP 组分配独立的 GPU 资源块
-- 支持多节点分布式部署
+- Manage Data Parallel (DP) and Tensor Parallel (TP) multi-level structure
+- Allocate independent GPU resource blocks for each DP group
+- Support multi-node distributed deployment
 
-2. **负载均衡**
+2. **Load Balancing**
 
 ```python
 class LoadBalanceMethod(Enum):
     ROUND_ROBIN = auto()
     SHORTEST_QUEUE = auto()
 ```
-- 实现多种负载均衡策略
-- 在 DP workers 间分发请求
-- 动态调整工作负载
+- Implement multiple load balancing strategies
+- Distribute requests among DP workers
+- Dynamically adjust workload
 
+The current DP router implementation is still naive, but more efficient cache-aware DP scheduling will be implemented later, please see [rust router](https://github.com/sgl-project/sglang/tree/main/sgl-router).
 
-目前 DP  router 的实现还很 naive，但是之后会实现更高效的 cache aware DP scheduling，敬请参见 [rust router](https://github.com/sgl-project/sglang/tree/main/rust)。
+3. **Inter-process Communication**
 
-3. **进程间通信**
+- Use ZMQ to manage complex inter-process communication
+- Handle request forwarding from tokenizer to worker
+- Support control message broadcasting
 
-- 使用 ZMQ 管理复杂的进程间通信
-- 处理 tokenizer 到 worker 的请求转发
-- 支持控制消息的广播
-
-4. **请求调度**
+4. **Request Scheduling**
 
 ```python
 def event_loop(self):
-    # 请求分发与处理
+    # Request distribution and processing
     if isinstance(recv_req, (TokenizedGenerateReqInput, TokenizedEmbeddingReqInput)):
         self.dispatching(recv_req)
 ```
 
-- 接收和分发推理请求
-- 处理特殊控制消息
-- 维护请求的生命周期
+- Receive and distribute inference requests
+- Handle special control messages
+- Maintain request lifecycle
 
-5. **资源协调**
+5. **Resource Coordination**
 
-- 协调 GPU 资源分配
-- 管理进程启动和同步
-- 确保并行组间的资源隔离
+- Coordinate GPU resource allocation
+- Manage process startup and synchronization
+- Ensure resource isolation between parallel groups
 
-6. **错误处理与监控**
+6. **Error Handling and Monitoring**
 
-- 异常捕获和日志记录
-- 进程存活性监控
-- 支持优雅的错误恢复
+- Exception catching and logging
+- Process liveness monitoring
+- Support graceful error recovery
 
-7. **性能优化**
+7. **Performance Optimization**
 
-- 支持灵活的负载均衡策略
-- 优化跨进程通信效率
-- 提供性能监控机制
+- Support flexible load balancing strategies
+- Optimize cross-process communication efficiency
+- Provide performance monitoring mechanisms
+
 
 ## `TokenizerManager`
 
-目前为止，我们梳理过：
+So far, we've covered:
 
 ```python
 ModelRunner -> TpModelWorker / TpModelWorkerClient -> Scheduler -> DataParallelController
 ```
 
-这条脉络，基本把 TP control 自底向上描述了一番。距离我们完整搭建一个 SGLang Architecture 余下不多了。这里继续完成余下的 
-`RunTime, Engine, TokenizerManager, DetokenizerManager`。
+This path has essentially described the TP control from bottom to top. We're not far from building a complete SGLang Architecture. Let's continue with the remaining components: `RunTime, Engine, TokenizerManager, DetokenizerManager`.
 
-`TokenizerManager` 是整个推理系统的前端处理器。源码地址：[sglang/sglang/srt/managers/tokenizer_manager.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py)
+`TokenizerManager` is the frontend processor of the entire inference system. Source code: [sglang/sglang/srt/managers/tokenizer_manager.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/tokenizer_manager.py)
 
-1. **文本预处理**
+1. **Text Preprocessing**
 
-```python:
+```python
 async def _tokenize_one_request(self, obj):
-    # 处理输入文本和图像
+    # Handle input text and images
     input_text = obj.text
     if obj.input_ids is None:
         input_ids = self.tokenizer.encode(input_text)
@@ -603,90 +597,90 @@ async def _tokenize_one_request(self, obj):
         image_inputs = await self.image_processor.process_images_async(...)
 ```
 
-2. **请求分发与结果聚合**
+2. **Request Distribution and Result Aggregation**
 
 ```python
 def __init__(self, server_args, port_args):
-    # 初始化进程间通信
+    # Initialize inter-process communication
     self.recv_from_detokenizer = get_zmq_socket(...)
     self.send_to_scheduler = get_zmq_socket(...)
 ```
 
-3. **模型更新协调**
+3. **Model Update Coordination**
 
 ```python
 async def update_weights(self, obj: UpdateWeightReqInput, request: Optional[fastapi.Request] = None):
     async with self.model_update_lock:
-        # 等待现有请求完成
+        # Wait for existing requests to complete
         while len(self.rid_to_state) > 0:
             await asyncio.sleep(0.001)
         
-        # 向下游广播更新请求
+        # Broadcast update request to downstream
         self.send_to_scheduler.send_pyobj(obj)
 ```
 
-对于 OpenRLHF 接口而言，我们格外关注 `update_weights` 接口。显然，从顶向下都有 `update_weights` 接口。
+For the OpenRLHF interface, we pay special attention to the `update_weights` interface. Clearly, there are `update_weights` interfaces from top to bottom.
 
-1. **TokenizerManager 的 update_weights**:
+1. **TokenizerManager's update_weights**:
 
-   - 作为前端控制器
-   - 负责协调更新过程
-   - 确保更新时没有正在处理的请求
-   - 向所有下游组件广播更新指令
+   - Acts as frontend controller
+   - Responsible for coordinating the update process
+   - Ensures no requests are being processed during update
+   - Broadcasts update instructions to all downstream components
 
-2. **TpModelWorker 的 update_weights**:
+2. **TpModelWorker's update_weights**:
 
-   - 作为实际执行者
-   - 负责实际加载新的模型权重
-   - 管理 GPU 内存
-   - 执行具体的模型更新操作
+   - Acts as actual executor
+   - Responsible for actually loading new model weights
+   - Manages GPU memory
+   - Executes specific model update operations
 
-这是一个典型的控制器-执行者模式:
-- TokenizerManager: 控制器，协调整个更新流程
-- TpModelWorker: 执行者，实际执行模型更新
+This is a typical controller-executor pattern:
+- TokenizerManager: Controller, coordinates the entire update process
+- TpModelWorker: Executor, actually executes model updates
 
-## `DetokenizerManager`
+## DetokenizerManager
 
-`DetokenizerManager` 处理模型输出的 token ids 到文本的转换，特别是处理增量解码(incremental decoding）。源码地址：[sglang/sglang/srt/managers/detokenizer_manager.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/detokenizer_manager.py)
+`DetokenizerManager` handles the conversion of model output token ids to text, especially handling incremental decoding. Source code: [sglang/sglang/srt/managers/detokenizer_manager.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/detokenizer_manager.py)
 
-1. **增量解码状态管理**
+1. **Incremental Decoding State Management**
 
 ```python
 @dataclasses.dataclass
 class DecodeStatus:
-    """存储增量解码的状态"""
-    vid: int                # version id，用于跟踪解码版本
-    decoded_text: str       # 已解码的文本
-    decode_ids: List[int]   # 解码的token ids
-    surr_offset: int        # surrogate偏移量
-    read_offset: int        # 读取偏移量
+    """Store incremental decoding status"""
+    vid: int                # version id, for tracking decode version
+    decoded_text: str       # decoded text
+    decode_ids: List[int]   # decoded token ids
+    surr_offset: int        # surrogate offset
+    read_offset: int        # read offset
 ```
 
-2. **批处理解码**
+2. **Batch Processing Decoding**
 
 ```python
 def event_loop(self):
     while True:
         recv_obj = self.recv_from_scheduler.recv_pyobj()
         
-        # 处理特殊请求类型
+        # Handle special request types
         if isinstance(recv_obj, (BatchEmbeddingOut, UpdateWeightReqOutput, GetMemPoolSizeReqOutput)):
             self.send_to_tokenizer.send_pyobj(recv_obj)
             continue
             
-        # 处理正常的token解码请求
+        # Handle normal token decoding requests
         bs = len(recv_obj.rids)
         read_ids, surr_ids = [], []
         for i in range(bs):
-            # ... 准备批处理解码数据 ...
+            # ... prepare batch decoding data ...
 ```
 
-3. **增量文本生成**
+3. **Incremental Text Generation**
 
 ```python
-# 增量解码处理
+# Incremental decoding processing
 if recv_obj.finished_reason[i] is None:
-    # 流式输出：更新解码状态
+    # Stream output: update decode status
     if len(new_text) > 0 and not new_text.endswith("�"):
         s.decoded_text = s.decoded_text + new_text
         s.surr_offset = s.read_offset
@@ -696,61 +690,61 @@ if recv_obj.finished_reason[i] is None:
         new_text = find_printable_text(new_text)
 ```
 
-4. **EOS(End of Sequence)处理**
+4. **EOS (End of Sequence) Processing**
 
 ```python
 def trim_eos(self, output: Union[str, List[int]], finished_reason, no_stop_trim):
     if no_stop_trim:
         return output
 
-    # 处理停止字符串
+    # Handle stop strings
     if isinstance(finished_reason, FINISH_MATCHED_STR) and isinstance(output, str):
         pos = output.find(finished_reason.matched)
         return output[:pos] if pos != -1 else output
 ```
 
-5. **缓存管理**
+5. **Cache Management**
 
 ```python
 class LimitedCapacityDict(OrderedDict):
-    """有限容量的缓存字典"""
+    """Limited capacity cache dictionary"""
     def __init__(self, capacity=1 << 15, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.capacity = capacity
 
     def __setitem__(self, key, value):
         if len(self) >= self.capacity:
-            self.popitem(last=False)  # 移除最旧的元素
+            self.popitem(last=False)  # Remove oldest element
         super().__setitem__(key, value)
 ```
 
-工作流程：
+Workflow:
 
-1. 接收来自 `Scheduler` 的 token ids
-2. 维护每个请求的解码状态
-3. 进行批量解码
-4. 处理特殊字符和 EOS
-5. 将解码后的文本发还给 `TokenizerManager`
+1. Receive token ids from `Scheduler`
+2. Maintain decoding status for each request
+3. Perform batch decoding
+4. Handle special characters and EOS
+5. Send decoded text back to `TokenizerManager`
 
-## `Engine`
 
-Engine 是一个无 HTTP 服务的纯推理引擎实现。源码地址：[sglang/sglang/srt/server.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server.py)
+## Engine
 
-核心实现:
+Engine is a pure inference engine implementation without HTTP service. Source code: [sglang/sglang/srt/server.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server.py)
+
+Core implementation:
 
 ```python
-
 class Engine:
     """SRT Engine without an HTTP server layer"""
     def __init__(self, *args, **kwargs):
-        # 1. 初始化配置
+        # 1. Initialize configuration
         server_args = ServerArgs(*args, **kwargs)
         
-        # 2. 启动引擎核心组件
+        # 2. Launch engine core components
         launch_engine(server_args=server_args)
 
     def generate(self, prompt: Optional[Union[List[str], str]] = None, ...):
-        # 构造请求对象
+        # Construct request object
         obj = GenerateReqInput(
             text=prompt,
             input_ids=input_ids,
@@ -758,74 +752,74 @@ class Engine:
             ...
         )
         
-        # 直接调用生成函数
+        # Directly call generation function
         loop = asyncio.get_event_loop()
         ret = loop.run_until_complete(generate_request(obj, None))
 ```
 
-组件集成流程:
+Component Integration Process:
 
-1. **初始化阶段** (`launch_engine`):
+1. **Initialization Phase** (`launch_engine`):
 
 ```python
 def launch_engine(server_args):
-    # 1. 根据 dp_size 启动计算节点
+    # 1. Launch compute nodes based on dp_size
     if server_args.dp_size == 1:
-        # 直接启动 TP workers
+        # Directly launch TP workers
         for tp_rank in tp_rank_range:
             proc = mp.Process(
-                target=run_scheduler_process,  # 每个 scheduler 管理一组 TpModelWorker
+                target=run_scheduler_process,  # Each scheduler manages a group of TpModelWorkers
                 args=(server_args, port_args, gpu_id, tp_rank, None, writer)
             )
     else:
-        # 通过 DP controller 管理
+        # Manage through DP controller
         proc = mp.Process(
             target=run_data_parallel_controller_process,
             args=(server_args, port_args, writer)
         )
 
-    # 2. 启动 Detokenizer
+    # 2. Launch Detokenizer
     detoken_proc = mp.Process(
         target=run_detokenizer_process,
         args=(server_args, port_args)
     )
 
-    # 3. 初始化 TokenizerManager
+    # 3. Initialize TokenizerManager
     tokenizer_manager = TokenizerManager(server_args, port_args)
 ```
 
-这里可以看到，当 dp size 为 1 时，会绕过 `DataParallelController` 而直接启动 `Scheduler`（【TODO：这里 scheduler 是在管理多卡么？？？】）。
+Here we can see that when dp size is 1, it bypasses the `DataParallelController` and directly launches the `Scheduler`.
 
-2. **请求处理流程**:
+2. **Request Processing Flow**:
 
 ```mermaid
 graph TD
     A[Engine.generate] --> B[TokenizerManager]
     B -->|ZMQ| C[Scheduler/DPController]
-    C -->|管理| D[TpModelWorker]
-    D -->|计算结果| C
+    C -->|Manage| D[TpModelWorker]
+    D -->|Computation Results| C
     C -->|ZMQ| E[DetokenizerManager]
     E -->|ZMQ| B
     B --> A
 ```
 
-3. **进程间通信**:
+3. **Inter-process Communication**:
 
 ```python
-# TokenizerManager 中的通信初始化
+# Communication initialization in TokenizerManager
 def __init__(self, server_args, port_args):
     self.recv_from_detokenizer = get_zmq_socket(...)
     self.send_to_scheduler = get_zmq_socket(...)
 ```
 
-关键特点:
+Key Features:
 
-1. **直接集成**
-- 无 HTTP 层，直接通过进程间通信
-- 更低的延迟和更高的性能
-- 适合嵌入到其他 Python 程序中
+1. **Direct Integration**
+- No HTTP layer, direct inter-process communication
+- Lower latency and higher performance
+- Suitable for embedding into other Python programs
 
-2. **异步支持**
+2. **Async Support**
 
 ```python
 async def async_generate(self, prompt, ...):
@@ -833,7 +827,7 @@ async def async_generate(self, prompt, ...):
     ret = await generate_request(obj, None)
 ```
 
-3. **流式处理**
+3. **Stream Processing**
 
 ```python
 def generate(self, ..., stream=False):
@@ -847,54 +841,51 @@ def generate(self, ..., stream=False):
         return generator_wrapper()
 ```
 
-4. **资源管理**
+4. **Resource Management**
 
 ```python
 def shutdown(self):
-    kill_child_process()  # 清理所有子进程
+    kill_child_process()  # Clean up all child processes
 ```
 
-## `Runtime`
+## Runtime
 
-`Runtime` 是 SGLang 的入口，可以理解为 https 封装的 `Engine`，负责初始化和管理整个推理系统。源码地址：[sglang/sglang/srt/runtime.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/runtime.py)
+`Runtime` is SGLang's entry point, which can be understood as an HTTP-wrapped `Engine`, responsible for initializing and managing the entire inference system. Source code: [sglang/sglang/srt/runtime.py](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/runtime.py)
 
-
-1. **初始化流程**:
+1. **Initialization Process**:
 
 ```python
-
 class Runtime:
     def __init__(self, log_level: str = "error", *args, **kwargs):
-        # 1. 初始化配置
+        # 1. Initialize configuration
         self.server_args = ServerArgs(*args, log_level=log_level, **kwargs)
         
-        # 2. 分配端口
+        # 2. Allocate ports
         for port in range(10000, 40000):
             if is_port_available(port):
                 break
         self.server_args.port = port
         self.url = self.server_args.url()
         
-        # 3. 启动服务器进程
+        # 3. Launch server process
         pipe_reader, pipe_writer = mp.Pipe(duplex=False)
         proc = mp.Process(
-            target=launch_server,  # 注意这里是 launch_server 而不是 launch_engine
+            target=launch_server,  # Note this is launch_server not launch_engine
             args=(self.server_args, pipe_writer)
         )
         
-        # 4. 创建 HTTP 客户端
+        # 4. Create HTTP client
         self.endpoint = RuntimeEndpoint(self.url)
 ```
 
-2. **HTTP 服务封装**:
+2. **HTTP Service Wrapper**:
 
 ```python
-
-# FastAPI 应用
+# FastAPI application
 app = FastAPI()
 app.add_middleware(CORSMiddleware, ...)
 
-# API 端点
+# API endpoints
 @app.get("/health")
 async def health() -> Response:
     return Response(status_code=200)
@@ -904,11 +895,11 @@ async def generate(obj: GenerateReqInput, request: Request):
     return await tokenizer_manager.generate_request(obj, request)
 ```
 
-3. **客户端接口**:
-```python:sglang/srt/server.py
+3. **Client Interface**:
+```python
 class Runtime:
     def generate(self, prompt: Union[str, List[str]], ...):
-        # 同步调用
+        # Synchronous call
         response = requests.post(
             self.url + "/generate",
             json=json_data,
@@ -916,37 +907,35 @@ class Runtime:
         return json.dumps(response.json())
     
     async def async_generate(self, prompt: str, ...):
-        # 异步调用
+        # Asynchronous call
         async with session.post(self.generate_url, json=json_data) as response:
             async for chunk in response.content.iter_chunks():
-                # 处理流式响应
+                # Handle streaming response
 ```
 
-4. **组件集成架构**:
+4. **Component Integration Architecture**:
 
 ```mermaid
 graph TD
     A[Runtime Client] -->|HTTP| B[FastAPI Server]
     B --> C[TokenizerManager]
     C -->|ZMQ| D[Scheduler/DPController]
-    D -->|管理| E[TpModelWorker]
-    E -->|结果| D
+    D -->|Manage| E[TpModelWorker]
+    E -->|Results| D
     D -->|ZMQ| F[DetokenizerManager]
     F -->|ZMQ| C
     C --> B
     B -->|HTTP| A
 ```
 
-关键特点：
+Key Features:
 
-1. **多层封装**
+1. **Multi-layer Encapsulation**
+- HTTP layer: FastAPI server
+- Client layer: RuntimeEndpoint
+- Inter-process communication layer: Same architecture as Engine
 
-- HTTP 层：FastAPI 服务器
-- 客户端层：RuntimeEndpoint
-- 进程间通信层：与 Engine 相同的架构
-
-2. **请求处理流程**:
-
+2. **Request Processing Flow**:
 ```
 Client Request (HTTP)
     ↓
@@ -965,12 +954,9 @@ TokenizerManager
 FastAPI Response (HTTP)
 ```
 
-3. **灵活的接口支持**:
+3. **Flexible Interface Support**:
+- Synchronous/Asynchronous API
+- Stream output
+- OpenAI-compatible interface
 
-- 同步/异步 API
-- 流式输出
-- OpenAI 兼容接口
-
-`Runtime` 相比 `Engine` ，增加了 HTTP 服务层，提供了更完整的 API 接口，支持远程调用，更适合作为独立服务部署。
-
-
+Compared to `Engine`, `Runtime` adds an HTTP service layer, provides more complete API interfaces, supports remote calls, and is more suitable for deployment as an independent service.

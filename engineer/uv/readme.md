@@ -135,10 +135,10 @@ alias tls="tmux ls"
 alias tat="tmux attach -t"
 
 # 重新加载 zsh 配置
-alias sz="source /home/chenyang/.zshrc"
+alias sz="source ~/.zshrc"
 
 # 重新加载 bash 配置
-alias zb="source /home/chenyang/.bashrc"
+alias zb="source ~/.bashrc"
 
 # 杀死进程
 alias k9="kill -9"
@@ -157,7 +157,7 @@ alias grs="git reset --soft"
 
 # 设置 huggingface 的 token
 
-export HF_TOKEN="************************"
+export HF_TOKEN="*******************"
 
 # 设置 huggingface 的 cache 路径，请一定配置好，避免一个集群重复下载某个模型多次
 
@@ -171,7 +171,7 @@ export HOME="/data/chenyang"
 export RAY_ROOT_DIR="/data/.cache/ray"
 
 # 设置 wandb 的 api key
-export WANDB_API_KEY="*******************"
+export WANDB_API_KEY="*********************"
 
 # 设置 LD_LIBRARY_PATH，这是配置 flash attention 踩的坑，遇到问题可以参考
 export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:$LD_LIBRARY_PATH

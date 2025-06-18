@@ -1,5 +1,6 @@
 # 一文理解 Constraint Decoding 概念、方法与优化
 
+【[English](readme_en.md) | [中文](readme.md)】
 这篇文章是我和 [Shuai Shi](https://shuaills.github.io/) 在写 sglang 的 [constraint decoding tutorial](https://docs.sglang.ai/backend/structured_outputs.html) 时的学习笔记。SGLang 的文档专注在用法上，为此我们另外写一篇文章来阐述 constraint decoding 具体的概念和优化方法。
 
 ## 概念

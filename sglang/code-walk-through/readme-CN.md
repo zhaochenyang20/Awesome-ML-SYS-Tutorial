@@ -45,7 +45,7 @@
 1. 基于 Attention Backend 的 Radix Cache 管理。
 2. `get_next_batch_to_run`：如何为每批次请求提取和写入 KV 缓存。
 3. `get_model_worker_batch`。
-4. `write_req_to_token_pool_trition`。
+4. `write_req_to_token_pool_triton`。
 5. 使用 CUDA Graphs 优化 Attention Backend。
 6. 重叠调度策略（overlap scheduling）。
 
@@ -53,7 +53,7 @@
 
 ## 启动 Server（launch Sever）
 
-SGLang 提供 SRT（SGLang Runtime）Server 用于[服务 HTTP 请求](https://sgl-project.github.io/start/send_request.html)以及一个不依赖 HTTP 协议的[离线推理引擎](https://sgl-project.github.io/backend/offline_engine_api.html)。核心函数 [`launch_server`](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/server.py#L507) 和 [`launch_engine`](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/server.py#L418) 均定义在 [server.py](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/server.py) 中。其中，`launch_engine` 函数负责初始化核心 SRT Server 的组件。
+SGLang 提供 SRT（SGLang Runtime）Server 用于[服务 HTTP 请求](https://sgl-project.github.io/backend/send_request.html)以及一个不依赖 HTTP 协议的[离线推理引擎](https://sgl-project.github.io/backend/offline_engine_api.html)。核心函数 [`launch_server`](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/server.py#L507) 和 [`launch_engine`](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/server.py#L418) 均定义在 [server.py](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/server.py) 中。其中，`launch_engine` 函数负责初始化核心 SRT Server 的组件。
 
 1. 设置 logging、Server 参数、CUDA/NCCL 环境变量以及进程间通信端口，配置 model 和 tokenizer。
 2. 如果 `dp_size > 1`，运行 `run_data_parallel_controller_process` 以启动多个 data parallel replicas；否则，在每个 `tp_rank` 上，以子进程的方式初始化一个 Scheduler，处理来自 TokenizerManager 的请求，并且管理 KV Cache。
@@ -90,6 +90,9 @@ Server 使用 FastAPI 应用定义 API endpoint，通过 [v1_chat_completions](h
 
 
 ## Scheduler 接收请求以及处理批次 (Scheduler Receive Requests and Process Batches)
+
+这张图给出了 Scheduler 的概览：
+![sglang_scheduler](./sglang_scheduler.svg)
 
 [Scheduler](https://github.com/sgl-project/sglang/blob/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751/python/sglang/srt/managers/scheduler.py#L97) 作为 Server 的子进程运行，通过 `run_scheduler_process` 初始化，并通过 `event_loop_normal` 或 `event_loop_overlap` 执行无限的事件循环。
 
