@@ -4,7 +4,7 @@
 
 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme-CN.md)
 
-为了前后内容的一致性，我们基于 76f63cffa5 的 commit 进行分析。
+为了前后内容的一致性，我们基于 [76f63cffa5](https://github.com/volcengine/verl/commit/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39) 的 commit 进行分析。
 
 整个训练的示意图如下，我们会具体展开每个部分。
 
@@ -13,7 +13,7 @@ flowchart LR
 subgraph W2["Initialize"]
 WP[Process Data] --> A
 direction TB D1[Data Prepare] --> A
-A[RayPPOTrainer] --> B1[Resource Group]
+A[TaskRunner] --> B1[RayPPOTrainer]
 B1 --> Workers
 
     subgraph Workers["Workers"]
@@ -241,7 +241,7 @@ Ray Task 和 Ray Actor 都是用于分布式计算的核心原语，但它们各
 
 Ray Task 是 Ray 中最基本的计算单元，代表一个无状态的远程函数。Ray Task 的每次执行都是独立的，不保留之前的任何信息。就像调用一个普通函数，执行完后就清除内部状态。我们调用一个 Ray Task 后，会立即返回得到一个 Ray ObjectRef，而不是实际的结果。主程序可以继续执行其他操作，而 Ray Task 则在后台并行运行。我们需要使用 `ray.get()` 来获取 Task 的实际结果。 Ray Task 非常适合并行执行大量独立、一次性的计算任务，譬如数据批处理、独立的模型推理等场景。
 
-Ray Actor 是一种特殊的 Ray Task，正如前文所述，它有自己的状态和方法。当我们创建一个 Ray Actor 后，Ray 会在集群中的某个 **Ray Worker** 上启动一个专门的进程来托管这个对象。该进程会一直运行，直到被销毁。Actor 可以维护内部变量，并且这些变量在 Actor 的生命周期内是持久存在的。每次调用 Actor 的方法，都可以访问和修改这些状态。这与普通的 Ray Task 不同，普通 Task 执行完会清除内部状态。Ray Actor 支持并发请求，Ray 会负责将这些请求序列化执行，保证 Actor 内部状态的一致性和线程安全。我们可以通过 `@ray.remote` 装饰器将一个 Python 类转换为一个 Ray Actor 类，然后通过 `.remote()` 方法实例化一个远程 Actor。
+Ray Actor 是一种特殊的 Ray Task，正如前文所述，它是一个持续运行的、有自己的状态和方法的远程对象。当我们创建一个 Ray Actor 后，Ray 会在集群中的某个 **Ray Worker** 上启动一个专门的进程来托管这个对象。该进程会一直运行，直到被销毁。Actor 可以维护内部变量，并且这些变量在 Actor 的生命周期内是持久存在的。每次调用 Actor 的方法，都可以访问和修改这些状态。这与普通的 Ray Task 不同，普通 Task 执行完会清除内部状态。Ray Actor 支持并发请求，Ray 会负责将这些请求序列化执行，保证 Actor 内部状态的一致性和线程安全。我们可以通过 `@ray.remote` 装饰器将一个 Python 类转换为一个 Ray Actor 类，然后通过 `.remote()` 方法实例化一个远程 Actor。
 
 最后，Ray Worker 是 Ray 集群中真正执行代码的工作单元。一个 Ray 集群通常由一个 Head Node 和多个 Worker Nodes 组成。每个节点上都会运行一个或多个 Ray Worker 进程。无论是普通的 Ray Task 还是 Ray Actor 的方法，最终都是由 Ray Worker 进程来执行的。每个 Ray Worker 都会被分配一定的计算资源（如 CPU、GPU）。当你提交一个 Ray Task 或创建一个 Ray Actor 时，Ray 的调度器会找到一个有足够资源的 Worker 来运行它。Worker 进程之间以及 Worker 进程与头节点之间会进行通信，以协调任务执行、传输数据和管理状态。一个 Ray Worker 通常就是一个独立的 Python 进程。对于普通的 Ray Task，Ray Worker 相当于函数解释器，执行完任务后可能会被复用去执行其他任务。而对于 Ray Actor，Ray 会启动一个专门的 Worker 进程来托管这个 Actor，这个 Worker 进程的生命周期与 Actor 的生命周期绑定。
 
@@ -267,7 +267,7 @@ def run_ppo(config) -> None:
 
 ### ActorRolloutRefWorker 和 RayWorkerGroup 的初始化
 
-`TaskRunner` 是 verl 中实现 PPO/GRPO 训练的核心组件，它通过将整个 RL 训练流程封装在一个独立的 Ray Actor 中，实现了任务的封装、资源隔离和分布式协调。为了解释清楚 `TaskRunner`，我们将 verl 当中最让人费解且最复杂的 `ActorRolloutRefWorker` 和 `RayWorkerGroup` 这两个类提前解释清楚。
+[TaskRunner](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64) 是 verl 中实现 PPO/GRPO 训练的核心组件，它通过将整个 RL 训练流程封装在一个独立的 Ray Actor 中，实现了任务的封装、资源隔离和分布式协调。为了解释清楚 `TaskRunner`，我们将 verl 当中最让人费解且最复杂的 `ActorRolloutRefWorker` 和 `RayWorkerGroup` 这两个类提前解释清楚。
 
 我们先不讨论这两个类及其基类的具体意义，先讨论清楚其实例对象的创建过程。我们注意到这段 `TaskRunner` 的初始化中引入 `ActorRolloutRefWorker` 和 `RayWorkerGroup` 的相关代码：
 
@@ -322,11 +322,17 @@ def run_ppo(config) -> None:
 实际上，在 `main_ppo.py` 的 [172 行](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L172)，构造了 `RayPPOTrainer` 类，随后调用了 `RayPPOTrainer.init_workers()` 方法，我们进一步查看 `RayPPOTrainer.init_workers()` 方法的[相关代码](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L715)，我们观察到，每一个 RL worker 类（比如 ActorRolloutRefWorker）都会创造一个 work group（verl 中的各种 wg 变量），随后调用每个 worker group 的 `init_model()` 方法，而这些 worker group 实际上都是 `RayWorkerGroup` 的实例。`RayWorkerGroup` 的核心作用是资源调度的核心中间层，统一了各种 RL worker （比如 ActorRolloutRefWorker、CriticWorker）的接口，进行统一管理：
 
 ```python
+
+# RayWorkerGroup 实例，指定资源池 并规定角色和对应的类
 wg_dict = self.ray_worker_group_cls(
     resource_pool=resource_pool,  # 只需要指定资源池
-    ray_cls_with_init=worker_dict_cls,  # 指定 worker 类
+    ray_cls_with_init=worker_dict_cls,  # 一个包含数个worker的类 （e.g. actor_roll， critic, ref）
     device_name=self.device_name,
 )
+
+#通过.spawn()获取角色对Ray Actor实例的映射
+wg_dict.spawn(prefix_set=class_dict.keys())
+
 
 # 所有 worker 都通过相同的模式创建，我这里进行简化，实际上的代码比较繁琐
 actor_rollout_wg = RayWorkerGroup(resource_pool, actor_rollout_cls)
@@ -340,12 +346,26 @@ ref_policy_wg = RayWorkerGroup(resource_pool, ref_policy_cls)
 这部分代码在 [`ray_trainer.py`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L771) 中：
 
 ```python
+# 1. 为每个角色（例如 actor_rollout、critic、ref）指定用哪个类初始化 worker，并且说明在哪个资源池里分配它们
+    
+self.resource_pool_manager.create_resource_pool()
+self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
+resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
+    actor_rollout_cls = RayClassWithInitArgs(
+        cls=self.role_worker_mapping[Role.ActorRollout],
+        config=self.config.actor_rollout_ref,
+        role="actor_rollout",
+    )
+self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+    
+# 2. 根据资源池和角色，批量创建多个 worker 实例（Ray Actor）并统一管理它们，赋予对应的职责
 for resource_pool, class_dict in self.resource_pool_to_cls.items():
     worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
     wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls, device_name=self.device_name, **wg_kwargs)
     spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
     all_wg.update(spawn_wg)
-
+    
+# 3.调用 init_model() 完成模型加载
 if self.use_critic:
     self.critic_wg = all_wg["critic"]
     self.critic_wg.init_model()
@@ -402,7 +422,7 @@ def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, ...):
 
 如前文所说，`ActorRolloutRefWorker` 是 verl 中用于管理 Actor Training，Actor Rollout 和 Reference Model 的 worker class。我们具体来分析其逻辑上实现的功能。注意，本文档只分析 FSDP backend 下的实现，megatron 留作后文。
 
-1. [`ActorRolloutRefWorker.__init__()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/fsdp_workers.py#L101)
+**[`ActorRolloutRefWorker.__init__()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/fsdp_workers.py#L101)**
 
 1. 调用 Worker 基类的构造函数，并保存配置。
 2. 如果 PyTorch 分布式环境尚未初始化，则进行初始化，包括设置通信后端和进程组。
@@ -419,7 +439,7 @@ def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, ...):
 2. `actor_rollout_ref.actor.ppo_mini_batch_size`：这个参数的名字其实是准确的，因为 mini batch SGD 就是数据到达了一个 mini batch 就更新一次模型参数。在 verl 中，模型会在数据累积到一个 mini batch 后更新一次参数。
 3. `actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu`：这里其实是 gradient accumulation 的参数。由于一个 mini batch 的数据量可能仍然太大，无法一次性前向和反向传播，因此需要将其进一步拆分为 micro batch。每个 micro batch 会计算一次梯度并且累计，但是不会立刻更新模型参数。处理完整个 mini batch 后，才用累积的梯度进行一次参数更新。
 
-此外，在 verl 中，由于 verl 强调 SPMD 策略，可以理解为每个 RL worker 所占据的每个 GPU 上希望进行完全一致的操作，所以 verl 会要求每个 GPU 的 micro batch size 相同。因此，verl 会检查 train batch size / gpu 是否整除，如果不整除，则报错。这个设定其实完全没必要；对于 rollout 而言，SGLang 完全不需要发送的请求数量整除 DP 或者 TP size，更何况直接要整除 gpu 数量呢？但是，因为 verl 会用 all gather 从 rollout 的每个 worker 里收集数据，这就要求 rollout 的每个 worker 上分到的数据一致。更进一步，为了 SPMD，又要求 rollout 的每个 gpu 上分到的数据一致。最终，这就导致 verl 的 train batch size 必须整除 gpu 数量。
+此外，在 verl 中，由于 verl 强调 SPMD 策略，可以理解为每个 RL worker 所占据的每个 GPU 上希望进行完全一致的操作，所以 verl 会要求每个 GPU 的 micro batch size 相同。因此，verl 会检查 train batch size / gpu 是否整除 [(ref)](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/trainer/ppo/ray_trainer.py#L363)，如果不整除，则报错。这个设定其实完全没必要；对于 rollout 而言，SGLang 完全不需要发送的请求数量整除 DP 或者 TP size，更何况直接要整除 gpu 数量呢？但是，因为 verl 会用 all gather 从 rollout 的每个 worker 里收集数据，这就要求 rollout 的每个 worker 上分到的数据一致。更进一步，为了 SPMD，又要求 rollout 的每个 gpu 上分到的数据一致。最终，这就导致 verl 的 train batch size 必须整除 gpu 数量。
 
 区分好 mini batch 和 micro batch 后，我也是最近才明白 PPO 中是如何维护 on policy 的。我之前一直以为我们都是在做严格 on policy 的训练，但是一个 train batch size 下有好几个 mini batch，似乎第一个 mini batch 结束之后，目标策略（target policy，被训练的 policy）和行为策略（behavior policy，用于在环境中采样的 policy）就不一致了。一次采样会训练很多个 mini batch，从第一个 mini batch 结束就不是 on policy 了。事实也是如此，我们注意到 PPO 的 loss function：
 
@@ -448,10 +468,10 @@ Loss 归一化：在计算每个 mini-batch 的 Loss 时，可以将其除以该
 
 </details>
 
-whatever，解释了这么多，顺着理解 verl 的框架进一步学习了 RL 算法和系统，这里其实和 multi-turn 都还没有关系。我们还是回到 `ActorRolloutRefWorker` 的源码上。
+whatever，解释了这么多，顺着理解 verl 的框架进一步学习了 RL 算法和系统，这里其实和 multi-turn 都还没有关系，我们还是回到 `ActorRolloutRefWorker` 的源码上。
 
 <details>
-<summary> `ActorRolloutRefWorker.__init__()` </summary>
+<summary> ActorRolloutRefWorker.__init__ 源码 </summary>
 
 ```python
 def __init__(self, config: DictConfig, role: str):
@@ -540,251 +560,234 @@ def __init__(self, config: DictConfig, role: str):
 
 </details>
 
-【todo】
+**[`ActorRolloutRefWorker._build_model_optimizer()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/fsdp_workers.py#L177)**
 
-#### `ActorRolloutRefWorker.init_model()`
+这部分源码和类写的还是很直白的，不用太多解释：
+
+1. 初始化 Hugging Face 配置，获取 Generation Config，并设置模型的数据类型（Actor 使用 fp32，Reference 使用 bf16）。
+2. 使用 Hugging Face 的 `AutoModelForCausalLM` 或 `AutoModelForVision2Seq` 从预训练模型加载基础模型。
+3. 应用各种优化技术，包括 Liger kernel、融合 kernel、梯度检查点、LoRA 等。
+4. 根据配置选择 FSDP 或 FSDP2 策略，将模型封装到分布式训练框架中，支持参数分片和混合精度训练。
+5. 如果当前 Worker 是 Actor 角色，则初始化 AdamW 优化器和学习率调度器。
+
+<details>
+<summary> ActorRolloutRefWorker._build_model_optimizer 源码 </summary>
 
 ```python
-import importlib
-import torch
-from omegaconf import OmegaConf
-from typing import Optional
-from verl.utils.distributed import dispatch
-from verl.utils.distributed import Dispatch
-from verl.models.mcore.utils import offload_megatron_model_to_cpu, offload_megatron_optimizer
-from verl.utils.flops import FlopsCounter
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.utils.torch_dist import get_torch_device
-from verl.utils.megatron import (
-    get_model,
-    ModelType,
-    load_megatron_gptmodel_weights,
-    init_megatron_optim_config,
-    get_megatron_optimizer,
-    get_megatron_optimizer_param_scheduler,
-    load_mcore_dist_weights,
-)
-from verl.models.ppo_actor import MegatronPPOActor
-from verl.config import PrecisionType
-from verl.utils.generation import get_generation_config
-from verl.checkpoint import MegatronCheckpointManager
-from verl.registry import registry
+def _build_model_optimizer(
+        self,
+        model_path,
+        fsdp_config,
+        optim_config,
+        override_model_config,
+        use_remove_padding=False,
+        use_fused_kernels=False,
+        enable_gradient_checkpointing=False,
+        trust_remote_code=False,
+        use_liger=False,
+        role="actor",
+        enable_activation_offload=False,
+    ):
+        from torch import optim
+        from torch.distributed.fsdp import CPUOffload, MixedPrecision
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq
+        from verl.utils.model import get_generation_config, print_model_size, update_model_config
+        from verl.utils.torch_dtypes import PrecisionType
 
-@registry.register(RayPPOTrainer)
-class RayPPOTrainer:
-    def __init__(self, config, tokenizer, processor, role_worker_mapping, resource_pool_manager, ray_worker_group_cls, reward_fn, val_reward_fn, train_dataset, val_dataset, collate_fn, train_sampler, device_name):
-        # ... (previous init)
-        self.ref_in_actor = config.actor_rollout_ref.get("ref_in_actor", False)
+        assert role in ["actor", "ref"]
 
-    def init_workers(self):
-        # ... (previous init_workers)
+        log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
+        local_path = model_path
 
-@registry.register(ActorRolloutRefWorker)
-class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
-    def __init__(self, config: DictConfig, role: str, name=None):
-        # ... (previous init)
-        self._is_offload_param = self.config.actor.megatron.get("offload_param", False)
-        self._is_offload_optimizer = self.config.actor.megatron.get("offload_optimizer", False)
-        self._ref_is_offload_param = self.config.ref.megatron.get("offload_param", False)
-        self.share_embeddings_and_output_weights = self.config.model.get("share_embeddings_and_output_weights", True)
-        self.local_path = None
-        self.hf_config = None
-        self.tf_config = None
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
-    def _init_hf_config_and_tf_config(self, model_path, trust_ckpt_path, dtype, override_model_config, override_transformer_config, trust_remote_code):
-        from transformers import AutoConfig, AutoTokenizer
-        from megatron.tokenizer import build_tokenizer_config
-        from megatron.config import TransformerConfig
-
-        hf_config = AutoConfig.from_pretrained(model_path, trust_remote_code=trust_remote_code, **override_model_config)
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=trust_remote_code)
-        tokenizer_config = build_tokenizer_config(tokenizer)
-        tf_config = TransformerConfig(tokenizer_config=tokenizer_config, override=override_transformer_config, **hf_config.to_dict())
-        tf_config.data_type = dtype
-        tf_config.params_dtype = dtype
-        self.hf_config = hf_config
-        self.tf_config = tf_config
-        self.local_path = trust_ckpt_path
-
-    @dispatch(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
-        # 外部库导入
-        if self.config.model.get("external_lib", None) is not None:
-            importlib.import_module(self.config.model.external_lib)
-
-        # 配置解析
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-        if self._is_actor:
-            override_transformer_config = OmegaConf.to_container(self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
-        elif self._is_ref:
-            override_transformer_config = OmegaConf.to_container(self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
+        torch_dtype = fsdp_config.get("model_dtype", None)
+        if torch_dtype is None:
+            torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
         else:
-            override_transformer_config = None
+            torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        # 数据类型设置
-        self.param_dtype = torch.bfloat16
-        self.dtype = PrecisionType.to_dtype(self.param_dtype)
+        actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2")
 
-        # Actor 和 Rollout 模型构建
-        if self._is_actor or self._is_rollout:
-            optim_config = self.config.actor.optim if self._is_actor else None
-            self.actor_module, self.actor_optimizer, self.actor_optimizer_scheduler, self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
-                model_path=self.config.model.path,
-                optim_config=optim_config,
-                override_model_config=override_model_config,
-                override_transformer_config=override_transformer_config,
+        if getattr(actor_model_config, "model_type", None) == "kimi_vl":
+            actor_model_config.text_config.topk_method = "greedy"
+
+        self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
+
+        override_config_kwargs = {
+            "bos_token_id": self.tokenizer.bos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id,
+        }
+        override_config_kwargs.update(override_model_config)
+        update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
+        # 如果是 rank 0 进程，打印更新后的模型配置
+        if self.rank == 0:
+            print(f"Model config after override: {actor_model_config}")
+
+        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh)
+
+        with init_context(), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+                actor_module_class = AutoModelForVision2Seq
+            else:
+                actor_module_class = AutoModelForCausalLM
+
+            actor_module = actor_module_class.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                torch_dtype=torch_dtype,
+                config=actor_model_config,
+                trust_remote_code=trust_remote_code,
             )
 
-            # 参数卸载
-            if self._is_offload_param:
-                offload_megatron_model_to_cpu(self.actor_module)
-            if self._is_offload_optimizer:
-                offload_megatron_optimizer(self.actor_optimizer)
+            if use_liger:
+                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
 
-        # Actor 初始化
-        if self._is_actor:
-            self.actor = MegatronPPOActor(
-                config=self.config.actor,
-                model_config=self.actor_model_config,
-                hf_config=self.hf_config,
-                tf_config=self.tf_config,
-                actor_module=self.actor_module,
-                actor_optimizer=self.actor_optimizer,
+                _apply_liger_kernel_to_instance(model=actor_module)
+
+            fused_kernel_options = self.config.model.get("fused_kernel_options", None)
+            fused_kernels_backend = fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+
+            apply_monkey_patch(
+                model=actor_module,
+                use_remove_padding=use_remove_padding,
+                ulysses_sp_size=self.ulysses_sequence_parallel_size,
+                use_fused_kernels=use_fused_kernels,
+                fused_kernels_backend=fused_kernels_backend,
             )
 
-        # Rollout 初始化
-        if self._is_rollout:
-            trust_remote_code = self.config.model.get("trust_remote_code", False)
-            self.rollout, self.sharding_manager = self._build_rollout(trust_remote_code=trust_remote_code)
-            self.rollout.sharding_manager = self.sharding_manager
+            actor_module.to(torch_dtype)
 
-        # Reference Policy 初始化
-        if self._is_ref:
-            self.ref_module, self.ref_model_config = self._build_model_optimizer(
-                model_path=self.config.model.path,
-                optim_config=None,
-                override_model_config=override_model_config,
-                override_transformer_config=override_transformer_config,
-            )
-            self.ref_policy = MegatronPPOActor(
-                config=self.config.ref,
-                model_config=self.ref_model_config,
-                hf_config=self.hf_config,
-                tf_config=self.tf_config,
-                actor_module=self.ref_module,
-                actor_optimizer=None,
-            )
-            if self._ref_is_offload_param:
-                offload_megatron_model_to_cpu(self.ref_module)
+            if enable_gradient_checkpointing:
+                actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+            if self._is_lora:
+                print("Applying LoRA to actor module")
+                actor_module.enable_input_require_grads()
+                lora_config = {"task_type": TaskType.CAUSAL_LM, "r": self.config.model.lora_rank, "lora_alpha": self.config.model.lora_alpha, "target_modules": convert_to_regular_types(self.config.model.target_modules), "bias": "none"}
+                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+        torch.distributed.barrier()
 
-        # 检查点管理器初始化
-        if self._is_actor:
-            from verl.utils.model_utils import print_model_size
-            self.flops_counter = FlopsCounter(self.actor_model_config)
-            self.checkpoint_mananager = MegatronCheckpointManager(
-                config=self.config,
-                actor=self.actor,
-                critic=getattr(self, "critic", None),
-                actor_model_config=self.actor_model_config,
+        if self.rank == 0:
+            print_model_size(actor_module)
+
+        log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
+
+        mixed_precision_config = fsdp_config.get("mixed_precision", None)
+        if mixed_precision_config is not None:
+            param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
+            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
+            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
+        else:
+            param_dtype = torch.bfloat16
+            reduce_dtype = torch.float32
+            buffer_dtype = torch.float32
+
+        mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
+
+        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get("wrap_policy", None), is_lora=self.config.model.get("lora_rank", 0) > 0)
+
+        # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
+        if self._is_rollout and self.config.rollout.name == "hf":
+            auto_wrap_policy = None
+
+        # 如果是 rank 0 进程，打印包装策略
+        if self.rank == 0:
+            print(f"wrap_policy: {auto_wrap_policy}")
+
+        fsdp_mesh = self.device_mesh
+        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+
+        # TODO: 添加 transformer 策略
+        # 我们强制 reference policy 使用 CPUOffload 来节省内存
+        # 我们强制关闭 actor 的 CPUOffload，因为它在使用 grad accumulation 时会导致不正确的结果
+        cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
+        # 根据配置的策略，将模型封装到 FSDP 中
+        fsdp_strategy = self.config.actor.strategy
+        if fsdp_strategy == "fsdp":
+            actor_module_fsdp = FSDP(
+                actor_module,
+                cpu_offload=cpu_offload,
+                param_init_fn=init_fn,
+                use_orig_params=False,
+                auto_wrap_policy=auto_wrap_policy,
+                device_id=get_device_id(),
+                sharding_strategy=sharding_strategy,  # zero3
+                mixed_precision=mixed_precision,
+                sync_module_states=True,
+                device_mesh=self.device_mesh,
+                forward_prefetch=self.config.actor.fsdp_config.forward_prefetch,
             )
+        elif fsdp_strategy == "fsdp2":
+            assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
+            mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
+            if role == "actor" and fsdp_config.offload_policy:
+                cpu_offload = CPUOffloadPolicy(pin_memory=True)
+                self._is_offload_param = False
+                self._is_offload_optimizer = False
+            else:
+                cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
+
+            fsdp_kwargs = {
+                "mesh": fsdp_mesh,
+                "mp_policy": mp_policy,
+                "offload_policy": cpu_offload,
+                "reshard_after_forward": fsdp_config.reshard_after_forward,
+            }
+            full_state = actor_module.state_dict()
+            apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
+            fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
+            actor_module_fsdp = actor_module
+        else:
+            raise NotImplementedError(f"not implement {fsdp_strategy}")
+
+        # 如果启用了激活卸载，则启用它
+        if enable_activation_offload:
+            enable_activation_offloading(actor_module_fsdp, fsdp_strategy, enable_gradient_checkpointing)
+
+        # 记录 FSDP 初始化之后的 GPU 内存使用情况
+        log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
+
+        # TODO: add more optimizer args into config
+        if role == "actor" and optim_config is not None:
+            from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+
+            actor_optimizer = optim.AdamW(
+                actor_module_fsdp.parameters(),
+                lr=optim_config.lr,
+                betas=optim_config.get("betas", (0.9, 0.999)),
+                weight_decay=optim_config.get("weight_decay", 1e-2),
+            )
+
+            total_steps = optim_config.get("total_training_steps", 0)
+            num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
+            warmup_style = optim_config.get("warmup_style", "constant")
+            min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
+            num_cycles = optim_config.get("num_cycles", 0.5)
+            if num_warmup_steps < 0:
+                num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
+                num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+
             if self.rank == 0:
-                print_model_size(self.actor_module[0])
+                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
-        get_torch_device().empty_cache()
-```
+            if warmup_style == "constant":
+                actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps)
+            elif warmup_style == "cosine":
+                actor_lr_scheduler = get_cosine_schedule_with_warmup(optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps, min_lr_ratio=min_lr_ratio, num_cycles=num_cycles)
+            else:
+                raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
 
-`ActorRolloutRefWorker.init_model()` 函数是模型初始化的关键点，主要负责：
-
-1.  **外部库导入**：如果配置中指定了外部库，则进行导入。
-2.  **配置解析**：解析模型和 Transformer 的覆盖配置。
-3.  **数据类型设置**：设置模型参数的数据类型。
-4.  **Actor 和 Rollout 模型构建**：根据 Worker 角色构建 Actor 模块、优化器和调度器。
-5.  **参数卸载**：如果配置了参数卸载，则将 Megatron 模型和优化器卸载到 CPU，以优化内存。
-6.  **Actor 初始化**：如果当前 Worker 是 Actor 角色，则实例化 `MegatronPPOActor`。
-7.  **Rollout 初始化**：如果当前 Worker 是 Rollout 角色，则构建 Rollout 模块和分片管理器（通过 `_build_rollout()`）。
-8.  **Reference Policy 初始化**：如果当前 Worker 是 Reference Policy 角色，则构建其模块并实例化 `MegatronPPOActor`。
-9.  **检查点管理器初始化**：如果当前 Worker 是 Actor 角色，则初始化 `FlopsCounter` 和 `MegatronCheckpointManager`，用于计算模型浮点运算量和管理模型检查点。
-10. **清理缓存**：清理 PyTorch 缓存以释放内存。
-
-#### `ActorRolloutRefWorker._build_model_optimizer()`
-
-```python
-from verl.utils.torch_dist import get_device_name
-from verl.models.mcore import get_model
-from verl.config import ModelType
-
-@registry.register(ActorRolloutRefWorker)
-class ActorRolloutRefWorker:
-    # ... (previous methods)
-
-    def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
-        # 配置初始化
-        self._init_hf_config_and_tf_config(model_path, model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
-        self.generation_config = get_generation_config(self.local_path)
-
-        # 模型提供者函数
-        def megatron_actor_model_provider(pre_process, post_process):
-            from verl.models.mcore import init_mcore_model
-            parallel_model = init_mcore_model(
-                self.tf_config,
-                self.hf_config,
-                pre_process,
-                post_process,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                value=False,
-                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False)
-            )
-            parallel_model.to(get_device_name())
-            return parallel_model
-
-        # Actor 和 Rollout 模型构建
-        if self._is_actor and self._is_rollout:
-            actor_module = get_model(
-                megatron_actor_model_provider,
-                wrap_with_ddp=True,
-                use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
-            )
-            if self.config.actor.load_weight:
-                if self.config.actor.megatron.use_dist_checkpointing:
-                    load_mcore_dist_weights(actor_module, self.config.actor.megatron.dist_checkpointing_path, is_value_model=False)
-                else:
-                    load_megatron_gptmodel_weights(self.config, self.hf_config, actor_module, params_dtype=self.dtype, is_value_model=False)
-
-            # Reference Policy 模型构建
-        elif self._is_ref:
-            ref_module = get_model(
-                model_provider_func=megatron_actor_model_provider,
-                model_type=ModelType.encoder_or_decoder,
-                wrap_with_ddp=False,
-                use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer,
-            )
-            if self.config.ref.load_weight:
-                if self.config.ref.megatron.use_dist_checkpointing:
-                    load_mcore_dist_weights(ref_module, self.config.ref.megatron.dist_checkpointing_path, is_value_model=False)
-                else:
-                    load_megatron_gptmodel_weights(self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False)
-            return ref_module, self.hf_config
-
-        # 优化器初始化
-        if self._is_actor:
-            optim_config_megatron = init_megatron_optim_config(optim_config)
-            actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config_megatron)
-            actor_optimizer_scheduler = get_megatron_optimizer_param_scheduler(optimizer=actor_optimizer, config=optim_config)
+            log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
         else:
-            optim_config = None
             actor_optimizer = None
-            actor_optimizer_scheduler = None
+            actor_lr_scheduler = None
 
-        return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
+        return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 ```
 
-`ActorRolloutRefWorker._build_model_optimizer()` 函数负责构建 Megatron 模型和优化器：
-
-1.  **配置初始化**：初始化 Hugging Face 和 Transformer 配置，并获取 Generation Config。
-2.  **模型提供者函数**：定义一个内部函数 `megatron_actor_model_provider`，用于初始化 Megatron 模型。
-3.  **Actor 和 Rollout 模型构建**：如果当前 Worker 既是 Actor 又是 Rollout 角色，则获取模型并加载权重。
-4.  **Reference Policy 模型构建**：如果当前 Worker 是 Reference Policy 角色，则获取模型并加载权重。
-5.  **优化器初始化**：如果当前 Worker 是 Actor 角色，则初始化 Megatron 优化器和调度器。
+</details>
 
 #### `ActorRolloutRefWorker._build_rollout()`
 
@@ -1413,4 +1416,109 @@ class RayWorkerGroup:
 2.  **创建 Worker 实例**：遍历每个 rank（worker 的编号），使用 `RayClassWithInitArgs` 包装器创建远程 Worker，并将其添加到内部列表中。在 rank 0 上会等待注册中心 Actor 就绪。
 3.  **绑定 Worker 方法**：将 Ray 远程方法绑定到 WorkerGroup 对象，这样可以在 WorkerGroup 级别方便地调用远程 Worker 的方法。
 
-【TODO】
+veRL 的 VLM multi-turn RL 工作流程通过模块化设计实现了：
+
+1. **高效推理**: SGLang 提供快速的多轮对话生成
+2. **分布式训练**: FSDP 支持大模型的并行训练
+3. **灵活奖励**: 支持多种奖励函数组合
+4. **异步处理**: 提高GPU利用率和训练效率
+5. **多模态支持**: 原生支持视觉-语言模型
+6. **算法多样性**: 支持PPO、GRPO、RLOO等多种RL算法
+
+整个系统设计既保证了性能，又维持了良好的可扩展性和易用性。
+
+flowchart TB
+subgraph Init["初始化阶段"]
+direction TB
+A[启动RayPPOTrainer] --> B1[创建资源池]
+B1 --> B2[初始化分布式Workers]
+B2 --> C1[构建Hybrid Engine]
+C1 --> D1[数据预处理]
+end
+
+```
+subgraph TrainLoop["训练循环"]
+    direction TB
+    E[数据加载] --> F[序列生成Rollout]
+    F --> G[经验处理]
+    G --> H[模型更新]
+    H --> E
+end
+
+Init --> TrainLoop
+
+subgraph Detail["详细流程"]
+    direction LR
+    subgraph Workers["Workers初始化详情"]
+        direction TB
+        W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
+        W2[CriticWorker] --> W4
+        W3[RewardModelWorker] --> W4
+        W4 --> W5[SGLang推理引擎]
+    end
+
+    subgraph Rollout["序列生成详情"]
+        direction TB
+        F1[准备生成数据] --> F2[SGLang异步生成]
+        F2 --> F3[多轮对话处理]
+    end
+
+    subgraph Experience["经验处理详情"]
+        direction TB
+        G1[重新计算Log Prob] --> G2[计算Reward]
+        G2 --> G3[GRPO优势计算]
+    end
+
+    subgraph Update["模型更新详情"]
+        direction TB
+        H1[加载FSDP模型参数] --> H2[计算策略梯度]
+        H2 --> H3[应用GRPO更新]
+        H3 --> H4[参数分片保存]
+    end
+end
+
+B2 --> Workers
+F --> Rollout
+G --> Experience
+H --> Update
+
+```
+
+flowchart TB
+subgraph Init["初始化阶段"]
+direction TB
+A[启动RayPPOTrainer] --> B1[创建资源池]
+B1 --> B2[初始化分布式Workers]
+B2 --> C1[构建Hybrid Engine]
+C1 --> D1[数据预处理]
+end
+
+```
+subgraph TrainLoop["训练循环"]
+    direction TB
+    E[数据加载] --> F1[准备生成数据]
+    F1 --> F2[SGLang异步生成]
+    F2 --> F3[多轮对话处理]
+    F3 --> G1[重新计算Log Prob]
+    G1 --> G2[计算Reward]
+    G2 --> G3[GRPO优势计算]
+    G3 --> H1[加载FSDP模型参数]
+    H1 --> H2[计算策略梯度]
+    H2 --> H3[应用GRPO更新]
+    H3 --> H4[参数分片保存]
+    H4 --> E
+end
+
+Init --> TrainLoop
+
+subgraph Workers["Workers初始化详情"]
+    direction TB
+    W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
+    W2[CriticWorker] --> W4
+    W3[RewardModelWorker] --> W4
+    W4 --> W5[SGLang推理引擎]
+end
+
+B2 --> Workers
+
+```
