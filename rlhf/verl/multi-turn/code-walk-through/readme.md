@@ -1,4 +1,4 @@
-# verl Multi-turn Code Walk Through
+# verl Multi-turn Code Walk Through（Part 1）
 
 承蒙社区厚爱，Agentic RL 如火如荼，SGLang RL Group 的工作也夜以继日在展开。考虑到各大 RL 框架的代码更新频率极高，社区二次开发需求巨大，我们选择以 verl 出发，分析其 end to end mutli-turn RL 训练的全过程。整体上，我们希望覆盖所有重要的 class 以及函数，更细粒度的代码不再展开。我们的写作风格希望能够 follow SGLang 的 code-walk-through：
 
@@ -319,7 +319,7 @@ def run_ppo(config) -> None:
 
 可以观察到，在 `TaskRunner` 的初始化中，会根据各类配置引入对应的 `ActorRolloutRefWorker / AsyncActorRolloutRefWorker` 类以及 `RayWorkerGroup / NVMegatronRayWorkerGroup` 类。对于 SGLang 而言，不存在 `AsyncActorRolloutRefWorker`。`ActorRolloutRefWorker` 类直接通过 `ray.remote(ActorRolloutRefWorker)` 创建一个远程的 Ray Actor，将其包装成一个 Ray Actor 类。此时还还没有创建任何实例，也没有分配资源。那么，`ActorRolloutRefWorker` 类到底在哪儿实例化并分配资源的呢？
 
-实际上，在 `main_ppo.py` 的 [172 行](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L172)，构造了 `RayPPOTrainer` 类，随后调用了 `RayPPOTrainer.init_workers()` 方法，我们进一步查看 `RayPPOTrainer.init_workers()` 方法的[相关代码](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L715)，我们观察到，每一个 RL worker 类（比如 ActorRolloutRefWorker）都会创造一个 work group（verl 中的各种 wg 变量），随后调用每个 worker group 的 `init_model()` 方法，而这些 worker group 实际上都是 `RayWorkerGroup` 的实例。`RayWorkerGroup` 的核心作用是资源调度的核心中间层，统一了各种 RL worker （比如 ActorRolloutRefWorker、CriticWorker）的接口，进行统一管理：
+实际上，在 `main_ppo.py` 的 [172 行](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L172)，构造了 `RayPPOTrainer` 类，随后调用了 `RayPPOTrainer.init_workers()` 方法，我们进一步查看 `RayPPOTrainer.init_workers()` 方法的[相关代码](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L715)，我们观察到，每一个 RL worker 类（比如 ActorRolloutRefWorker）都会创造一个 work group（verl 中的各种 wg 变量），随后调用每个 worker group 的 `init_model()` 方法，而这些 worker group 实际上都是 `RayWorkerGroup` 的实例。`RayWorkerGroup` 的核心作用是资源调度的核心中间层，统一了各种 RL worker（比如 ActorRolloutRefWorker、CriticWorker）的接口，进行统一管理：
 
 ```python
 
@@ -1018,9 +1018,26 @@ from omegaconf import OmegaConf
 2. update weights from tensor：训练结束后更新模型权重。
 3. flush cache：模型参数更新后刷新 KV cache，因为之前的 KV cache 已经失效了。
 
-【TODO】确定何时 flush。
+这里涉及到了非常深入的内存管理问题，读者对 SGLang engine 在 verl 里的显存管理感兴趣，欢迎阅读标哥的博客 [optimizing Memory Usage in verl](https://hebiao064.github.io/rl-memory-management)，写的非常深入浅出。
 
-此外，如果读者对 SGLang engine 在 verl 里的显存管理感兴趣，欢迎阅读标哥的博客 [optimizing Memory Usage in verl](https://hebiao064.github.io/rl-memory-management)，写的非常深入浅出。
+<details>
+<summary>SGLangRollout 何时需要 flush cache</summary>
+
+这一部分内容需要单独拎出来讲讲。SGLang engine 的 release 和 resume 需要保留 CUDA Graph，否则 rollout 效率会大幅降低。因此，我们基于 tom 的 [torch_memory_saver](https://github.com/fzyzcjy/torch_memory_saver) 实现了独立的显存管理。简单来说，我们有：
+
+1. `pause`；保留 mem savor 作用域内指定 tensor 的 virtual address，但是将其 physical memory 释放回显存管理器。
+2. `resume`；将先前 `pause` 的 tensor 重新申请一块 physical memory，并将其 virtual address 映射到新的 physical memory。
+
+注意，整个 pause 和 resume 的过程中，tensor 的 virtual address 不会发生变化，只是这块 virtual address 映射到的 physical memory 改变了。因此，CUDA Graph 并没有失效，不变的 virtual address 让计算流仍旧可以正常执行。
+
+verl 内的 `release_memory_occupation` 和 `resume_memory_occupation` 就是基于 `pause` 和 `resume` 实现的。听上去是个完美的故事，我们甚至实现了 [mutli-stage 的显存管理](https://github.com/fzyzcjy/torch_memory_saver/pull/20)，能够独立 release 和 resume kv cache 和 model weights。
+
+不过，对于 kv cache 而言，在 kv cache 被 release 掉之后，实际上 kv cache 的 tensor 仍旧保留，只是其 virtual address 映射到的 physical memory 被释放了。与此同时，radix tree 仍旧索引着整个 kv cache。当 kv cache 被 resume 之后，一方面之前物理内存上之前的 kv cache 已经不复存在了，另一方面模型的参数也被更新。出于这两点，我们一定要使用 flush cache 接口来刷新 kv cache 的索引（radix tree）。
+
+这里又有个非常有趣的设计。乍一想 kv cache 的管理这么麻烦，还要 flush，为什么不直接 delete kv cache 以及 delete model weights 再重新初始化呢？显然，这样没法利用已有的 cuda graph，非常消耗时间。保留 virtual address 不变但是更换 physical memory 的方案，让 verl 能够持续利用已建好的 cuda graph。
+
+最后一个问题，一共要几次 flush cache 呢？我个人理解，在一整个 training engine 被 pause，resume 然后 update weights 的过程中，必须要有一次 flush cache 来刷新 kv cache 的索引，只是 verl 当中为了保险，刷新了很多次罢了。
+</details>
 
 <details>
 <summary>SGLangRollout.AsyncEngine</summary>
@@ -1133,16 +1150,26 @@ def _init_inference_engine(self, trust_remote_code, actor_module, port):
 
 【TODO】
 
-### `TaskRunner.run()`
+### [`TaskRunner.run()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64)
 
-往下走了这么多层，我们继续回到 `TaskRunner` 类。
+往下走了这么多层，我们终于能够继续回到 `TaskRunner` 类。😭
 
 【TODO】上文其实主要是 Actor Rollout，还没有具体说 Actor 的 training forward and backward。以及 Reference，reward 和 critic 的 training forward and backward。
 
-[具体代码](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64)如下：
+1. 加载、解析和验证训练任务的配置（使用 `OmegaConf`），确保所有参数的正确性和一致性。
+2. 将模型文件从远程路径复制到本地，确保所有 Worker 都可以访问。
+3. 组件初始化：
+    * 初始化 Tokenizer 和 Processor，用于文本和多模态数据的处理。
+    * 根据配置中指定的 Actor 策略（如 `fsdp` 或 `megatron`），动态选择相应的 Worker 类（例如 `ActorRolloutRefWorker` 和 `CriticWorker`），并确定使用的 `RayWorkerGroup` 类型。
+    * 定义 Ray 资源池的规格和角色到资源池的映射，用于 GPU 资源的分配和管理。
+    * 加载用于训练和验证的奖励模型。
+    * 创建训练和验证数据集，以及训练数据采样器。
+4. 创建 `RayPPOTrainer` 实例，它是管理所有计算资源和训练流程的中央协调器。
+5. 调用 `RayPPOTrainer` 的 `init_workers()` 方法，将配置的 Worker 类实例化到 Ray 集群的 GPU 上，为实际计算做准备。
+6. 调用 `RayPPOTrainer` 的 `fit()` 方法，启动 PPO 训练循环。
 
 <details>
-<summary>TaskRunner</summary>
+<summary>TaskRunner.run 源码</summary>
 
 ```python
 @ray.remote(num_cpus=1)
@@ -1250,180 +1277,112 @@ class TaskRunner:
         # 启动训练过程
         trainer.fit()
 ```
+</details>
+
+
+### [`RayPPOTrainer.__init__()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L277)
+
+1. 保存传入的配置对象、tokenizer、processor、角色到 Worker 的映射、资源池管理器以及 WorkerGroup 类。
+2. 根据配置启用或禁用 Critic、Reference Policy、Reward Model 和 Hybrid Engine 等功能组件。
+3. 调用 `_validate_config()` 方法验证配置的合理性。
+4. 存储训练和验证数据集、collate 函数和训练数据采样器。
+
+<details>
+<summary>RayPPOTrainer 源码</summary>
+
+```python
+class RayPPOTrainer:
+    # TODO: support each role have individual ray_worker_group_cls,
+    # i.e., support different backend of different role
+    def __init__(
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        train_dataset: Optional[Dataset] = None,
+        val_dataset: Optional[Dataset] = None,
+        collate_fn=None,
+        train_sampler: Optional[Sampler] = None,
+        device_name="cuda",
+    ):
+        """
+        Initialize distributed PPO trainer with Ray backend.
+        Note that this trainer runs on the driver process on a single CPU/GPU node.
+
+        Args:
+            config: Configuration object containing training parameters.
+            tokenizer: Tokenizer used for encoding and decoding text.
+            role_worker_mapping (dict[Role, WorkerType]): Mapping from roles to worker classes.
+            resource_pool_manager (ResourcePoolManager): Manager for Ray resource pools.
+            ray_worker_group_cls (RayWorkerGroup, optional): Class for Ray worker groups. Defaults to RayWorkerGroup.
+            processor: Optional data processor, used for multimodal data.
+            reward_fn: Function for computing rewards during training.
+            val_reward_fn: Function for computing rewards during validation.
+            train_dataset (Optional[Dataset], optional): Training dataset. Defaults to None.
+            val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
+            collate_fn: Function to collate data samples into batches.
+            train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
+            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to "cuda".
+        """
+
+        # Store the tokenizer for text processing
+        self.tokenizer = tokenizer
+        self.processor = processor
+        self.config = config
+        self.reward_fn = reward_fn
+        self.val_reward_fn = val_reward_fn
+
+        self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
+        assert self.hybrid_engine, "Currently, only support hybrid engine"
+
+        if self.hybrid_engine:
+            assert Role.ActorRollout in role_worker_mapping, f"{role_worker_mapping.keys()=}"
+
+        self.role_worker_mapping = role_worker_mapping
+        self.resource_pool_manager = resource_pool_manager
+        self.use_reference_policy = Role.RefPolicy in role_worker_mapping
+        self.use_rm = Role.RewardModel in role_worker_mapping
+        self.ray_worker_group_cls = ray_worker_group_cls
+        self.device_name = device_name
+        self.validation_generations_logger = ValidationGenerationsLogger()
+
+        # if ref_in_actor is True, the reference policy will be actor without lora applied
+        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+
+        # define in-reward KL control
+        # kl loss control currently not suppoorted
+        if config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
+
+        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+            self.use_critic = True
+        elif self.config.algorithm.adv_estimator in [
+            AdvantageEstimator.GRPO,
+            AdvantageEstimator.GRPO_PASSK,
+            AdvantageEstimator.REINFORCE_PLUS_PLUS,
+            AdvantageEstimator.REMAX,
+            AdvantageEstimator.RLOO,
+            AdvantageEstimator.OPO,
+            AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
+        ]:
+            self.use_critic = False
+        else:
+            raise NotImplementedError
+
+        self._validate_config()
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+```
 
 </details>
 
-`TaskRunner.run()` 函数是整个分布式训练的核心协调器，其主要功能包括：
-
-1.  **配置管理**：加载、解析和验证训练任务的配置（使用 `OmegaConf`），确保所有参数的正确性和一致性。
-2.  **模型下载**：将模型文件从远程路径复制到本地，确保所有 Worker 都可以访问。
-3.  **组件初始化**：
-      * 初始化 Tokenizer 和 Processor，用于文本和多模态数据的处理。
-      * 根据配置中指定的 Actor 策略（如 `fsdp` 或 `megatron`），动态选择相应的 Worker 类（例如 `ActorRolloutRefWorker` 和 `CriticWorker`），并确定使用的 `RayWorkerGroup` 类型。
-      * 配置不同角色（如 `ActorRollout` 和 `Critic`）到 Ray 远程 Worker 类的映射。
-      * 定义 Ray 资源池的规格和角色到资源池的映射，用于 GPU 资源的分配和管理。
-      * 加载用于训练和验证的奖励模型。
-      * 创建训练和验证数据集，以及训练数据采样器。
-4.  **`RayPPOTrainer` 初始化**：创建 `RayPPOTrainer` 实例，它是管理所有计算资源和训练流程的中央协调器。
-5.  **Worker 初始化**：调用 `RayPPOTrainer` 的 `init_workers()` 方法，将配置的 Worker 类实例化到 Ray 集群的 GPU 上，为实际计算做准备。
-6.  **启动训练**：调用 `RayPPOTrainer` 的 `fit()` 方法，启动 PPO 训练循环。
-
-### `RayPPOTrainer` 初始化流程
-
-`RayPPOTrainer` 是训练流程的中央协调器，负责调度和协调各个 Worker 的工作。
-
-#### `RayPPOTrainer.__init__()`
-
-```python
-def __init__(self, config, tokenizer, processor, role_worker_mapping, resource_pool_manager, ray_worker_group_cls, reward_fn, val_reward_fn, train_dataset, val_dataset, collate_fn, train_sampler, device_name):
-    # 基础配置设置
-    self.config = config
-    self.tokenizer = tokenizer
-    self.processor = processor
-    self.role_worker_mapping = role_worker_mapping
-    self.resource_pool_manager = resource_pool_manager
-    self.ray_worker_group_cls = ray_worker_group_cls
-    self.reward_fn = reward_fn
-    self.val_reward_fn = val_reward_fn
-    self.device_name = device_name
-
-    # 功能标志设置
-    self.use_critic = config.critic.enable
-    self.use_reference_policy = config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss
-    self.use_rm = config.reward_model.enable
-    self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
-
-    # 配置验证
-    self._validate_config()
-
-    # 数据加载器创建
-    self.train_dataset = train_dataset
-    self.val_dataset = val_dataset
-    self.collate_fn = collate_fn
-    self.train_sampler = train_sampler
-```
-
-`RayPPOTrainer` 的构造函数主要负责：
-
-1.  **基础配置设置**：保存传入的配置对象、tokenizer、processor、角色到 Worker 的映射、资源池管理器以及 WorkerGroup 类。
-2.  **功能标志设置**：根据配置启用或禁用 Critic、Reference Policy、Reward Model 和 Hybrid Engine 等功能组件。
-3.  **配置验证**：调用 `_validate_config()` 方法验证配置的合理性。
-4.  **数据加载器存储**：存储训练和验证数据集、collate 函数和训练数据采样器。
-
-#### `_validate_config()`
-
-```python
-def _validate_config(self):
-    # GPU 数量验证
-    n_gpus = self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
-
-    # 批次大小验证
-    if self.config.actor_rollout_ref.actor.strategy == "megatron":
-        model_parallel_size = self.config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size * self.config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
-        assert n_gpus % (model_parallel_size * self.config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0
-        megatron_dp = n_gpus // (model_parallel_size * self.config.actor_rollout_ref.actor.megatron.context_parallel_size)
-        minimal_bsz = megatron_dp * self.config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
-    else:
-        minimal_bsz = n_gpus
-
-    real_train_batch_size = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-    assert real_train_batch_size % minimal_bsz == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by minimal possible batch size ({minimal_bsz})"
-
-    # Multi-turn 配置验证
-    if self.config.actor_rollout_ref.rollout.multi_turn.enable:
-        assert self.config.actor_rollout_ref.rollout.multi_turn.tool_config_path is not None
-        from verl.trainer.ppo.config import AdvantageEstimator
-        assert self.config.algorithm.adv_estimator in [AdvantageEstimator.GRPO]
-```
-
-`_validate_config()` 函数执行配置的完整性检查，包括：
-
-1.  **GPU 数量验证**：计算并检查可用 GPU 总数。
-2.  **批次大小验证**：根据 Megatron 或其他策略计算最小批次大小，并确保实际训练批次大小是最小批次大小的整数倍。
-3.  **Multi-turn 配置验证**：如果启用了 Multi-turn 对话训练，则检查工具配置路径和优势估计器类型是否符合要求。
-
-### Worker 初始化流程 (`init_workers()`)
+### [`RayPPOTrainer.init_workers()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L715)
 
 `init_workers()` 函数负责在 Ray 集群上实例化和初始化 ActorRollout、Critic、Reference Policy 和 Reward Model Workers。
-
-```python
-def init_workers(self):
-    # 创建资源池
-    self.resource_pool_manager.create_resource_pool()
-
-    # 初始化资源池到类的映射
-    self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
-
-    # 创建 ActorRollout Worker
-    if self.hybrid_engine:
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
-        actor_rollout_cls = RayClassWithInitArgs(
-            cls=self.role_worker_mapping[Role.ActorRollout],
-            config=self.config.actor_rollout_ref,
-            role="actor_rollout",
-        )
-        self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
-
-    # 创建 Critic Worker
-    if self.use_critic:
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
-        critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
-        self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
-
-    # 创建 Reference Policy Worker
-    if self.use_reference_policy:
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
-        ref_policy_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RefPolicy], config=self.config.actor_rollout_ref, role="ref")
-        self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
-
-    # 创建 Reward Model Worker
-    if self.use_rm:
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-        rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
-        self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
-
-    # 初始化 WorkerGroup
-    all_wg = {}
-    for resource_pool, class_dict in self.resource_pool_to_cls.items():
-        # 创建共置 Worker 类
-        from verl.utils.ray import create_colocated_worker_cls, RayClassWithInitArgs
-        worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-
-        # 创建 WorkerGroup
-        wg_kwargs = {}
-        if self.config.actor_rollout_ref.actor.strategy == "megatron":
-            wg_kwargs["meta_parallel_size"] = self.config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size
-            wg_kwargs["pipeline_parallel_size"] = self.config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
-
-        wg_dict = self.ray_worker_group_cls(
-            resource_pool=resource_pool,
-            ray_cls_with_init=worker_dict_cls,
-            device_name=self.device_name,
-            **wg_kwargs
-        )
-
-        # 生成 Worker
-        spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
-        all_wg.update(spawn_wg)
-
-    # 初始化各个 Worker
-    if self.use_critic:
-        self.critic_wg = all_wg["critic"]
-        self.critic_wg.init_model()
-
-    if self.use_reference_policy and not getattr(self, "ref_in_actor", False):
-        self.ref_policy_wg = all_wg["ref"]
-        self.ref_policy_wg.init_model()
-
-    if self.use_rm:
-        self.rm_wg = all_wg["rm"]
-        self.rm_wg.init_model()
-
-    self.actor_rollout_wg = all_wg["actor_rollout"]
-    self.actor_rollout_wg.init_model()
-```
-
-`init_workers()` 的主要步骤包括：
 
 1.  **创建资源池**：通过 `ResourcePoolManager` 创建 Ray 资源池。
 2.  **初始化资源池到类的映射**：为每个资源池创建一个字典，用于存储不同角色 Worker 的 `RayClassWithInitArgs` 包装器。`RayClassWithInitArgs` 用于延迟初始化 Worker，存储了 Worker 的类和初始化参数。
@@ -1431,238 +1390,98 @@ def init_workers(self):
 4.  **初始化 WorkerGroup**：遍历所有资源池，将同一资源池中的多个 Worker 类通过 `create_colocated_worker_cls` 组合成一个共置类，然后实例化 `RayWorkerGroup`。`RayWorkerGroup` 负责在多个 GPU 上启动多个 Worker 实例。最后调用 `spawn()` 方法在 Ray 中实际创建 Worker 实例。
 5.  **初始化各个 Worker**：根据角色从创建的 WorkerGroup 字典中获取对应的 WorkerGroup，并调用其 `init_model()` 方法，按照依赖关系依次初始化不同的 Worker 模块。ActorRollout Worker 通常最后初始化以优化内存使用。
 
-### `ResourcePoolManager.create_resource_pool()`
+<details>
+<summary>RayPPOTrainer.init_workers 源码</summary>
 
 ```python
-class ResourcePoolManager:
-    def __init__(self, resource_pool_spec, mapping):
-        self.resource_pool_spec = resource_pool_spec
-        self.mapping = mapping
-        self.resource_pool_dict = {}
+    def init_workers(self):
+        """Initialize distributed training workers using Ray backend.
 
-    def create_resource_pool(self):
-        # 为每个资源池创建 RayResourcePool
-        from verl.utils.ray import RayResourcePool
-        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes,
-                use_gpu=True,
-                max_colocate_count=1,
-                name_prefix=resource_pool_name
+        Creates:
+        1. Ray resource pools from configuration
+        2. Worker groups for each role (actor, critic, etc.)
+        """
+        self.resource_pool_manager.create_resource_pool()
+
+        self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
+
+        # create actor and rollout
+        if self.hybrid_engine:
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
+            actor_rollout_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[Role.ActorRollout],
+                config=self.config.actor_rollout_ref,
+                role="actor_rollout",
             )
-            self.resource_pool_dict[resource_pool_name] = resource_pool
-        # 检查资源可用性
-        self._check_resource_available()
+            self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+        else:
+            raise NotImplementedError
 
-    def get_resource_pool(self, role):
-        pool_id = self.mapping.get(role)
-        return self.resource_pool_dict.get(pool_id)
+        # create critic
+        if self.use_critic:
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
+            critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
+            self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
 
-    def _check_resource_available(self):
-        from ray.cluster_utils import get_ray_nodes
-        ray_nodes = get_ray_nodes()
-        total_gpus = sum([node['Resources'].get('GPU', 0) for node in ray_nodes])
-        required_gpus = sum([len(nodes) for nodes in self.resource_pool_spec.values()])
-        assert total_gpus >= required_gpus, f"Total available GPUs: {total_gpus}, required GPUs: {required_gpus}"
-```
+        # create reference policy if needed
+        if self.use_reference_policy:
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
+            ref_policy_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RefPolicy], config=self.config.actor_rollout_ref, role="ref")
+            self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
-`ResourcePoolManager.create_resource_pool()` 函数负责为 Ray 集群创建和管理资源池，步骤包括：
+        # create a reward model if reward_fn is None
+        if self.use_rm:
+            # we create a RM here
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
+            self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
-1.  **为每个资源池创建 `RayResourcePool`**：`RayResourcePool` 封装了 Ray 放置组（Placement Group）的逻辑，用于控制 Worker 的物理位置和资源分配。
-2.  **检查资源可用性**：验证 Ray 集群是否有足够的 GPU 资源来满足定义的资源池需求。
+        # initialize WorkerGroup
+        # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
+        # you should not use `create_colocated_worker_cls`.
+        # Instead, directly pass different resource pool to different worker groups.
+        # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
+        all_wg = {}
+        wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
+        if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
+            wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
+        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
+            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
+            assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, "worker_nsight_options must be set when profile_steps is set"
+            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(OmegaConf.select(self.config.trainer, "worker_nsight_options"))
 
-### `RayWorkerGroup.spawn()`
+        for resource_pool, class_dict in self.resource_pool_to_cls.items():
+            worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
+            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls, device_name=self.device_name, **wg_kwargs)
+            spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
+            all_wg.update(spawn_wg)
 
-```python
-import ray
-import time
+        if self.use_critic:
+            self.critic_wg = all_wg["critic"]
+            self.critic_wg.init_model()
 
-from ray.util.placement_group import placement_group_table, get_placement_group
-from ray.worker import list_named_actors
+        if self.use_reference_policy and not self.ref_in_actor:
+            self.ref_policy_wg = all_wg["ref"]
+            self.ref_policy_wg.init_model()
 
-class RayWorkerGroup:
-    def __init__(self, resource_pool, ray_cls_with_init, device_name, **kwargs):
-        self.resource_pool = resource_pool
-        self.ray_cls_with_init = ray_cls_with_init
-        self.device_name = device_name
-        self._workers = []
-        self._worker_names = []
-        self.name_prefix = ray_cls_with_init.cls.__name__.lower()
-        self._ray_wait_register_center_timeout = 10
+        if self.use_rm:
+            self.rm_wg = all_wg["rm"]
+            self.rm_wg.init_model()
 
-    def spawn(self, prefix_set=None):
-        strategy = "PACK"
-        use_gpu = True
-        num_gpus = 1
-        local_world_size = self.resource_pool.max_colocate_count
-        from verl.utils.ray import get_placement_group_by_id
-        pgs = self.resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
-        world_size = self.resource_pool.world_size
+        # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
+        self.actor_rollout_wg = all_wg["actor_rollout"]
+        self.actor_rollout_wg.init_model()
 
-        def func_generator(worker_index, worker_name):
-            return {"rank": worker_index, "local_rank": worker_index % local_world_size}
+        # create async rollout manager and request scheduler
+        self.async_rollout_mode = False
+        if self.config.actor_rollout_ref.rollout.mode == "async":
+            from verl.workers.rollout.async_server import AsyncLLMServerManager
 
-        for rank in range(world_size):
-            pg = pgs[rank // local_world_size]
-            local_rank = rank % local_world_size
-            name = f"{self.name_prefix}_{rank}"
-            worker = self.ray_cls_with_init(
-                placement_group=pg,
-                placement_group_bundle_idx=local_rank,
-                use_gpu=use_gpu,
-                num_gpus=num_gpus,
-                device_name=self.device_name,
-                name=name
+            self.async_rollout_mode = True
+            self.async_rollout_manager = AsyncLLMServerManager(
+                config=self.config,
+                worker_group=self.actor_rollout_wg,
             )
-            self._workers.append(worker)
-            self._worker_names.append(name)
-
-            if rank == 0:
-                register_center_actor = None
-                actor_name = f"{self.name_prefix}_register_center"
-                start_time = time.time()
-
-                while time.time() - start_time < self._ray_wait_register_center_timeout:
-                    if actor_name in list_named_actors():
-                        register_center_actor = ray.get_actor(actor_name)
-                        break
-                    time.sleep(1)
-
-        self._bind_worker_method(self.ray_cls_with_init.cls, func_generator)
-
-        return {prefix: self for prefix in prefix_set}
-
-    def _bind_worker_method(self, cls, func_generator):
-        for method_name in dir(cls):
-            if method_name.startswith("_") or method_name in ["__init__", "init_model"]:
-                continue
-            method = getattr(cls, method_name)
-            if callable(method):
-                def create_remote_fn(method_name):
-                    def remote_fn(self, *args, **kwargs):
-                        futures = [
-                            getattr(worker, method_name).remote(*args, **kwargs, **func_generator(i, self._worker_names[i]))
-                            for i, worker in enumerate(self._workers)
-                        ]
-                        return futures
-                    return remote_fn
-                setattr(self, method_name, create_remote_fn(method_name))
-
-    def get_workers(self):
-        return self._workers
 ```
 
-`RayWorkerGroup.spawn()` 方法在 Ray 中实际创建 Worker 实例，并将其组织成 WorkerGroup：
-
-1.  **获取放置组**：从资源池获取 Ray 放置组，用于控制 Worker 的物理位置，确保 Worker 实例能够被有效地放置在 Ray 集群的节点上，并满足资源约束。
-2.  **创建 Worker 实例**：遍历每个 rank（worker 的编号），使用 `RayClassWithInitArgs` 包装器创建远程 Worker，并将其添加到内部列表中。在 rank 0 上会等待注册中心 Actor 就绪。
-3.  **绑定 Worker 方法**：将 Ray 远程方法绑定到 WorkerGroup 对象，这样可以在 WorkerGroup 级别方便地调用远程 Worker 的方法。
-
-veRL 的 VLM multi-turn RL 工作流程通过模块化设计实现了：
-
-1. **高效推理**: SGLang 提供快速的多轮对话生成
-2. **分布式训练**: FSDP 支持大模型的并行训练
-3. **灵活奖励**: 支持多种奖励函数组合
-4. **异步处理**: 提高GPU利用率和训练效率
-5. **多模态支持**: 原生支持视觉-语言模型
-6. **算法多样性**: 支持PPO、GRPO、RLOO等多种RL算法
-
-整个系统设计既保证了性能，又维持了良好的可扩展性和易用性。
-
-flowchart TB
-subgraph Init["初始化阶段"]
-direction TB
-A[启动RayPPOTrainer] --> B1[创建资源池]
-B1 --> B2[初始化分布式Workers]
-B2 --> C1[构建Hybrid Engine]
-C1 --> D1[数据预处理]
-end
-
-```
-subgraph TrainLoop["训练循环"]
-    direction TB
-    E[数据加载] --> F[序列生成Rollout]
-    F --> G[经验处理]
-    G --> H[模型更新]
-    H --> E
-end
-
-Init --> TrainLoop
-
-subgraph Detail["详细流程"]
-    direction LR
-    subgraph Workers["Workers初始化详情"]
-        direction TB
-        W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
-        W2[CriticWorker] --> W4
-        W3[RewardModelWorker] --> W4
-        W4 --> W5[SGLang推理引擎]
-    end
-
-    subgraph Rollout["序列生成详情"]
-        direction TB
-        F1[准备生成数据] --> F2[SGLang异步生成]
-        F2 --> F3[多轮对话处理]
-    end
-
-    subgraph Experience["经验处理详情"]
-        direction TB
-        G1[重新计算Log Prob] --> G2[计算Reward]
-        G2 --> G3[GRPO优势计算]
-    end
-
-    subgraph Update["模型更新详情"]
-        direction TB
-        H1[加载FSDP模型参数] --> H2[计算策略梯度]
-        H2 --> H3[应用GRPO更新]
-        H3 --> H4[参数分片保存]
-    end
-end
-
-B2 --> Workers
-F --> Rollout
-G --> Experience
-H --> Update
-
-```
-
-flowchart TB
-subgraph Init["初始化阶段"]
-direction TB
-A[启动RayPPOTrainer] --> B1[创建资源池]
-B1 --> B2[初始化分布式Workers]
-B2 --> C1[构建Hybrid Engine]
-C1 --> D1[数据预处理]
-end
-
-```
-subgraph TrainLoop["训练循环"]
-    direction TB
-    E[数据加载] --> F1[准备生成数据]
-    F1 --> F2[SGLang异步生成]
-    F2 --> F3[多轮对话处理]
-    F3 --> G1[重新计算Log Prob]
-    G1 --> G2[计算Reward]
-    G2 --> G3[GRPO优势计算]
-    G3 --> H1[加载FSDP模型参数]
-    H1 --> H2[计算策略梯度]
-    H2 --> H3[应用GRPO更新]
-    H3 --> H4[参数分片保存]
-    H4 --> E
-end
-
-Init --> TrainLoop
-
-subgraph Workers["Workers初始化详情"]
-    direction TB
-    W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
-    W2[CriticWorker] --> W4
-    W3[RewardModelWorker] --> W4
-    W4 --> W5[SGLang推理引擎]
-end
-
-B2 --> Workers
-
-```
-
-【TODO】
+<details>
