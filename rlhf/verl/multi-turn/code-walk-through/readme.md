@@ -1040,7 +1040,7 @@ verl 内的 `release_memory_occupation` 和 `resume_memory_occupation` 就是基
 </details>
 
 <details>
-<summary>SGLangRollout.AsyncEngine</summary>
+<summary>SGLangRollout.AsyncEngine 源码</summary>
 
 ```python
 class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
