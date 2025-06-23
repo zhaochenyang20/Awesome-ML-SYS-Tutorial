@@ -1148,8 +1148,6 @@ def _init_inference_engine(self, trust_remote_code, actor_module, port):
 
 【TODO】 这么描述可能不严谨。
 
-【TODO】
-
 ### [`TaskRunner.run()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64)
 
 往下走了这么多层，我们终于能够继续回到 `TaskRunner` 类。😭
