@@ -265,7 +265,7 @@ def run_ppo(config) -> None:
     ray.get(runner.run.remote(config))
 ```
 
-### ActorRolloutRefWorker 和 RayWorkerGroup 的初始化
+### ActorRolloutRefWorker 和 RayWorkerGroup 的相互关系
 
 [TaskRunner](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64) 是 verl 中实现 PPO/GRPO 训练的核心组件，它通过将整个 RL 训练流程封装在一个独立的 Ray Actor 中，实现了任务的封装、资源隔离和分布式协调。为了解释清楚 `TaskRunner`，我们将 verl 当中最让人费解且最复杂的 `ActorRolloutRefWorker` 和 `RayWorkerGroup` 这两个类提前解释清楚。
 
@@ -418,11 +418,9 @@ def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, ...):
 
 最后，我去问了相关开发者，他们也认为把 Actor Rollout，Actor Training 和 Reference Model 放在同一个 worker 里是 bad design 😂，不用纠结这种设计是否有什么高瞻远瞩，完全没有。
 
-### ActorRolloutRefWorker 向下实现
+### [`ActorRolloutRefWorker.__init__()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/fsdp_workers.py#L101)
 
 如前文所说，`ActorRolloutRefWorker` 是 verl 中用于管理 Actor Training，Actor Rollout 和 Reference Model 的 worker class。我们具体来分析其逻辑上实现的功能。注意，本文档只分析 FSDP backend 下的实现，megatron 留作后文。
-
-**[`ActorRolloutRefWorker.__init__()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/fsdp_workers.py#L101)**
 
 1. 调用 Worker 基类的构造函数，并保存配置。
 2. 如果 PyTorch 分布式环境尚未初始化，则进行初始化，包括设置通信后端和进程组。
@@ -560,7 +558,7 @@ def __init__(self, config: DictConfig, role: str):
 
 </details>
 
-**[`ActorRolloutRefWorker._build_model_optimizer()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/fsdp_workers.py#L177)**
+### [`ActorRolloutRefWorker._build_model_optimizer()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/fsdp_workers.py#L177)
 
 这部分源码和类写的还是很直白的，不用太多解释：
 
@@ -791,7 +789,7 @@ def _build_model_optimizer(
 
 这里代码很直白。有一个点值得单独拎出来讲一下：仔细观察 `actor_module` 的 dtype，直觉告诉我，`actor_module` 的 dtype 应该是 bf16 的，而 gradient 和 optimizer 的 dtype 是 fp32 的。可是 `actor_module` 的 default dtype 被设为了 fp32，然后从 fp32 load 了模型。实际上这是因为 pytorch 的各种 optimizer 都是直接和 parameter 绑定的，用 bf16 的 parameter 初始化的 optimizer 也是 bf16。所以 model 先 load 了 fp32，然后初始化 optimizer 作为混合精度，最后把 model 转成 bf16。
 
-**[`ActorRolloutRefWorker._build_rollout()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/fsdp_workers.py#L394)**
+### [`ActorRolloutRefWorker._build_rollout()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/fsdp_workers.py#L394)
 
 这是对我而言最清晰的地方，实际上也是最熟悉的。在这里终于引入了 SGLang：
 
@@ -853,7 +851,7 @@ def _build_rollout(self, trust_remote_code=False):
 
 </details>
 
-**[`SGLangRollout.__init__()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L208)**
+### [`SGLangRollout.__init__()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L208)
 
 事已至此，再往下看一层 SGLang 具体的初始化：
 
@@ -938,7 +936,7 @@ class SGLangRollout(BaseRollout):
 
 【TODO】 这部分挪到后面去解释。
 
-**[`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)**
+### [`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)
 
 `SGLangRollout._initialize_tools()` 函数用于初始化 Multi-turn 对话中的工具。
 
@@ -1012,7 +1010,7 @@ from omegaconf import OmegaConf
 
 【TODO】挪到 part 2。
 
-**[`SGLangRollout.AsyncEngine`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L124)**
+### [`SGLangRollout.AsyncEngine`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L124)
 
 关于 `SGLangRollout` 调用 tool 的部分，我们在下文的训练循环中再展开，这里先讨论完 SGLang 的初始化。为了调用 SGLang engine 的接口，verl 进行了一层封装，实现了我们对 SGLang 除开 rollout 之外的所有接口：
 
@@ -1063,7 +1061,7 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
 </details>
 
-**[`SGLangRollout._init_inference_engine()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L325)**
+### [`SGLangRollout._init_inference_engine()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L325)
 
 `SGLangRollout._init_inference_engine()` 初始化了封装的 `AsyncEngine`。
 
@@ -1130,6 +1128,8 @@ def _init_inference_engine(self, trust_remote_code, actor_module, port):
 </details>
 
 这里最值得一提的是，SGLang engine 并没有严格实现 verl 所希望的 SPMD 模式（每个 GPU 上的进程完全一样），而是采用了 mock 的 SPMD。举例来说，假设 tp size = 4，按照 verl 的设计，应该要 4 张 GPU 上每个都运行一个相同的 SGLang engine。实际上的实现是在 GPU 0 上启动一个进程占据全部 GPU，而 GPU 1 2 3 上仅仅保留一个空进程 `None`。虽然 verl team 起初设定中认为严格的 SPMD 意义巨大，但实际使用中，我们认为 mock 的 SPMD 已经足够满足性能需求。
+
+【TODO】 这么描述可能不严谨。
 
 【TODO】
 
