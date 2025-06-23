@@ -1135,6 +1135,10 @@ def _init_inference_engine(self, trust_remote_code, actor_module, port):
 
 ### `TaskRunner.run()`
 
+往下走了这么多层，我们继续回到 `TaskRunner` 类。
+
+【TODO】上文其实主要是 Actor Rollout，还没有具体说 Actor 的 training forward and backward。以及 Reference，reward 和 critic 的 training forward and backward。
+
 [具体代码](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64)如下：
 
 <details>
