@@ -418,7 +418,7 @@ def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, ...):
 
 最后，我去问了相关开发者，他们也认为把 Actor Rollout，Actor Training 和 Reference Model 放在同一个 worker 里是 bad design 😂，不用纠结这种设计是否有什么高瞻远瞩，完全没有。
 
-### ActorRolloutRefWorker 具体实现
+### ActorRolloutRefWorker 向下实现
 
 如前文所说，`ActorRolloutRefWorker` 是 verl 中用于管理 Actor Training，Actor Rollout 和 Reference Model 的 worker class。我们具体来分析其逻辑上实现的功能。注意，本文档只分析 FSDP backend 下的实现，megatron 留作后文。
 
@@ -439,7 +439,7 @@ def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, ...):
 2. `actor_rollout_ref.actor.ppo_mini_batch_size`：这个参数的名字其实是准确的，因为 mini batch SGD 就是数据到达了一个 mini batch 就更新一次模型参数。在 verl 中，模型会在数据累积到一个 mini batch 后更新一次参数。
 3. `actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu`：这里其实是 gradient accumulation 的参数。由于一个 mini batch 的数据量可能仍然太大，无法一次性前向和反向传播，因此需要将其进一步拆分为 micro batch。每个 micro batch 会计算一次梯度并且累计，但是不会立刻更新模型参数。处理完整个 mini batch 后，才用累积的梯度进行一次参数更新。
 
-此外，在 verl 中，由于 verl 强调 SPMD 策略，可以理解为每个 RL worker 所占据的每个 GPU 上希望进行完全一致的操作，所以 verl 会要求每个 GPU 的 micro batch size 相同。因此，verl 会检查 train batch size / gpu 是否整除 [(ref)](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/trainer/ppo/ray_trainer.py#L363)，如果不整除，则报错。这个设定其实完全没必要；对于 rollout 而言，SGLang 完全不需要发送的请求数量整除 DP 或者 TP size，更何况直接要整除 gpu 数量呢？但是，因为 verl 会用 all gather 从 rollout 的每个 worker 里收集数据，这就要求 rollout 的每个 worker 上分到的数据一致。更进一步，为了 SPMD，又要求 rollout 的每个 gpu 上分到的数据一致。最终，这就导致 verl 的 train batch size 必须整除 gpu 数量。
+此外，在 verl 中，由于 verl 强调 SPMD 策略，可以理解为每个 RL worker 所占据的每个 GPU 上希望进行完全一致的操作，所以 verl 会要求每个 GPU 的 micro batch size 相同。因此，verl 会检查 train batch size / gpu 是否整除 [(ref)](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/trainer/ppo/ray_trainer.py#L363)，如果不整除，则报错。这个设定其实完全没必要；对于 rollout 而言，SGLang 完全不需要发送的请求数量整除 DP 或者 TP size，更何况直接要整除 gpu 数量呢？但是，因为 verl 会用 all gather 从 rollout 的每个 worker 里收集数据，这就要求 rollout 的每个 worker 上分到的数据一致。更进一步，为了 SPMD，又要求 rollout 的每个 gpu 上分到的数据一致。最终，这就导致 verl 的 train batch size 必须整除 gpu 数量；在 GRPO 下是 real train batch size 需要整除 n gpus，等于 train batch size * sampling params 中的 n。
 
 区分好 mini batch 和 micro batch 后，我也是最近才明白 PPO 中是如何维护 on policy 的。我之前一直以为我们都是在做严格 on policy 的训练，但是一个 train batch size 下有好几个 mini batch，似乎第一个 mini batch 结束之后，目标策略（target policy，被训练的 policy）和行为策略（behavior policy，用于在环境中采样的 policy）就不一致了。一次采样会训练很多个 mini batch，从第一个 mini batch 结束就不是 on policy 了。事实也是如此，我们注意到 PPO 的 loss function：
 
@@ -447,7 +447,7 @@ $$ L^{CLIP}(\theta) = \mathbb{E}_t \left[ \min(r_t(\theta) \hat{A}_t, \text{clip
 
 其中的 $r_t(\theta) = \frac{\pi_\theta(a_t | s_t)}{\pi_{\theta_{old}}(a_t | s_t)}$，这是一个对优势函数的矫正比例，而 $\hat{A}_t$ 就是 advantage。对于 LLM 的 PPO 而言，$\pi_{\theta_{old}}(a_t | s_t)$ 代表着采样时 behavior policy 在给定 $s_t$ 时，选择 $a_t$ 的概率，而 $\pi_\theta(a_t | s_t)$ 就是 target policy 在训练中的每一步给定 $s_t$ 时，选择 $a_t$ 的概率。对 LLM 而言，`s_t` 是 prompt 前缀，而 `a_t` 仅仅是 prompt 后的那一个 token。这一概率其实就是 inference 得到的 log probs；我们将收集得到的 (prompt, action) 分别经过 target policy 和 behaviour policy 得到 log probs，然后二者 log probs 相减再取对数，就是矫正项的值。从而，即便第一个 mini batch 之后 target policy 就已经和 behaviour policy 不一致了，仍然可以通过 log probs 进行矫正，也即 importance sampling。
 
-这样一来，又有了两个问题：log probs 应该如何得到？实际上每次采样时都是发送给 rollout固定数量的 requests，如果每个 (prompt, action) 对都会计算一次 loss 的话，岂不是更长的 sequence 会计算更多次？
+这样一来，又有了两个问题：log probs 应该如何得到？实际上每次采样时都是发送给 rollout 固定数量的 requests，如果每个 (prompt, action) 对都会计算一次 loss 的话，岂不是更长的 sequence 会计算更多次？
 
 对于第一个问题，这又是经典的[精度问题](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/readme.md#introduction)。如同我在链接到的文章中所说的，rollout engine 目前只有采样得到的 token 能用，而得到的 log probs 以及 reward 精度都不够，不能用于训练。behaviour policy 和 target policy 为了做 importance sampling 所需的 log probs 都得用 training engine 重算。不过要算起来也不麻烦，在第一个 mini batch 启动前，这时候 target behaviour 是一致的，重算 log probs 并且存下来即可。
 
@@ -789,93 +789,120 @@ def _build_model_optimizer(
 
 </details>
 
-#### `ActorRolloutRefWorker._build_rollout()`
+这里代码很直白。有一个点值得单独拎出来讲一下：仔细观察 `actor_module` 的 dtype，直觉告诉我，`actor_module` 的 dtype 应该是 bf16 的，而 gradient 和 optimizer 的 dtype 是 fp32 的。可是 `actor_module` 的 default dtype 被设为了 fp32，然后从 fp32 load 了模型。实际上这是因为 pytorch 的各种 optimizer 都是直接和 parameter 绑定的，用 bf16 的 parameter 初始化的 optimizer 也是 bf16。所以 model 先 load 了 fp32，然后初始化 optimizer 作为混合精度，最后把 model 转成 bf16。
 
-```python
-from verl.utils.torch_dist import init_device_mesh, get_device_name
+**[`ActorRolloutRefWorker._build_rollout()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/fsdp_workers.py#L394)**
 
-layer_name_mapping = {
-    "decoder.layers": "model.decoder.layers",
-    "norm.weight": "model.decoder.final_layernorm.weight",
-    "norm.bias": "model.decoder.final_layernorm.bias",
-    "embed_tokens.weight": "model.embed_tokens.weight",
-    "lm_head.weight": "model.lm_head.weight",
-}
-
-@registry.register(ActorRolloutRefWorker)
-class ActorRolloutRefWorker:
-    # ... (previous methods)
-
-    def _build_rollout(self, trust_remote_code=False):
-        # 设备网格创建
-        infer_tp = self.config.rollout.tensor_model_parallel_size
-        dp = self.world_size // infer_tp
-        assert self.world_size % infer_tp == 0
-        rollout_device_mesh = init_device_mesh(
-            get_device_name(),
-            mesh_shape=(dp, infer_tp),
-            mesh_dim_names=["dp", "infer_tp"]
-        )
-
-        # SGLang Rollout 构建
-        if self.config.rollout.name == "sglang":
-            from verl.workers.rollout.sglang_rollout import SGLangRollout
-            from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
-            from verl.models.mcore import get_mcore_weight_converter
-
-            rollout = SGLangRollout(
-                actor_module=self.config.model.path,
-                config=self.config.rollout,
-                tokenizer=self.tokenizer,
-                model_hf_config=self.actor_model_config,
-                trust_remote_code=trust_remote_code,
-                device_mesh=rollout_device_mesh,
-            )
-            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronSGLangShardingManager(
-                actor_module=self.actor.actor_module,
-                inference_engine=rollout._engine,
-                model_config=self.actor_model_config,
-                transformer_config=self.tf_config,
-                layer_name_mapping=layer_name_mapping,
-                weight_converter=weight_converter,
-                device_mesh=rollout_device_mesh,
-            )
-
-            return rollout, sharding_manager
-        else:
-            raise NotImplementedError
-```
-
-`ActorRolloutRefWorker._build_rollout()` 函数专门用于构建 Rollout 模块，特别是 SGLang Rollout：
+这是对我而言最清晰的地方，实际上也是最熟悉的。在这里终于引入了 SGLang：
 
 1.  **设备网格创建**：为 Rollout 创建推理张量并行（`infer_tp`）设备网格。
-2.  **SGLang Rollout 构建**：如果 Rollout 名称是 "sglang"，则导入并实例化 `SGLangRollout` 和 `MegatronSGLangShardingManager`。`MegatronSGLangShardingManager` 负责在 FSDP 训练格式和 SGLang 推理格式之间转换模型权重。
+2.  **SGLang Rollout 构建**：导入并实例化 `SGLangRollout` 和 `FSDPSGLangShardingManager`。`FSDPSGLangShardingManager` 负责在 FSDP 训练格式和 SGLang 推理格式之间转换模型权重。
 
-### `c` 初始化流程
-
-#### `SGLangRollout.__init__()`
+<details>
+<summary>ActorRolloutRefWorker._build_rollout 部分源码</summary>
 
 ```python
-import os
-from typing import Dict, List, Tuple, Optional
-from omegaconf import DictConfig, OmegaConf
-from sglang.function_calling.function_call_parser import FunctionCallParser
-from sglang.utils.general import initialize_tools_from_config
-from sglang.tools.tool import Tool
-from transformers import AutoTokenizer
-from verl.utils.fs import copy_to_local
-from verl.utils.torch_dist import get_torch_device
-from verl.workers.rollout import Rollout
+def _build_rollout(self, trust_remote_code=False):
+    from torch.distributed.device_mesh import init_device_mesh
 
-def get_tool_call_parser_type(tokenizer):
-    if isinstance(tokenizer, AutoTokenizer):
-        if tokenizer.name_or_path in ["meta-llama/Llama-3-8B", "meta-llama/Llama-3-70B"]:
-            return "llama3"
-    return None
+    infer_tp = self.config.rollout.tensor_model_parallel_size
+    dp = self.world_size // infer_tp
+    assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+    rollout_device_mesh = init_device_mesh(device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
+    rollout_name = self.config.rollout.name
 
-class SGLangRollout(Rollout):
-    def __init__(self, actor_module, config, tokenizer, model_hf_config, port=None, trust_remote_code=False, device_mesh=None, **kwargs):
+    # 为了简洁，我删去了 huggingface 和 vllm 的相关代码
+    if rollout_name in ["sglang", "sglang_async"]:
+        if rollout_name == "sglang_async":
+            warnings.warn(
+                "'sglang_async' has been deprecated and merged into 'sglang'. Please use 'sglang' going forward.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        from verl.workers.rollout.sglang_rollout import SGLangRollout
+        from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
+
+        local_path = copy_to_local(self.config.model.path)
+        log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+        rollout = SGLangRollout(
+            actor_module=local_path,
+            config=self.config.rollout,
+            tokenizer=self.tokenizer,
+            model_hf_config=self.actor_model_config,
+            trust_remote_code=trust_remote_code,
+        )
+        log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
+
+        if torch.distributed.get_world_size() == 1:
+            self.config.rollout.load_format = "dummy_hf"
+        rollout_sharding_manager = FSDPSGLangShardingManager(
+            module=self.actor_module_fsdp,
+            inference_engine=rollout._engine,
+            model_config=self.actor_model_config,
+            full_params="hf" in self.config.rollout.load_format,
+            device_mesh=rollout_device_mesh,
+            offload_param=self._is_offload_param,
+        )
+        log_gpu_memory_usage("After building sharding manager", logger=logger)
+
+    else:
+        raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
+
+    return rollout, rollout_sharding_manager
+```
+
+</details>
+
+**[`SGLangRollout.__init__()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L208)**
+
+事已至此，再往下看一层 SGLang 具体的初始化：
+
+1. 调用父类构造函数并设置配置和设备网格。
+2. 通过 `_initialize_tools()` 初始化工具 schemas、map 和解析器，支持 Multi-turn 对话中的工具使用。
+3. 初始化 SGLang 推理所需的分布式环境。
+4. 通过 `_verify_config()` 验证模型配置。
+5. 通过 `_init_inference_engine()` 初始化 SGLang 推理引擎。
+6. 通过 `_init_sampling_params()` 初始化生成序列的采样参数。
+7. 设置 Tokenizer 和 padding token ID。
+
+<details>
+<summary>SGLangRollout.__init__ 部分源码</summary>
+
+```python
+class SGLangRollout(BaseRollout):
+    def __init__(
+        self,
+        actor_module: str,
+        config: DictConfig,
+        tokenizer,
+        model_hf_config,
+        port=None,
+        trust_remote_code: bool = False,
+        device_mesh: DeviceMesh | None = None,
+        **kwargs,
+    ):
+        """Synchronized SGLang rollout engine.
+
+        Args:
+            actor_module: Huggingface model name or path to the model. The
+                model should be supported by SGLang.
+            config: A DictConfig object containing SGLang-specific operational
+                parameters and rollout settings.
+                Refer to https://docs.sglang.ai/backend/server_arguments.html
+            tokenizer: The tokenizer instance compatible with the actor_module.
+            model_hf_config: The Hugging Face model's configuration (e.g.,
+                `transformers.PretrainedConfig`). It provides architectural
+                details and hyperparameters like `max_position_embeddings`,
+                used by SGLang for correct model initialization. This is
+                the model's inherent design, not SGLang's runtime behavior.
+            port: Optional port for multi-node initialization when nnodes > 1.
+            trust_remote_code: Whether or not to allow for custom models
+                defined on the Hub in their own modeling files.
+            device_mesh: Optional `DeviceMesh` object for distributed setup.
+            **kwargs: Additional keyword arguments, primarily `train_tp` for
+                Megatron Backend integration to initialize hybrid engine
+                process groups.
+        """
         super().__init__()
         self.config = config
         self._device_mesh_cpu = device_mesh
@@ -888,27 +915,42 @@ class SGLangRollout(Rollout):
             self._sgl_tools,
             self._function_call_parser,
         ) = self._initialize_tools(config, tokenizer)
+        self.interaction: dict[str, BaseInteraction] = self._intitalize_interaction(config)
+        # If turn on `free_cache_engine`, SGLang engine's KV cache
+        # will be freed after each `generate_sequences` call.
+        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
+
+        logger.info(f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}")
 
         self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
+
         self._verify_config(model_hf_config=model_hf_config)
+        # initialize the inference engine
         self._init_inference_engine(trust_remote_code, actor_module, port)
+
         self._init_sampling_params(**kwargs)
 
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
 ```
 
-`SGLangRollout` 的构造函数负责管理 SGLang 推理引擎：
+</details>
 
-1.  **基础初始化**：调用父类构造函数并设置配置和设备网格。
-2.  **工具系统初始化**：如果配置了工具，则通过 `_initialize_tools()` 初始化工具 schemas、map 和解析器，支持 Multi-turn 对话中的工具使用。
-3.  **分布式环境初始化**：初始化 SGLang 推理所需的分布式环境（通过 `_init_distributed_env()`，代码未提供）。
-4.  **配置验证**：通过 `_verify_config()` 验证模型配置（代码未提供）。
-5.  **推理引擎初始化**：通过 `_init_inference_engine()` 初始化 SGLang 推理引擎。
-6.  **采样参数初始化**：通过 `_init_sampling_params()` 初始化生成序列的采样参数（代码未提供）。
-7.  **Tokenizer 设置**：设置 Tokenizer 和 padding token ID。
+【TODO】 这部分挪到后面去解释。
 
-#### `SGLangRollout._initialize_tools()`
+**[`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)**
+
+`SGLangRollout._initialize_tools()` 函数用于初始化 Multi-turn 对话中的工具。
+
+1. 如果没有工具配置路径，则返回空列表和字典。
+2. 从配置文件加载工具并初始化工具列表。
+3. 创建 OpenAI 格式的工具 schema 和工具名称到工具对象的映射。
+4. 根据 Tokenizer 类型确定工具调用解析器。
+5. 为 SGLang 创建 `Tool` 对象。
+6. 实例化 `FunctionCallParser`。
+
+<details>
+<summary>SGLangRollout._initialize_tools 部分源码</summary>
 
 ```python
 from sglang.function_calling.function_call_parser import FunctionCallParser
@@ -917,85 +959,181 @@ from sglang.tools.tool import Tool
 from omegaconf import OmegaConf
 
 @registry.register(SGLangRollout)
-class SGLangRollout:
-    # ... (previous methods)
-
     def _initialize_tools(self, config, tokenizer):
+        """Initialize tools from configuration.
+
+        Args:
+            config: Configuration object containing tool-related settings,
+                    specifically `config.multi_turn.tool_config_path`.
+            tokenizer: The tokenizer instance used for parsing tool calls from
+                       the model's generated text.
+
+        Returns:
+            tuple: A tuple containing:
+                - tool_schemas (list[dict]): OpenAI-formatted JSON schemas
+                  defining each tool's capabilities.
+                - tool_map (dict[str, BaseTool]): A dictionary mapping tool
+                  names to their executable `BaseTool` objects.
+                - tool_call_parser_type (str): The identifier for the specific
+                  parser type (e.g., 'json_mode', 'tool_code') used to extract
+                  tool calls.
+                - sgl_tools (list[sglang.srt.openai_api.protocol.Tool]): Tool
+                  definitions optimized for SGLang's internal engine.
+                - function_call_parser (sglang.srt.function_call_parser.FunctionCallParser):
+                  The active parser instance responsible for extracting
+                  structured tool calls from model outputs.
+        """
         if config.multi_turn.tool_config_path is None:
             return [], {}, None, [], None
 
         tools_config_file = config.multi_turn.tool_config_path
-        tools_config = OmegaConf.load(tools_config_file)
-        tool_list = initialize_tools_from_config(tools_config)
+        tool_list = initialize_tools_from_config(tools_config_file)
 
+        logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
-
         tool_call_parser_type = get_tool_call_parser_type(tokenizer)
-
         sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
-
         function_call_parser = FunctionCallParser(
             sgl_tools,
             tool_call_parser_type,
         )
 
-        return tool_schemas, tool_map, tool_call_parser_type, sgl_tools, function_call_parser
+        return (
+            tool_schemas,
+            tool_map,
+            tool_call_parser_type,
+            sgl_tools,
+            function_call_parser,
+        )
 ```
 
-`SGLangRollout._initialize_tools()` 函数用于初始化 Multi-turn 对话中的工具：
+</details>
 
-1.  **检查工具配置**：如果没有工具配置路径，则返回空列表和字典。
-2.  **加载工具配置**：从配置文件加载工具并初始化工具列表。
-3.  **工具 schema 创建**：创建 OpenAI 格式的工具 schema 和工具名称到工具对象的映射。
-4.  **工具调用解析器类型确定**：根据 Tokenizer 类型确定工具调用解析器。
-5.  **SGLang 工具创建**：为 SGLang 创建 `Tool` 对象。
-6.  **函数调用解析器创建**：实例化 `FunctionCallParser`。
+【TODO】挪到 part 2。
 
-#### `SGLangRollout._init_inference_engine()`
+**[`SGLangRollout.AsyncEngine`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L124)**
+
+关于 `SGLangRollout` 调用 tool 的部分，我们在下文的训练循环中再展开，这里先讨论完 SGLang 的初始化。为了调用 SGLang engine 的接口，verl 进行了一层封装，实现了我们对 SGLang 除开 rollout 之外的所有接口：
+
+1. release and resume memory occupation：在训练时释放掉显存占用并在训练后恢复。
+2. update weights from tensor：训练结束后更新模型权重。
+3. flush cache：模型参数更新后刷新 KV cache，因为之前的 KV cache 已经失效了。
+
+【TODO】确定何时 flush。
+
+此外，如果读者对 SGLang engine 在 verl 里的显存管理感兴趣，欢迎阅读标哥的博客 [optimizing Memory Usage in verl](https://hebiao064.github.io/rl-memory-management)，写的非常深入浅出。
+
+<details>
+<summary>SGLangRollout.AsyncEngine</summary>
 
 ```python
-from verl.utils.fs import copy_to_local
-from verl.utils.torch_dist import get_device_name
+class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # default to use dummy load format, which need to reload weights in first time
+        self._need_reload = True
 
-@registry.register(SGLangRollout)
-class SGLangRollout:
-    # ... (previous methods)
+    async def release_memory_occupation(self):
+        """Release GPU occupation temporarily."""
+        obj = ReleaseMemoryOccupationReqInput()
+        return await self.tokenizer_manager.release_memory_occupation(obj, None)
 
-    def _init_inference_engine(self, trust_remote_code, actor_module, port):
-        local_path = copy_to_local(actor_module, use_shm=self.config.model.get("use_shm", False))
+    async def resume_memory_occupation(self):
+        return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
-        if self._device_mesh_cpu is not None:
-            self._rank = self._device_mesh_cpu["tp"].mesh[0].item()
-            self._tp_rank = self._device_mesh_cpu["tp"].mesh[1].item()
-            self._tp_size = self._device_mesh_cpu["tp"].mesh.shape[1]
-        else:
-            self._rank = 0
-            self._tp_rank = 0
-            self._tp_size = 1
+    async def update_weights_from_tensor(
+        self,
+        named_tensors: List[Tuple[str, torch.Tensor]],  # noqa: UP006
+        load_format: Optional[str] = None,
+        flush_cache: bool = True,
+    ):
+        """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
+        to avoid duplicated cache cleaning operation."""
+        obj = UpdateWeightsFromTensorReqInput(
+            serialized_named_tensors=[MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)],
+            load_format=load_format,
+            flush_cache=flush_cache,
+        )
+        return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
 
-        if self._tp_rank == 0:
-            from sglang.srt.managers import EngineManager
-
-            self._engine = EngineManager(
-                model_path=local_path,
-                trust_remote_code=trust_remote_code,
-                **self.config.engine_kwargs
-            )
-        else:
-            self._engine = None
+    async def flush_cache(self):
+        return await self.tokenizer_manager.flush_cache()
 ```
 
-`SGLangRollout._init_inference_engine()` 函数负责初始化 SGLang 推理引擎：
+</details>
 
-1.  **本地路径处理**：确保模型路径是本地可访问的。
-2.  **分布式环境设置**：根据设备网格设置 rank 和 tensor parallel size。
-3.  **SGLang 引擎创建**：仅在 tensor parallel rank 为 0 的进程上创建 `EngineManager` 实例，用于高效地执行模型推理。其他进程不直接持有 `EngineManager` 实例。
+**[`SGLangRollout._init_inference_engine()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L325)**
 
-希望这次整理能够帮助您更好地理解 task runner 的代码逻辑。我保留了您文档中解析的每一部分内容，并尝试按照从主入口到核心组件初始化的顺序进行组织。如果您有任何其他问题或需要进一步的调整，请随时告诉我。
+`SGLangRollout._init_inference_engine()` 初始化了封装的 `AsyncEngine`。
 
--------
+<details>
+<summary>SGLangRollout._init_inference_engine 源码</summary>
 
+```python
+def _init_inference_engine(self, trust_remote_code, actor_module, port):
+    # initialize the inference engine
+    nnodes = -(-self._tp_size // len(self.visible_devices_set))
+    if nnodes > 1:
+        ip = get_ip()
+        port = get_open_port() if port is None else port
+        [ip, port] = broadcast_pyobj(
+            [ip, port],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu.get_group("tp"),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
+        )
+        dist_init_addr = f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
+    else:
+        dist_init_addr = None
+
+    load_format = "dummy" if self.config.load_format.startswith("dummy") else self.config.load_format
+    tp_size_per_node = self._tp_size // nnodes
+    node_rank = self._tp_rank // tp_size_per_node
+    first_rank_in_node = self._tp_rank % tp_size_per_node == 0
+
+    if first_rank_in_node:
+        rank = dist.get_rank()
+        os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
+        self._engine = AsyncEngine(
+            model_path=actor_module,
+            dtype=self.config.dtype,
+            mem_fraction_static=self.config.gpu_memory_utilization,
+            enable_memory_saver=True,
+            base_gpu_id=0,
+            gpu_id_step=1,
+            tp_size=self._tp_size,
+            node_rank=node_rank,
+            load_format=load_format,
+            dist_init_addr=dist_init_addr,
+            nnodes=nnodes,
+            trust_remote_code=trust_remote_code,
+            # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
+            # when random.seed is being set during training
+            port=30000 + rank,
+            # NOTE(Chenyang): if you want to debug the SGLang engine output
+            # please set the following parameters
+            # Otherwise, it will make the engine run too slow
+            # log_level="INFO",
+            # log_requests=True,
+            # log_requests_level=2,
+            # max_running_requests=1,
+        )
+    else:
+        self._engine = None
+
+    self.sharding_manager = None
+    self.is_sleep = True
+```
+
+</details>
+
+这里最值得一提的是，SGLang engine 并没有严格实现 verl 所希望的 SPMD 模式（每个 GPU 上的进程完全一样），而是采用了 mock 的 SPMD。举例来说，假设 tp size = 4，按照 verl 的设计，应该要 4 张 GPU 上每个都运行一个相同的 SGLang engine。实际上的实现是在 GPU 0 上启动一个进程占据全部 GPU，而 GPU 1 2 3 上仅仅保留一个空进程 `None`。虽然 verl team 起初设定中认为严格的 SPMD 意义巨大，但实际使用中，我们认为 mock 的 SPMD 已经足够满足性能需求。
+
+【TODO】
+
+### `TaskRunner.run()`
 
 [具体代码](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/main_ppo.py#L64)如下：
 
@@ -1522,3 +1660,5 @@ end
 B2 --> Workers
 
 ```
+
+【TODO】
