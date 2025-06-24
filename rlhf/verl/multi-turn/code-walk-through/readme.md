@@ -1,10 +1,18 @@
 # verl Multi-turn Code Walk Through（Part 1）
 
-承蒙社区厚爱，Agentic RL 如火如荼，SGLang RL Group 的工作也夜以继日在展开。考虑到各大 RL 框架的代码更新频率极高，社区二次开发需求巨大，我们选择以 verl 出发，分析其 end to end mutli-turn RL 训练的全过程。整体上，我们希望覆盖所有重要的 class 以及函数，更细粒度的代码不再展开。我们的写作风格希望能够 follow SGLang 的 code-walk-through：
+承蒙社区厚爱，Agentic RL 如火如荼，我们 SGLang RL 小组的工作也在夜以继日。考虑到领域令人恐惧的发展速度，社区巨大的二次开发需求，我们选择以 verl 出发，分析其 end to end mutli-turn RL 训练的全过程。整体上，我们希望覆盖所有重要的 class 以及函数，更细粒度的代码不再展开。我们的写作风格希望能够 follow SGLang 的 code-walk-through：
 
 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme-CN.md)
 
 为了前后内容的一致性，我们基于 [76f63cffa5](https://github.com/volcengine/verl/commit/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39) 的 commit 进行分析。
+
+感谢来自 Amazon，LinkedIn，阿里等公司和 SGLang RL 小组的朋友们的贡献。虽然本文以分析 verl 的代码为主，写完之后我们才意识到，系统设计问题是非常通用的。诸如“log probs 重计算”，“Rollout Engine 显存管理”等等系统设计，是各大 RL 框架都需要考虑的核心问题。我们希望本文对于开源社区理解 RL 框架系统设计能提供可迁移的经验 😂
+
+如果您对我们的工作感兴趣，欢迎来联系我们参与一些工作～
+
+特别致谢：zhuoran yin @ CMU，changyi yang @ CMU，zhuohao li @ 阿里，ji li @待业在家（🤣），biao he @ Linkedin 和 chenyang zhao @ Amazon。
+
+--------------------------------
 
 整个训练的示意图如下，我们会具体展开每个部分。
 
@@ -809,7 +817,6 @@ def _build_rollout(self, trust_remote_code=False):
     rollout_device_mesh = init_device_mesh(device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
     rollout_name = self.config.rollout.name
 
-    # 为了简洁，我删去了 huggingface 和 vllm 的相关代码
     if rollout_name in ["sglang", "sglang_async"]:
         if rollout_name == "sglang_async":
             warnings.warn(
