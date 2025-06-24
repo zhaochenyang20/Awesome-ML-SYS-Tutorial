@@ -10,7 +10,7 @@
 
 如果您对我们的工作感兴趣，欢迎来联系我们参与一些工作～
 
-特别致谢：zhuoran yin @ CMU，changyi yang @ CMU，zhuohao li @ 阿里，ji li @待业在家（🤣），biao he @ Linkedin 和 chenyang zhao @ Amazon。
+特别致谢：zhuoran yin @ CMU，changyi yang @ CMU，zhuohao li @ 阿里，ji li @待业在家（🤣），biao he @ Linkedin 和 xinpeng wei & chenyang zhao @ Amazon。
 
 --------------------------------
 
