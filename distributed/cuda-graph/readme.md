@@ -1,4 +1,4 @@
-# 一文理解 CUDA Graph
+# 基于 torch-memory-savor 浅析 CUDA Graph 
 
 前几天和标哥在研究 torch-mem-savor 的时候发现自己对 CUDA Graph 知之甚少，我只能模糊地理解到 CUDA Graph 是一种基于有向无环图的优化方式。恰好最近重新思考了下在 collcate 策略里的显存优化原理以及 SGLang 何时需要 flush cache，所以这篇文章快速理解下 CUDA Graph 的概念。
 
