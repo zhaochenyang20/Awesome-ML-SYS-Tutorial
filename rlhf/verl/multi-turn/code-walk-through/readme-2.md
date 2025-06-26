@@ -782,7 +782,7 @@ def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataPro
         sorted_output_req_list = None
 ```
 
-<details>
+</details>
 
 现在来看，`asyncio.gather(*[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],)` 就显得无比清晰了。
 
