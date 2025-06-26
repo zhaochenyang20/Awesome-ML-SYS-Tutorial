@@ -17,6 +17,7 @@ $$
 
 ## RLHF System 开发笔记
 
+- [深入浅出理解 verl 源码（Part 1）](./rlhf/verl/multi-turn/code-walk-through/readme.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1920751852749849692)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme_EN.md)。
 - [从 tokenizer 视角来分析 Agentic 多轮训练的复杂性](rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking_ZH.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1917126584806139373)和[英文版本](rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking.md)。
 - [Search-R1 & veRL-SGLang: Train LLMs with Multi-Turn RL to Reason and Call a Search Engine](rlhf/verl/multi-turn//tool_examples/verl-multiturn-searchR1-like_ZH.md)：整合 Search-R1 framework 到 verl-sglang 生态，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1912156329751081620)。
 - [SGLang, verl, OpenBMB 与清华大学团队联合开源：在主流 RLHF 框架上首次支持多轮交互与工具调用](rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md)：在主流 RLHF 框架上首次支持多轮交互与工具调用，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1906007821889283171)。
@@ -55,6 +56,7 @@ $$
 
 ## ML System 基本功
 
+- [基于 torch-memory-savor 浅析 CUDA Graph](./distributed/cuda-graph/readme.md)：同样刊载于[知乎：基于 torch-memory-savor 浅析 CUDA Graph](https://zhuanlan.zhihu.com/p/1921726788574360686)和[英文版](./distributed/cuda-graph/readme_en.md)。
 - [NCCL 与 NVIDIA TOPO](./distributed/nccl/readme.md)：NCCL 的入门与 NVIDIA 显卡的检测，同样刊载于[NCCL 与 NVIDIA TOPO](https://zhuanlan.zhihu.com/p/6160835906)。
 - [PyTorch Distributed](./distributed/torch-distributed/readme.md)：`torch.distributed` 的通讯实践， GIL 和 `all_reduce` 的细节。这一部分同样刊载在 [知乎：PyTorch 通讯实践](https://zhuanlan.zhihu.com/p/5853094319)。
 - [Give me BF16 or Give Me Death，当下量化方法的全面评测](https://zhuanlan.zhihu.com/p/5485556270)
