@@ -280,12 +280,6 @@ CUDA Graph 在捕获阶段会记录所有显存操作，包括 `cudaMalloc`、`c
 
 ## CUDA Graph 和 `torch.compile` 的异同
 
-明白了，非常感谢你的具体指导。我将按照你严谨的风格，去除比喻和过于口语化的表达，专注于技术细节和清晰的对比。
-
----
-
-## CUDA Graph 和 `torch.compile` 的异同
-
 CUDA Graph 和 `torch.compile` 均显著提升 PyTorch 模型的执行性能。然而，二者工作于不同的抽象层级，其设计目标与应用机制存在显著区别。`torch.compile` 是 PyTorch 2.0 引入的高级编译工具链。其核心目标是自动化性能优化流程，通过对 PyTorch 代码的分析，将其转换为优化的底层表示，并利用诸如 TorchInductor、AOTAutograd 等后端生成高效的 GPU 代码以实现加速。
 
 | 特征           | CUDA Graph                                   | `torch.compile`                                           |
