@@ -1,4 +1,4 @@
-# 深入浅出理解 verl 源码
+# 深入浅出理解 verl 源码 part 2
 
 在 [Part 1](readme.md) 中，我们介绍了 verl 的初始化过程，我们进一步介绍 verl 的训练过程。
 
