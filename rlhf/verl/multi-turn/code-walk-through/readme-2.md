@@ -811,9 +811,7 @@ class DataProto:
     meta_info: Dict = field(default_factory=dict)
 ```
 
-`DataProto` 提供标准化的数据交换协议，基于 PyTorch 的 TensorDict，支持张量的批量操作，同时通过 `non_tensor_batch` 字典来处理 NumPy 数组等非张量数据。`meta_info` 存储额外的元信息。本身支持的操作挺基础的，典型的比如数据创建、切片、选择、合并、重命名、重复、填充、分块、以及分布式环境下的数据集合与分发。
-
-除此之外，`DataProto`还能通过数据验证`check_consistency()`确保在数据分离和合并过程中不会出现不一致的情况，同时支持在CPU和GPU之间高效移动数据（`to()`），这对于分布式训练中的参数卸载和加载至关重要，索引操作和批处理操作则提供了灵活的数据处理能力，使得veRL能够高效地处理不同长度序列的批处理、多模态数据的组合以及复杂的训练数据流。这些特性共同构成了veRL数据流处理的技术基础，为后续的序列生成、经验处理和模型更新阶段提供了可靠的数据管理保障。
+`DataProto` 提供标准化的数据交换协议，基于 PyTorch 的 TensorDict，支持张量的批量操作，同时通过 `non_tensor_batch` 字典来处理 NumPy 数组等非张量数据。`meta_info` 存储额外的元信息。本身支持的操作挺基础的，典型的比如数据创建、切片、选择、合并、重命名、重复、填充、分块、以及分布式环境下的数据集合与分发。除此之外，`DataProto` 还通过数据验证 `check_consistency()` 确保在数据分离和合并过程的一致性。
 
 ### `RLHFDataset`
 
@@ -890,7 +888,7 @@ A：Parquet 文件 --> B：RLHFDataset --> C：DataLoader + collate_fn --> D：D
 <details>
 <summary>数据流详细分析</summary>
 
-A：Parquet 文件
+A：`Parquet` 文件
 
 ```python
 data_files = "~/data/rlhf/gsm8k/train.parquet"
@@ -919,26 +917,26 @@ dataloader = DataLoader(
 )
 ```
 
-D：DataProto 原始数据
+D：`DataProto` 原始数据
 
 ```python
 batch_dict = next(iter(dataloader))  # 返回 dict
 batch: DataProto = DataProto.from_single_dict(batch_dict)
 ```
 
-E：pop 提取生成数据
+E：`pop` 提取生成数据
 
 ```python
 gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
 ```
 
-F：Rollout 生成
+F：`Rollout` 生成
 
 ```python
 gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 ```
 
-G：union 合并数据
+G：`union` 合并数据
 
 ```python
 batch = batch.union(gen_batch_output)
@@ -1004,10 +1002,6 @@ logger.log(data=metrics, step=self.global_steps)
 ```
 
 </details>
-
-## 总结
-
-**只有 A→B→C 不是 DataProto，其他所有步骤都是通过 DataProto 进行数据交换的**！
 
 ### 2.2 Rollout
 
