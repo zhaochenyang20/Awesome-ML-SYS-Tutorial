@@ -786,37 +786,13 @@ def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataPro
 
 现在来看，`asyncio.gather(*[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],)` 就显得无比清晰了。
 
+## 数据流管理
 
+我们继续去理解 `RayPPOTrainer.fit()` 函数，从数据流管理开始。这里我认为最重要的两个类是 `DataProto` 和 `RLHFDataset`。
 
-#### 2.1.2 数据管理与分离
+### `DataProto`
 
-数据分离的设计原理在于将用于生成的数据（如`input_ids`、`attention_mask`、`position_ids`等）从主批次中弹出，同时动态检测并处理多模态数据（`multi_modal_data`），支持工具调用的配置参数（`tools_kwargs`）和交互式训练的配置参数（`interaction_kwargs`），并保留原始提示数据（`raw_prompt_ids`、`raw_prompt`）用于生成。这种数据分离的必要性源于RL训练中不同阶段对数据格式的差异化需求：在生成阶段，模型只需要prompts用于推理，不包含回答；而在训练阶段，则需要完整的prompt+response序列用于策略更新。通过这种数据分离设计，veRL能够灵活处理不同长度的序列，同时保持数据的一致性和完整性，为后续的序列生成和模型训练提供高质量的数据基础。
-
-数据加载阶段的核心实现在 [`RayPPOTrainer.fit()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L957) 方法中：
-
-```python
-# 从DataLoader获取原始批次数据
-batch: DataProto = DataProto.from_single_dict(batch_dict)
-
-# 弹出用于生成的数据键
-batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-if "multi_modal_data" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("multi_modal_data")
-if "raw_prompt" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("raw_prompt")
-if "tools_kwargs" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("tools_kwargs")
-if "interaction_kwargs" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("interaction_kwargs")
-gen_batch = batch.pop(
-    batch_keys=batch_keys_to_pop,
-    non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-)
-```
-
-
-`DataProto` 是veRL中用于统一处理数据的核心数据结构，定义在 [`protocol.py`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L201)：
+`DataProto` 是 verl 的数据交换协议，定义在 [`protocol.py`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L202)：
 
 ```python
 @dataclass
@@ -831,95 +807,18 @@ class DataProto:
     batch: TensorDict = None
     non_tensor_batch: Dict = field(default_factory=dict)
     meta_info: Dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        # perform necessary checking
-        self.check_consistency()
 ```
 
-`DataProto`提供标准化的数据交换协议，基于PyTorch的TensorDict，支持张量的批量操作，同时通过`non_tensor_batch`字典来处理NumPy数组等非张量数据。`meta_info`存储额外的元信息。其中几个关键都是关于`DataProto`的创建，包括:
+`DataProto` 提供标准化的数据交换协议，基于 PyTorch 的 TensorDict，支持张量的批量操作，同时通过 `non_tensor_batch` 字典来处理 NumPy 数组等非张量数据。`meta_info` 存储额外的元信息。本身支持的操作挺基础的，典型的比如数据创建、切片、选择、合并、重命名、重复、填充、分块、以及分布式环境下的数据集合与分发。
 
-**[`from_single_dict()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L331) - 从字典创建DataProto**：
-```python
-@classmethod
-def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None, auto_padding=False):
-    """Create a DataProto from a dict of tensors and non_tensors"""
-    tensors = {}
-    non_tensors = {}
-
-    for key, val in data.items():
-        if isinstance(val, torch.Tensor):
-            tensors[key] = val
-        elif isinstance(val, np.ndarray):
-            non_tensors[key] = val
-        else:
-            raise ValueError(f"Unsupported type in data {type(val)}")
-
-    return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
-```
-
-**[`pop()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L517) - 弹出数据子集**：
-```python
-def pop(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None) -> "DataProto":
-    """Pop a subset of the DataProto via `batch_keys` and `meta_info_keys`
-
-    Args:
-        batch_keys (list, optional): a list of strings indicating the keys in batch to pop
-        meta_info_keys (list, optional): a list of keys indicating the meta info to pop
-
-    Returns:
-        DataProto: the DataProto with the poped batch_keys and meta_info_keys
-    """
-    if batch_keys is None:
-        batch_keys = []
-    if meta_info_keys is None:
-        meta_info_keys = []
-    if non_tensor_batch_keys is None:
-        non_tensor_batch_keys = []
-
-    tensors = {}
-    # tensor batch
-    for key in batch_keys:
-        assert key in self.batch.keys()
-        tensors[key] = self.batch.pop(key)
-    non_tensors = {}
-    # non tensor batch
-    for key in non_tensor_batch_keys:
-        assert key in self.non_tensor_batch.keys()
-        non_tensors[key] = self.non_tensor_batch.pop(key)
-    meta_info = {}
-    for key in meta_info_keys:
-        assert key in self.meta_info.keys()
-        meta_info[key] = self.meta_info.pop(key)
-    return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info)
-```
-
-**`union()` - 合并数据**：
-```python
-def union(self, other: "DataProto") -> "DataProto":
-    """Union with another DataProto. Union batch and meta_info separately.
-    Throw an error if
-
-    - there are conflict keys in batch and they are not equal
-    - the batch size of two data batch is not the same
-    - there are conflict keys in meta_info and they are not the same.
-
-    Args:
-        other (DataProto): another DataProto to union
-
-    Returns:
-        DataProto: the DataProto after union
-    """
-    self.batch = union_tensor_dict(self.batch, other.batch)
-    self.non_tensor_batch = union_numpy_dict(self.non_tensor_batch, other.non_tensor_batch)
-    self.meta_info = union_two_dict(self.meta_info, other.meta_info)
-    return self
-```
 除此之外，`DataProto`还能通过数据验证`check_consistency()`确保在数据分离和合并过程中不会出现不一致的情况，同时支持在CPU和GPU之间高效移动数据（`to()`），这对于分布式训练中的参数卸载和加载至关重要，索引操作和批处理操作则提供了灵活的数据处理能力，使得veRL能够高效地处理不同长度序列的批处理、多模态数据的组合以及复杂的训练数据流。这些特性共同构成了veRL数据流处理的技术基础，为后续的序列生成、经验处理和模型更新阶段提供了可靠的数据管理保障。
 
-#### 2.1.3 `RLHFDataset` 数据集类：高效的数据加载与预处理
+### `RLHFDataset`
 
-[`RLHFDataset`]((https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L68)) 是veRL中专门用于RLHF数据加载的数据集类：
+[`RLHFDataset`]((https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L68)) 是 verl 中用于 RLHF 数据加载的数据集类，继承自 `datasets.Dataset`，主要用于处理 Parquet 文件中的数据，包括数据下载、tokenize、过滤、预处理等。
+
+<details>
+<summary>RLHFDataset 源码</summary>
 
 ```python
 class RLHFDataset(Dataset):
@@ -976,247 +875,137 @@ class RLHFDataset(Dataset):
         self._read_files_and_tokenize()
 ```
 
-这一块可以讲的东西不多，和算法相关的主要就是数据的下载和tokenize：
+</details>
 
-```python
-def _download(self, use_origin_parquet=False):
-    from verl.utils.fs import copy_to_local
+有了 `DataProto` 和 `RLHFDataset` 后，我们来观察数据流：
 
-    data_files = self.data_files if not use_origin_parquet else self.original_data_files
-    for i, parquet_file in enumerate(data_files):
-        self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
-
-# tokenize
-def _read_files_and_tokenize(self):
-    dataframes = []
-    for parquet_file in self.data_files:
-        # read parquet files and cache
-        dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
-        dataframes.append(dataframe)
-    self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
-
-    print(f"dataset len: {len(self.dataframe)}")
-
-    # filter out too long prompts
-    if self.filter_overlong_prompts:
-        tokenizer = self.tokenizer
-        processor = self.processor
-        prompt_key = self.prompt_key
-        image_key = self.image_key
-        video_key = self.video_key
-
-        if processor is not None:
-            from verl.utils.dataset.vision_utils import process_image, process_video
-
-            def doc2len(doc) -> int:
-                messages = self._build_messages(doc)
-                raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                images = [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
-                videos = [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
-
-                return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
-
-        else:
-
-            def doc2len(doc) -> int:
-                return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
-
-        self.dataframe = self.dataframe.filter(
-            lambda doc: doc2len(doc) <= self.max_prompt_length,
-            num_proc=self.num_workers,
-            desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
-        )
-
-        print(f"filter dataset len: {len(self.dataframe)}")
-
-# 数据获取与预处理
-def __getitem__(self, item):
-    """
-    Note that we also return the raw_input_ids so that it can be combined with other chat template
-    """
-    row_dict: dict = self.dataframe[item]
-    messages = self._build_messages(row_dict)
-    model_inputs = {}
-
-    if self.processor is not None:
-        from verl.utils.dataset.vision_utils import process_image, process_video
-
-        raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        multi_modal_data = {}
-
-        images = None
-        if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-            images = [process_image(image) for image in row_dict.pop(self.image_key)]
-            multi_modal_data["image"] = images
-
-        videos = None
-        if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
-            videos = [process_video(video) for video in row_dict.pop(self.video_key)]
-            multi_modal_data["video"] = [video.numpy() for video in videos]
-
-        model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
-
-        input_ids = model_inputs.pop("input_ids")
-        attention_mask = model_inputs.pop("attention_mask")
-
-        if "second_per_grid_ts" in model_inputs:
-            model_inputs.pop("second_per_grid_ts")
-
-        # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
-        row_dict["multi_modal_data"] = multi_modal_data
-        row_dict["multi_modal_inputs"] = dict(model_inputs)
-
-        # second_per_grid_ts isn't used for training, just for mrope
-        row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
-
-    else:
-        raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
-        input_ids = model_inputs.pop("input_ids")
-        attention_mask = model_inputs.pop("attention_mask")
-
-    input_ids, attention_mask = verl_F.postprocess_data(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        max_length=self.max_prompt_length,
-        pad_token_id=self.tokenizer.pad_token_id,
-        left_pad=True,
-        truncation=self.truncation,
-    )
-
-    if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-        from verl.models.transformers.qwen2_vl import get_rope_index
-
-        position_ids = [
-            get_rope_index(
-                self.processor,
-                input_ids=input_ids[0],
-                image_grid_thw=model_inputs.get("image_grid_thw"),
-                video_grid_thw=model_inputs.get("video_grid_thw"),
-                second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                attention_mask=attention_mask[0],
-            )
-        ]  # (1, 3, seq_len)
-
-    else:
-        position_ids = compute_position_id_with_mask(attention_mask)
-
-    row_dict["input_ids"] = input_ids[0]
-    row_dict["attention_mask"] = attention_mask[0]
-    row_dict["position_ids"] = position_ids[0]
-
-    raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-    if len(raw_prompt_ids) > self.max_prompt_length:
-        if self.truncation == "left":
-            raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
-        elif self.truncation == "right":
-            raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
-        elif self.truncation == "middle":
-            left_half = self.max_prompt_length // 2
-            right_half = self.max_prompt_length - left_half
-            raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
-        elif self.truncation == "error":
-            raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
-
-    row_dict["raw_prompt_ids"] = raw_prompt_ids
-    # encode prompts without chat template
-    if self.return_raw_chat:
-        row_dict["raw_prompt"] = messages
-
-    # get prompts with chat template
-    if self.return_full_prompt:
-        row_dict["full_prompts"] = raw_prompt  # array of strings
-
-    # add index for each prompt
-    index = row_dict.get("extra_info", {}).get("index", 0)
-    tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
-    interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
-    need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
-    if need_tools_kwargs and not tools_kwargs:
-        logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
-    row_dict["index"] = index
-    row_dict["tools_kwargs"] = tools_kwargs
-    row_dict["interaction_kwargs"] = interaction_kwargs
-    return row_dict
+```text
+A：Parquet 文件 --> B：RLHFDataset --> C：DataLoader + collate_fn --> D：DataProto 原始数据 --> E：pop 提取生成数据 --> F：Rollout 生成 --> G：union 合并数据 --> H：奖励计算 --> I：优势计算 --> J：重新计算 log_probs --> K：计算参考 log_probs --> L：计算价值函数 --> M1：更新 critic --> M2：更新 actor --> N：返回训练指标
 ```
 
-[`collate_fn`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L37) 可以将张量数据和非张量数据分别收集并且使用`torch.stack`将张量数据堆叠成批次。这里统一将将非张量数据转换为NumPy数组。具体的实现如下：
+事实上，只有最初的三步不是 `DataProto`，其他都是通过 `DataProto` 进行数据交换的。具体每步的数据流向如下：
+
+<details>
+<summary>数据流详细分析</summary>
+
+A：Parquet 文件
 
 ```python
-def collate_fn(data_list: list[dict]) -> dict:
-    """
-    Collate a batch of sample dicts into batched tensors and arrays.
-
-    Args:
-        data_list: List of dicts mapping feature names to torch.Tensor or other values.
-
-    Returns:
-        Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, *dims) and non-tensor entries are converted to
-        np.ndarray of dtype object with shape (batch_size,).
-    """
-    tensors = defaultdict(list)
-    non_tensors = defaultdict(list)
-
-    for data in data_list:
-        for key, val in data.items():
-            if isinstance(val, torch.Tensor):
-                tensors[key].append(val)
-            else:
-                non_tensors[key].append(val)
-
-    for key, val in tensors.items():
-        tensors[key] = torch.stack(val, dim=0)
-
-    for key, val in non_tensors.items():
-        non_tensors[key] = np.array(val, dtype=object)
-
-    return {**tensors, **non_tensors}
+data_files = "~/data/rlhf/gsm8k/train.parquet"
 ```
 
+B：RLHFDataset
 
-#### 2.1.4 FAQ
+```python
+dataset = RLHFDataset(
+    data_files=data_files,
+    tokenizer=tokenizer,
+    config=config,
+    processor=processor
+)
+```
 
-**Q1: 为什么需要将数据分离为生成数据和训练数据？**
+C：DataLoader + collate_fn
 
-A1: 在RLHF训练中，不同阶段需要不同的数据格式：
-- **生成阶段**：只需要输入prompt，用于模型推理生成响应
-- **训练阶段**：需要完整的prompt+response序列，用于计算损失和更新策略
+```python
+dataloader = DataLoader(
+    dataset=dataset,
+    batch_size=16,
+    shuffle=True,
+    drop_last=True,
+    collate_fn=collate_fn
+)
+```
 
-这种分离设计避免了数据冗余，提高了内存效率，同时保持了数据的一致性。
+D：DataProto 原始数据
 
-**Q2: DataProto和普通的字典有什么区别？**
+```python
+batch_dict = next(iter(dataloader))  # 返回 dict
+batch: DataProto = DataProto.from_single_dict(batch_dict)
+```
 
-A2: DataProto提供了更强大的功能：
-- **类型安全**：自动区分张量数据和非张量数据
-- **批量操作**：支持索引、切片、连接等批量操作
-- **设备管理**：支持设备间数据移动
-- **一致性检查**：自动验证数据的一致性
+E：pop 提取生成数据
 
-**Q3: 如何处理超长序列？**
+```python
+gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
+```
 
-A3: veRL提供了多种截断策略：
-- [**left**](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L280)：从左侧截断，保留序列末尾
-- [**right**](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L282)：从右侧截断，保留序列开头
-- [**middle**](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L284)：从中间截断，保留开头和结尾
-- **error**：抛出错误，要求用户处理
+F：Rollout 生成
 
-**Q4: 多模态数据是如何处理的？**
+```python
+gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+```
 
-A4: veRL通过ProcessorMixin支持多模态数据：
-- **图像处理**：支持图像编码和网格化处理
-- **视频处理**：支持视频帧提取和时间编码 ([images/video](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L90))
-- **位置编码**：为多模态数据生成特殊的位置编码
-- **注意力掩码**：处理多模态数据的注意力机制
+G：union 合并数据
 
+```python
+batch = batch.union(gen_batch_output)
+```
 
-**Q5: tool use data是如何处理的？**
+H：奖励计算
 
-A7: veRL支持工具调用的数据处理：
-- **工具参数**：通过`tools_kwargs`传递工具调用参数
-- **交互参数**：通过`interaction_kwargs`传递交互式训练参数
-- [SGLang Rollout的tool use kwargs 处理](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L1082-1099) - 工具参数处理
-- [veRL自己的base tool类](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/tools/base_tool.py) - 基础工具类实现
+```python
+rewards = self.reward_fn(batch)
+batch.batch["token_level_rewards"] = rewards
+```
+
+I：优势计算
+
+```python
+batch = compute_advantage(batch, adv_estimator=self.config.algorithm.adv_estimator)
+```
+
+J：重新计算 log_probs
+
+```python
+old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+batch = batch.union(old_log_prob)
+```
+
+K：计算参考 log_probs
+
+```python
+if self.use_reference_policy:
+    ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+    batch = batch.union(ref_log_prob)
+```
+
+L：计算价值函数
+
+```python
+if self.use_critic:
+    values = self.critic_wg.compute_values(batch)
+    batch = batch.union(values)
+```
+
+M1：更新 critic
+
+```python
+if self.use_critic:
+    critic_output = self.critic_wg.update_critic(batch)
+    critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
+    metrics.update(critic_output_metrics)
+```
+
+M2：更新 actor
+
+```python
+actor_output = self.actor_rollout_wg.update_actor(batch)
+```
+
+N：返回训练指标
+
+```python
+actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
+metrics.update(actor_output_metrics)
+logger.log(data=metrics, step=self.global_steps)
+```
+
+</details>
+
+## 总结
+
+**只有 A→B→C 不是 DataProto，其他所有步骤都是通过 DataProto 进行数据交换的**！
 
 ### 2.2 Rollout
 
