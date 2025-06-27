@@ -60,228 +60,207 @@ This is precisely what [`torch-memory-savor`](https://www.google.com/search?q=%5
 
 1.  Calls the [CUDA Virtual Memory Management API](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L135) instead of a simple memory pool:
 
-    ```cpp
-    // CUDA memory allocation function - uses CUDA Driver API for fine-grained memory management
-    cudaError_t malloc(void **ptr, size_t size, const std::string& tag) {
-        // Declare CUDA device variable to store the current device ID
-        CUdevice device;
-        // Get the device ID of the current CUDA context for subsequent memory allocation on the specified device
-        CURESULT_CHECK(cuCtxGetDevice(&device));
+```cpp
+// CUDA memory allocation function - uses CUDA Driver API for fine-grained memory management
+cudaError_t malloc(void **ptr, size_t size, const std::string& tag) {
+    // Declare CUDA device variable to store the current device ID
+    CUdevice device;
+    // Get the device ID of the current CUDA context for subsequent memory allocation on the specified device
+    CURESULT_CHECK(cuCtxGetDevice(&device));
 
-        // Declare physical memory allocation handle for managing GPU physical memory
-        CUmemGenericAllocationHandle allocHandle;
-        // Step 1: Create physical memory of the specified size on the specified GPU device
-        // This step allocates actual GPU physical memory space
-        CUDAUtils::cu_mem_create(&allocHandle, size, device);
+    // Declare physical memory allocation handle for managing GPU physical memory
+    CUmemGenericAllocationHandle allocHandle;
+    // Step 1: Create physical memory of the specified size on the specified GPU device
+    // This step allocates actual GPU physical memory space
+    CUDAUtils::cu_mem_create(&allocHandle, size, device);
 
-        // Step 2: Reserve a contiguous address range in the GPU's virtual address space
-        // Parameters: ptr (returned address), size (size), 0 (alignment), 0 (start address), 0 (flags)
-        CURESULT_CHECK(cuMemAddressReserve((CUdeviceptr *) ptr, size, 0, 0, 0));
+    // Step 2: Reserve a contiguous address range in the GPU's virtual address space
+    // Parameters: ptr (returned address), size (size), 0 (alignment), 0 (start address), 0 (flags)
+    CURESULT_CHECK(cuMemAddressReserve((CUdeviceptr *) ptr, size, 0, 0, 0));
 
-        // Step 3: Map physical memory to the previously reserved virtual address space
-        // Establishes the mapping relationship between physical memory and virtual address
-        CURESULT_CHECK(cuMemMap((CUdeviceptr) * ptr, size, 0, allocHandle, 0));
+    // Step 3: Map physical memory to the previously reserved virtual address space
+    // Establishes the mapping relationship between physical memory and virtual address
+    CURESULT_CHECK(cuMemMap((CUdeviceptr) * ptr, size, 0, allocHandle, 0));
 
-        // Set access permissions for this memory on the specified device
-        // Ensure the current GPU device can properly access this memory block
-        CUDAUtils::cu_mem_set_access(*ptr, size, device);
+    // Set access permissions for this memory on the specified device
+    // Ensure the current GPU device can properly access this memory block
+    CUDAUtils::cu_mem_set_access(*ptr, size, device);
 
-        // Use RAII lock to protect shared data structures, ensuring thread safety
-        {
-            const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
-            // Step 4: Record memory allocation information in the metadata map
-            // Includes: memory size, device ID, physical memory handle, user tag
-            allocation_metadata_.emplace(*ptr, _AllocationMetadata{size, device, allocHandle, tag});
-        }
-
-        // Conditional compilation for debug logging - outputs only in DEBUG mode
-    #ifdef TMS_DEBUG_LOG
-        std::cout << "[torch_memory_saver.cpp] TorchMemorySaver.cuda_malloc "
-                  << " ptr=" << ptr << " *ptr=" << *ptr << " size=" << size
-                  << " allocHandle=" << allocHandle << " tag=" << tag
-                  << std::endl;
-    #endif
-
-        // Return success status code, indicating memory allocation is complete
-        return cudaSuccess;
+    // Use RAII lock to protect shared data structures, ensuring thread safety
+    {
+        const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
+        // Step 4: Record memory allocation information in the metadata map
+        // Includes: memory size, device ID, physical memory handle, user tag
+        allocation_metadata_.emplace(*ptr, _AllocationMetadata{size, device, allocHandle, tag});
     }
-    ```
+
+    // Conditional compilation for debug logging - outputs only in DEBUG mode
+#ifdef TMS_DEBUG_LOG
+    std::cout << "[torch_memory_saver.cpp] TorchMemorySaver.cuda_malloc "
+                << " ptr=" << ptr << " *ptr=" << *ptr << " size=" << size
+                << " allocHandle=" << allocHandle << " tag=" << tag
+                << std::endl;
+#endif
+
+    // Return success status code, indicating memory allocation is complete
+    return cudaSuccess;
+}
+```
 
 2.  Manages virtual addresses and physical memory separately:
 
-      - Allocation stage ([malloc](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L277)):
+- Allocation stage ([malloc](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L277)):
 
-        ```cpp
-        // Uses CUDA Driver API for detailed memory management
-        cudaError_t malloc(void **ptr, size_t size, const std::string& tag) {
-            // Declare CUDA device variable to store the current device ID
-            CUdevice device;
-            // Get the device ID of the current CUDA context for subsequent memory allocation on the specified device
-            CURESULT_CHECK(cuCtxGetDevice(&device));
+```cpp
+// Uses CUDA Driver API for detailed memory management
+cudaError_t malloc(void **ptr, size_t size, const std::string& tag) {
+    // Declare CUDA device variable to store the current device ID
+    CUdevice device;
+    // Get the device ID of the current CUDA context for subsequent memory allocation on the specified device
+    CURESULT_CHECK(cuCtxGetDevice(&device));
 
-            // Declare physical memory allocation handle for managing GPU physical memory
-            CUmemGenericAllocationHandle allocHandle;
+    // Declare physical memory allocation handle for managing GPU physical memory
+    CUmemGenericAllocationHandle allocHandle;
 
-            // Create physical memory of the specified size on the specified GPU device
-            // This step allocates actual GPU physical memory space
-            CUDAUtils::cu_mem_create(&allocHandle, size, device);
+    // Create physical memory of the specified size on the specified GPU device
+    // This step allocates actual GPU physical memory space
+    CUDAUtils::cu_mem_create(&allocHandle, size, device);
 
-            // Reserve a contiguous address range in the GPU's virtual address space
-            CURESULT_CHECK(cuMemAddressReserve((CUdeviceptr *) ptr, size, 0, 0, 0));
+    // Reserve a contiguous address range in the GPU's virtual address space
+    CURESULT_CHECK(cuMemAddressReserve((CUdeviceptr *) ptr, size, 0, 0, 0));
 
-            // Map physical memory to the previously reserved virtual address space
-            CURESULT_CHECK(cuMemMap((CUdeviceptr) * ptr, size, 0, allocHandle, 0));
+    // Map physical memory to the previously reserved virtual address space
+    CURESULT_CHECK(cuMemMap((CUdeviceptr) * ptr, size, 0, allocHandle, 0));
 
-            // Set access permissions for this memory on the specified device
-            CUDAUtils::cu_mem_set_access(*ptr, size, device);
+    // Set access permissions for this memory on the specified device
+    CUDAUtils::cu_mem_set_access(*ptr, size, device);
 
-            // Use RAII lock to protect shared data structures, ensuring thread safety
-            {
-                const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
-                // Record memory allocation information in the metadata map
-                allocation_metadata_.emplace(*ptr, _AllocationMetadata{size, device, allocHandle, tag});
-            }
-            return cudaSuccess;
-        }
-        ```
-
-      - Pause stage ([pause](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L177)):
-
-        ```cpp
-        void pause(const std::string& tag) {
-            // As with allocation, use an RAII lock to protect shared data structures, ensuring thread safety
-            const std::lock_guard <std::mutex> lock(allocator_metadata_mutex_);
-
-            // Iterate through all allocated memory metadata
-            for (auto it = allocation_metadata_.begin(); it != allocation_metadata_.end(); ++it) {
-                void *ptr = it->first; // Get memory pointer
-                _AllocationMetadata metadata = it->second; // Get corresponding metadata information
-
-                // If a tag is specified, only process memory blocks that match the tag
-                // For SGLang, we currently only have tags for kv cache and model weights
-                if (!tag.empty() && metadata.tag != tag) {
-                    continue; // Skip non-matching memory blocks
-                }
-
-                // Unmap physical memory from virtual address
-                CURESULT_CHECK(cuMemUnmap((CUdeviceptr) ptr, metadata.size));
-                // Release physical memory handle, reclaim GPU physical memory, but retain virtual address space!
-                CURESULT_CHECK(cuMemRelease(metadata.allocHandle));
-            }
-        }
-        ```
-
-      - Resume stage ([resume](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L200)):
-
-        ```cpp
-        void resume(const std::string& tag) {
-            const std::lock_guard <std::mutex> lock(allocator_metadata_mutex_);
-
-            for (auto it = allocation_metadata_.begin(); it != allocation_metadata_.end(); ++it) {
-                void *ptr = it->first;
-                _AllocationMetadata &metadata = it->second;
-
-                if (!tag.empty() && metadata.tag != tag) {
-                    continue;
-                }
-
-                // Create new physical memory handle
-                CUmemGenericAllocationHandle newAllocHandle;
-                CUDAUtils::cu_mem_create(&newAllocHandle, metadata.size, metadata.device);
-
-                // Map new physical memory to the previously reserved virtual address
-                CURESULT_CHECK(cuMemMap((CUdeviceptr) ptr, metadata.size, 0, newAllocHandle, 0));
-
-                // Set memory access permissions
-                CUDAUtils::cu_mem_set_access(ptr, metadata.size, metadata.device);
-
-                // Update physical memory handle in metadata to the newly allocated handle
-                metadata.allocHandle = newAllocHandle;
-            }
-        }
-        ```
-
-3.  API Hijacking:
-
-    Hijacking the CUDA runtime API:
-
-    ```cpp
-    cudaError_t cudaMalloc(void **ptr, size_t size) {
-        if (RegionManager::is_interesting_region()) {
-            // Inside the region: use custom allocator
-            return TorchMemorySaver::instance().malloc(ptr, size, RegionManager::get_current_tag());
-        } else {
-            // Outside the region: use original CUDA allocator
-            return APIForwarder::call_real_cuda_malloc(ptr, size);
-        }
+    // Use RAII lock to protect shared data structures, ensuring thread safety
+    {
+        const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
+        // Record memory allocation information in the metadata map
+        allocation_metadata_.emplace(*ptr, _AllocationMetadata{size, device, allocHandle, tag});
     }
-    ```
+    return cudaSuccess;
+}
+```
 
-    Specifically, `torch-memory-saver` compiles its custom `cudaMalloc` function into a shared library `libtorch_memory_saver.so`. Then, by setting the `LD_PRELOAD` environment variable, it instructs the dynamic linker to load this library first when the program starts. When a PyTorch program calls `cudaMalloc`, the dynamic linker will first find the function in the hijacked library instead of the original CUDA runtime function, thereby intercepting all CUDA memory allocation calls. This allows it to use its custom memory management strategy (virtual address and physical memory separation) within protected memory regions, while still using the original memory allocation logic outside these regions.
+- Pause stage ([pause](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L177)):
+
+```cpp
+void pause(const std::string& tag) {
+    // As with allocation, use an RAII lock to protect shared data structures, ensuring thread safety
+    const std::lock_guard <std::mutex> lock(allocator_metadata_mutex_);
+
+    // Iterate through all allocated memory metadata
+    for (auto it = allocation_metadata_.begin(); it != allocation_metadata_.end(); ++it) {
+        void *ptr = it->first; // Get memory pointer
+        _AllocationMetadata metadata = it->second; // Get corresponding metadata information
+
+        // If a tag is specified, only process memory blocks that match the tag
+        // For SGLang, we currently only have tags for kv cache and model weights
+        if (!tag.empty() && metadata.tag != tag) {
+            continue; // Skip non-matching memory blocks
+        }
+
+        // Unmap physical memory from virtual address
+        CURESULT_CHECK(cuMemUnmap((CUdeviceptr) ptr, metadata.size));
+        // Release physical memory handle, reclaim GPU physical memory, but retain virtual address space!
+        CURESULT_CHECK(cuMemRelease(metadata.allocHandle));
+    }
+}
+```
+
+- Resume stage ([resume](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L200)):
+
+```cpp
+void resume(const std::string& tag) {
+    const std::lock_guard <std::mutex> lock(allocator_metadata_mutex_);
+
+    for (auto it = allocation_metadata_.begin(); it != allocation_metadata_.end(); ++it) {
+        void *ptr = it->first;
+        _AllocationMetadata &metadata = it->second;
+
+        if (!tag.empty() && metadata.tag != tag) {
+            continue;
+        }
+
+        // Create new physical memory handle
+        CUmemGenericAllocationHandle newAllocHandle;
+        CUDAUtils::cu_mem_create(&newAllocHandle, metadata.size, metadata.device);
+
+        // Map new physical memory to the previously reserved virtual address
+        CURESULT_CHECK(cuMemMap((CUdeviceptr) ptr, metadata.size, 0, newAllocHandle, 0));
+
+        // Set memory access permissions
+        CUDAUtils::cu_mem_set_access(ptr, metadata.size, metadata.device);
+
+        // Update physical memory handle in metadata to the newly allocated handle
+        metadata.allocHandle = newAllocHandle;
+    }
+}
+```
+
+3.  Hijacking the CUDA runtime API:
+
+```cpp
+cudaError_t cudaMalloc(void **ptr, size_t size) {
+    if (RegionManager::is_interesting_region()) {
+        // Inside the region: use custom allocator
+        return TorchMemorySaver::instance().malloc(ptr, size, RegionManager::get_current_tag());
+    } else {
+        // Outside the region: use original CUDA allocator
+        return APIForwarder::call_real_cuda_malloc(ptr, size);
+    }
+}
+```
+
+Specifically, `torch-memory-saver` compiles its custom `cudaMalloc` function into a shared library `libtorch_memory_saver.so`. Then, by setting the `LD_PRELOAD` environment variable, it instructs the dynamic linker to load this library first when the program starts. When a PyTorch program calls `cudaMalloc`, the dynamic linker will first find the function in the hijacked library instead of the original CUDA runtime function, thereby intercepting all CUDA memory allocation calls. This allows it to use its custom memory management strategy (virtual address and physical memory separation) within protected memory regions, while still using the original memory allocation logic outside these regions.
 
 4.  Region Management ([RegionManager](https://github.com/fzyzcjy/torch_memory_saver/blob/87c124c7906a7620653cebb35e7a48b62f3de4cf/csrc/torch_memory_saver.cpp#L244)):
 
-    ```cpp
-    namespace RegionManager {
-        static thread_local bool is_interesting_region_ = false;
-        static thread_local std::string current_tag_ = "default";
+```cpp
+namespace RegionManager {
+    static thread_local bool is_interesting_region_ = false;
+    static thread_local std::string current_tag_ = "default";
 
-        void enter() {
-    #ifdef TMS_DEBUG_LOG
-            std::cout << "[torch_memory_saver.cpp] tms_region_enter" << std::endl;
-    #endif
-            is_interesting_region_ = true;
-        }
-
-        void leave() {
-    #ifdef TMS_DEBUG_LOG
-            std::cout << "[torch_memory_saver.cpp] tms_region_leave" << std::endl;
-    #endif
-            is_interesting_region_ = false;
-        }
-
-        bool is_interesting_region() {
-            return is_interesting_region_;
-        }
-
-        void set_current_tag(const std::string& tag) {
-            current_tag_ = tag;
-        }
-
-        const std::string& get_current_tag() {
-            return current_tag_;
-        }
+    void enter() {
+#ifdef TMS_DEBUG_LOG
+        std::cout << "[torch_memory_saver.cpp] tms_region_enter" << std::endl;
+#endif
+        is_interesting_region_ = true;
     }
-    ```
 
-    The usage of this management is very straightforward, for example:
+    void leave() {
+#ifdef TMS_DEBUG_LOG
+        std::cout << "[torch_memory_saver.cpp] tms_region_leave" << std::endl;
+#endif
+        is_interesting_region_ = false;
+    }
 
-    ```python
-    with torch_memory_saver.region(tag="kv_cache"):
-        self.kv_buffer = torch.full(dummy_tensor_size, value, dtype=torch.float32, device='cuda')
-    print(f'KV cache created: {_ptr(self.kv_buffer)}')
-    ```
+    bool is_interesting_region() {
+        return is_interesting_region_;
+    }
 
-    This code snippet is taken from [How torch-memory-savor keep CUDA Graph](https://github.com/zhaochenyang20/torch_memory_saver-examples/blob/master/examples/rl_example.py).
+    void set_current_tag(const std::string& tag) {
+        current_tag_ = tag;
+    }
 
------
+    const std::string& get_current_tag() {
+        return current_tag_;
+    }
+}
+```
 
-## How the Memory Size for CUDA Graphs is Generally Determined
+The usage of this management is very straightforward, for example:
 
-A CUDA Graph itself does not directly occupy GPU memory; it is merely an execution blueprint. The actual GPU memory is consumed by the **data** and **activations** involved in the graph. Therefore, the GPU memory size required for CUDA Graph execution is determined by the following factors:
+```python
+with torch_memory_saver.region(tag="kv_cache"):
+    self.kv_buffer = torch.full(dummy_tensor_size, value, dtype=torch.float32, device='cuda')
+print(f'KV cache created: {_ptr(self.kv_buffer)}')
+```
 
-1.  **Model Parameters**: Model weights, biases, and other parameters must reside in GPU memory throughout the entire inference or training process.
-2.  **Input and Output Data**: The data input to the model and the output produced by the model will occupy GPU memory.
-3.  **Activations**: During CUDA Graph execution, all activations require sufficient space for storage.
-4.  **Temporary Workspace**: Certain operators may require additional temporary workspace for computation.
-
-CUDA Graphs record all memory operations during the capture phase, including `cudaMalloc`, `cudaMemcpy`, `cudaMemset`, etc. When the graph is instantiated and executed, all required memory must be allocated. This means that the maximum amount of memory needed by the graph is determined at capture time. If your model's input shape varies dynamically during inference (e.g., different sequence lengths), then to capture a graph that can handle all possible shapes, we generally reserve memory for the worst-case scenario (maximum input length), which can lead to wasted memory.
-
-As suggested by the `torch-memory-savor` approach, to avoid frequent memory allocation and deallocation overhead while maintaining CUDA Graph effectiveness, CUDA Memory Pools are often used. A memory pool pre-allocates a large block of GPU memory from the driver and then performs fine-grained allocations and deallocations within it without truly returning the memory to the operating system. This means that during graph execution, as long as the total memory requirement does not exceed the memory pool's size, memory can be efficiently reused without issues like virtual address changes causing graph invalidation.
-
-Therefore, the topological structure of the computational graph and the data volume determine the GPU memory size required for CUDA Graph execution. CUDA Graphs ensure that these memory operations can be executed in an optimized manner and rely on the stability of these memory addresses.
-
------
+This code snippet is taken from [How torch-memory-savor keep CUDA Graph](https://github.com/zhaochenyang20/torch_memory_saver-examples/blob/master/examples/rl_example.py).
 
 ## Similarities and Differences Between CUDA Graph and `torch.compile`
 

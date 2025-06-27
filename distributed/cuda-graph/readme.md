@@ -263,21 +263,6 @@ print(f'KV cache created: {_ptr(self.kv_buffer)}')
 
 这段代码节选自[How torch-memory-savor keep CUDA Graph](https://github.com/zhaochenyang20/torch_memory_saver-examples/blob/master/examples/rl_example.py)。
 
-## CUDA Graph 的显存大小一般是如何决定的
-
-CUDA Graph 本身并不直接占用显存大小，它只是一个执行蓝图。真正占用显存的是图中所涉及的**数据**和**激活值**。因此，CUDA Graph 执行所需的显存大小，是由以下因素决定的：
-
-1. 模型的权重、偏置等参数在整个推理或训练过程中都需要常驻显存。
-2. 每次输入给模型的数据以及模型产生的输出，都会占用显存。
-3. 在执行 CUDA Graph 时，所有激活值都需要有足够的空间来存储。
-4. 某些算子可能需要额外的临时工作空间来执行计算。
-
-CUDA Graph 在捕获阶段会记录所有显存操作，包括 `cudaMalloc`、`cudaMemcpy`、`cudaMemset` 等。当图被实例化并执行时，所有需要分配的显存都必须被分配。这意味着图所需要的最大显存量是在捕获时就确定下来的。如果你的模型在推理时输入的形状是动态变化的（不同的 sequence length），那么为了捕获一个可以处理所有可能形状的图，我们一般为最坏情况（最大输入长度）预留显存，这可能浪费显存。
-
-正如在 `torch-memory-savor` 的想法，为了避免频繁的显存分配和释放开销，同时保持 CUDA Graph 的有效性，通常会使用 CUDA 内存池 (CUDA Memory Pool)。内存池会预先向驱动程序申请一大块显存，然后在其中进行细粒度的分配和回收，而不会将显存真正归还给操作系统。这意味着在图执行期间，只要总的内存需求不超过内存池的大小，就可以高效地复用显存，而不会出现虚拟地址变化导致图失效的问题。
-
-因此，计算图的拓扑结构和数据量决定了 CUDA Graph 执行所需的显存大小。CUDA Graph 确保这些显存操作能够以最优化的方式执行，并依赖于这些显存地址的稳定性。
-
 ## CUDA Graph 和 `torch.compile` 的异同
 
 CUDA Graph 和 `torch.compile` 均显著提升 PyTorch 模型的执行性能。然而，二者工作于不同的抽象层级，其设计目标与应用机制存在显著区别。`torch.compile` 是 PyTorch 2.0 引入的高级编译工具链。其核心目标是自动化性能优化流程，通过对 PyTorch 代码的分析，将其转换为优化的底层表示，并利用诸如 TorchInductor、AOTAutograd 等后端生成高效的 GPU 代码以实现加速。
