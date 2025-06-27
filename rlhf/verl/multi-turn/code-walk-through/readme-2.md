@@ -725,6 +725,8 @@ def fit(self):
 
 </details>
 
+## 我们究竟在异步什么？
+
 这里很值得分享一个核心问题，对 SGLang 而言，或者对现在的 RL 而言，我们每天说来说去的 async 究竟是什么意思？和 PD 分离一样，async 也有非常多的层面：
 
 1. Async RL 代表的是在 training rollout 分离的系统上，rollout 只在 update weights 的时候被打断，其余时刻永远 rollout，哪怕 target policy 正在被 training engine 更新。这方面是 [AreaL](https://github.com/inclusionAI/AReaL) 和 [SLIME](https://github.com/THUDM/slime)。
@@ -788,7 +790,190 @@ def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataPro
 
 
 
-#### 2.1.2 数据管理与分离
+## 数据管理
+
+解释完了 Async Rollout 之后，我们继续拆解 `.fit()` 函数，从数据管理开始。首先，我们来解析 
+
+
+我来帮你分析一下 `DataProto` 和 `RLHFDataset` 的关系，以及为什么 `RayPPOTrainer` 中可能没有直接使用 `RLHFDataset`。
+
+Search files...
+Search files...
+Search files...
+Read file: verl/trainer/ppo/ray_trainer.py
+现在我来分析一下 `DataProto` 和 `RLHFDataset` 的关系，以及为什么 `RayPPOTrainer` 中可能没有直接使用 `RLHFDataset`。
+
+## DataProto 和 RLHFDataset 的关系分析
+
+### 1. **DataProto 的作用和设计**
+
+`DataProto` 是 verl 框架中的**核心数据交换协议**，它定义了一个标准的数据结构用于在不同组件之间传递数据：
+
+```python
+@dataclass
+class DataProto:
+    batch: TensorDict = None          # 存储张量数据
+    non_tensor_batch: Dict = field(default_factory=dict)  # 存储非张量数据
+    meta_info: Dict = field(default_factory=dict)         # 存储元信息
+```
+
+`DataProto` 的主要特点：
+- **统一的数据格式**：所有 worker 之间都使用 `DataProto` 进行数据交换
+- **支持张量和非张量数据**：可以同时处理 `torch.Tensor` 和 `numpy.ndarray` 等
+- **丰富的操作方法**：提供 `union`、`select`、`chunk`、`concat` 等操作
+- **序列化支持**：支持 Ray 分布式环境下的数据传输
+
+### 2. **RLHFDataset 的作用**
+
+`RLHFDataset` 是一个**数据加载和预处理类**，继承自 `torch.utils.data.Dataset`：
+
+```python
+class RLHFDataset(Dataset):
+    def __init__(self, data_files, tokenizer, config, processor=None):
+        # 加载 parquet 文件
+        # 进行 tokenization
+        # 处理多模态数据（图像/视频）
+        # 过滤过长序列
+```
+
+`RLHFDataset` 的主要功能：
+- **数据加载**：从 parquet 文件读取原始数据
+- **预处理**：tokenization、长度过滤、多模态处理
+- **标准化输出**：返回包含 `input_ids`、`attention_mask`、`position_ids` 等的字典
+
+### 3. **两者的关系和数据流**
+
+让我查看一下数据是如何从 `RLHFDataset` 转换到 `DataProto` 的：
+
+Search files...
+现在我明白了！让我总结一下 `DataProto` 和 `RLHFDataset` 的关系：
+
+## 数据流转换过程
+
+### 1. **数据流转换链路**
+
+```
+RLHFDataset → DataLoader → collate_fn → DataProto → RayPPOTrainer
+```
+
+具体流程：
+
+1. **RLHFDataset** 负责数据加载和预处理：
+   - 从 parquet 文件读取原始数据
+   - 进行 tokenization
+   - 返回包含 `input_ids`、`attention_mask` 等的字典
+
+2. **DataLoader + collate_fn** 负责批处理：
+   ```python
+   def collate_fn(data_list: list[dict]) -> dict:
+       tensors = defaultdict(list)
+       non_tensors = defaultdict(list)
+       
+       for data in data_list:
+           for key, val in data.items():
+               if isinstance(val, torch.Tensor):
+                   tensors[key].append(val)
+               else:
+                   non_tensors[key].append(val)
+       
+       # 将张量堆叠成批次
+       for key, val in tensors.items():
+           tensors[key] = torch.stack(val, dim=0)
+       
+       # 将非张量数据转换为 numpy 数组
+       for key, val in non_tensors.items():
+           non_tensors[key] = np.array(val, dtype=object)
+       
+       return {**tensors, **non_tensors}
+   ```
+
+3. **DataProto.from_single_dict()** 将字典转换为 DataProto：
+   ```python
+   # 在 RayPPOTrainer 的训练循环中
+   test_batch = DataProto.from_single_dict(test_data)
+   ```
+
+### 2. **为什么 RayPPOTrainer 不直接使用 RLHFDataset**
+
+**RayPPOTrainer 确实使用了 RLHFDataset**，但它是通过以下方式间接使用的：
+
+1. **在 `_create_dataloader` 方法中**：
+   ```python
+   def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
+       from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+       
+       if train_dataset is None:
+           train_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
+       # ...
+       
+       self.train_dataloader = StatefulDataLoader(
+           dataset=self.train_dataset,  # 这里就是 RLHFDataset
+           batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+           collate_fn=collate_fn,
+           sampler=train_sampler,
+       )
+   ```
+
+2. **在训练循环中**：
+   ```python
+   for test_data in self.val_dataloader:  # 从 DataLoader 获取数据
+       test_batch = DataProto.from_single_dict(test_data)  # 转换为 DataProto
+   ```
+
+### 3. **设计原因**
+
+这种设计有几个重要原因：
+
+1. **抽象层次分离**：
+   - `RLHFDataset`：负责数据加载和预处理（数据层）
+   - `DataProto`：负责分布式环境下的数据交换（协议层）
+   - `RayPPOTrainer`：负责训练逻辑（训练层）
+
+2. **分布式兼容性**：
+   - `DataProto` 专门为 Ray 分布式环境设计
+   - 支持序列化、反序列化、跨节点传输
+   - 提供丰富的批处理操作（`union`、`select`、`chunk` 等）
+
+3. **灵活性**：
+   - 可以轻松替换数据源（不仅仅是 `RLHFDataset`）
+   - 支持自定义 `collate_fn`
+   - 支持不同的数据格式
+
+### 4. **实际使用示例**
+
+从测试代码可以看到完整的数据流：
+
+```python
+# 1. 创建 RLHFDataset
+dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config)
+
+# 2. 创建 DataLoader
+dataloader = DataLoader(dataset=dataset, batch_size=16, collate_fn=collate_fn)
+
+# 3. 获取批次数据
+batch_dict = next(iter(dataloader))
+
+# 4. 转换为 DataProto
+tensors = {}
+non_tensors = {}
+for key, val in batch_dict.items():
+    if isinstance(val, torch.Tensor):
+        tensors[key] = val
+    else:
+        non_tensors[key] = val
+
+data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+```
+
+## 总结
+
+`DataProto` 和 `RLHFDataset` 的关系是**数据源和数据协议**的关系：
+
+- **RLHFDataset**：提供标准化的数据加载和预处理功能
+- **DataProto**：提供分布式环境下的数据交换协议
+- **RayPPOTrainer**：通过 DataLoader 使用 RLHFDataset，然后将数据转换为 DataProto 进行分布式训练
+
+这种设计使得 verl 框架既保持了数据加载的标准化，又实现了高效的分布式训练。
 
 数据分离的设计原理在于将用于生成的数据（如`input_ids`、`attention_mask`、`position_ids`等）从主批次中弹出，同时动态检测并处理多模态数据（`multi_modal_data`），支持工具调用的配置参数（`tools_kwargs`）和交互式训练的配置参数（`interaction_kwargs`），并保留原始提示数据（`raw_prompt_ids`、`raw_prompt`）用于生成。这种数据分离的必要性源于RL训练中不同阶段对数据格式的差异化需求：在生成阶段，模型只需要prompts用于推理，不包含回答；而在训练阶段，则需要完整的prompt+response序列用于策略更新。通过这种数据分离设计，veRL能够灵活处理不同长度的序列，同时保持数据的一致性和完整性，为后续的序列生成和模型训练提供高质量的数据基础。
 
