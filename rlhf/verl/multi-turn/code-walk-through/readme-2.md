@@ -368,11 +368,11 @@ class RLHFDataset(Dataset):
 
 </details>
 
-1. 支持从远程存储（如 HDFS）下载 Parquet 文件到本地缓存，支持共享内存（shared memory）加速文件访问，自动管理文件路径，支持检查点恢复。
+1. 支持从远程存储下载 Parquet 文件到本地缓存，支持共享内存加速文件访问，自动管理文件路径，支持检查点恢复。
 2. 使用 HuggingFace `datasets` 库读取 Parquet 文件，支持多个数据文件的合并，自动处理数据格式转换。
 3. 根据最大长度过滤过长的 prompts，支持多进程并行处理，可配置的过滤策略。
 4. 支持图像和视频的多模态输入，解析 `<image>` 和 `<video>` 标签，将多模态内容转换为结构化格式。
-5. 添加 chat template 来格式化对话，将文本转换为 token IDs，生成注意力掩码和位置编码。
+5. 添加 chat template 来格式化对话，将文本转换为 token IDs，生成 attn mask 和 position ids。
 6. padding 到指定长度，支持多种截断策略（left, right, middle, error），生成位置编码。
 7. 支持训练中断后的恢复，可以从原始文件重新构建数据集，兼容序列化/反序列化。
 8. 返回包含以下关键字段的字典：`input_ids`, `attention_mask`, `position_ids`, `raw_prompt_ids`, `multi_modal_data`, `multi_modal_inputs`, `index`, `tools_kwargs`。
@@ -955,14 +955,14 @@ I：优势计算
 batch = compute_advantage(batch, adv_estimator=self.config.algorithm.adv_estimator)
 ```
 
-J：重新计算 log_probs
+J：重新计算 `log_probs`
 
 ```python
 old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
 batch = batch.union(old_log_prob)
 ```
 
-K：计算参考 log_probs
+K：计算 reference model 的 `log_probs`
 
 ```python
 if self.use_reference_policy:
@@ -970,7 +970,7 @@ if self.use_reference_policy:
     batch = batch.union(ref_log_prob)
 ```
 
-L：计算价值函数
+L：计算 value function
 
 ```python
 if self.use_critic:
@@ -1003,210 +1003,81 @@ logger.log(data=metrics, step=self.global_steps)
 
 </details>
 
-### 2.2 Rollout
+## `AsyncRolloutRequest` 异步请求
 
-数据准备完成后，进入序列生成阶段。这是RL训练中的"环境交互"环节，让当前策略生成响应序列，为后续的经验收集提供基础数据。
+### [`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)
 
-#### 2.2.1 核心类架构
+`SGLangRollout._initialize_tools()` 函数用于初始化 Multi-turn 对话中的工具。
 
-veRL的rollout系统采用了模块化设计，主要包含以下几个重要类：
+1. 如果没有工具配置路径，则返回空列表和字典。
+2. 从配置文件加载工具并初始化工具列表。
+3. 创建 OpenAI 格式的工具 schema 和工具名称到工具对象的映射。
+4. 根据 Tokenizer 类型确定工具调用解析器。
+5. 为 SGLang 创建 `Tool` 对象。
+6. 实例化 `FunctionCallParser`。
 
-**类层次结构：**
-```
-BaseRollout (抽象基类)
-├── SGLangRollout (SGLang推理引擎)
-├── HFRollout (HuggingFace推理引擎)
-├── VLLMRollout (vLLM推理引擎)
-└── NaiveRollout (简单推理引擎)
-```
-
-#### 2.2.2 `BaseRollout` 抽象基类
-
-**文件**: `verl/workers/rollout/base.py`
+<details>
+<summary>SGLangRollout._initialize_tools 部分源码</summary>
 
 ```python
-class BaseRollout(ABC):
-    """Rollout系统的抽象基类，定义了所有rollout引擎必须实现的接口"""
-    
-    @abstractmethod
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """生成序列的核心抽象方法
-        
+from sglang.function_calling.function_call_parser import FunctionCallParser
+from sglang.utils.general import initialize_tools_from_config
+from sglang.tools.tool import Tool
+from omegaconf import OmegaConf
+
+@registry.register(SGLangRollout)
+    def _initialize_tools(self, config, tokenizer):
+        """Initialize tools from configuration.
+
         Args:
-            prompts: 包含输入提示的DataProto对象
-            
+            config: Configuration object containing tool-related settings,
+                    specifically `config.multi_turn.tool_config_path`.
+            tokenizer: The tokenizer instance used for parsing tool calls from
+                       the model's generated text.
+
         Returns:
-            DataProto: 包含生成序列的DataProto对象
+            tuple: A tuple containing:
+                - tool_schemas (list[dict]): OpenAI-formatted JSON schemas
+                  defining each tool's capabilities.
+                - tool_map (dict[str, BaseTool]): A dictionary mapping tool
+                  names to their executable `BaseTool` objects.
+                - tool_call_parser_type (str): The identifier for the specific
+                  parser type (e.g., 'json_mode', 'tool_code') used to extract
+                  tool calls.
+                - sgl_tools (list[sglang.srt.openai_api.protocol.Tool]): Tool
+                  definitions optimized for SGLang's internal engine.
+                - function_call_parser (sglang.srt.function_call_parser.FunctionCallParser):
+                  The active parser instance responsible for extracting
+                  structured tool calls from model outputs.
         """
-        pass
-```
+        if config.multi_turn.tool_config_path is None:
+            return [], {}, None, [], None
 
-**设计理念：**
-- **统一接口**：所有rollout引擎都实现相同的`generate_sequences`接口
-- **可扩展性**：支持不同的推理后端（SGLang、vLLM、HF等）
-- **数据一致性**：使用`DataProto`作为统一的数据容器
+        tools_config_file = config.multi_turn.tool_config_path
+        tool_list = initialize_tools_from_config(tools_config_file)
 
-#### 2.2.3 `SGLangRollout` 核心实现
-
-**文件**: `verl/workers/rollout/sglang_rollout/sglang_rollout.py`
-
-`SGLangRollout`是veRL中最核心的rollout实现，支持高效的多轮对话和工具调用。
-
-**初始化流程**：
-```python
-class SGLangRollout(BaseRollout):
-    def __init__(self, actor_module, config, tokenizer, model_hf_config, 
-                 port=None, trust_remote_code=False, device_mesh=None, **kwargs):
-        """SGLang Rollout引擎的初始化
-        
-        核心组件：
-        1. 工具系统初始化 - 支持多轮对话中的工具调用
-        2. 分布式环境设置 - 支持多节点推理
-        3. 推理引擎初始化 - SGLang AsyncEngine
-        4. 采样参数配置 - 控制生成行为
-        """
-        super().__init__()
-        self.config = config
-        self._device_mesh_cpu = device_mesh
-        
-        # 1. 工具系统初始化
-        (self._tool_schemas, self._tool_map, self._tool_call_parser_type,
-         self._sgl_tools, self._function_call_parser) = self._initialize_tools(config, tokenizer)
-        
-        # 2. 分布式环境初始化
-        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
-        
-        # 3. 推理引擎初始化
-        self._init_inference_engine(trust_remote_code, actor_module, port)
-        
-        # 4. 采样参数初始化
-        self._init_sampling_params(**kwargs)
-```
-
-**关键方法实现**：
-
-**`generate_sequences()` - 主入口方法**：
-```python
-def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """序列生成的主入口方法
-    
-    根据配置选择不同的生成模式：
-    - 多轮对话模式：使用异步请求级生成
-    - 单轮对话模式：使用批处理级生成
-    """
-    if self.config.multi_turn.enable:
-        return self._req_level_generate_sequences(prompts, **kwargs)
-    else:
-        return self._batch_level_generate_sequences(prompts, **kwargs)
-```
-
-**`_batch_level_generate_sequences()` - 批处理生成**：
-```python
-def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """批处理级序列生成 - 适用于单轮对话
-    
-    核心步骤：
-    1. 数据预处理：提取token IDs和图像数据
-    2. 采样参数配置：根据验证/训练模式设置不同参数
-    3. SGLang引擎调用：异步生成序列
-    4. 结果后处理：构建完整的序列数据
-    5. 内存管理：清理KV缓存
-    """
-    # 1. 数据预处理
-    idx = prompts.batch["input_ids"]  # (bs, prompt_length)
-    attention_mask = prompts.batch["attention_mask"]
-    position_ids = prompts.batch["position_ids"]
-    
-    # 2. 多模态数据处理
-    if "multi_modal_data" in prompts.non_tensor_batch:
-        sglang_inputs = []
-        for raw_prompt_ids, multi_modal_data in zip(
-            prompts.non_tensor_batch.pop("raw_prompt_ids"),
-            prompts.non_tensor_batch.pop("multi_modal_data"),
-        ):
-            sglang_inputs.append({
-                "prompt_token_ids": raw_prompt_ids,
-                "multi_modal_data": multi_modal_data,
-                "image_data": multi_modal_data.get("image", None),
-            })
-    
-    # 3. 采样参数配置
-    do_sample = prompts.meta_info.get("do_sample", True)
-    is_validate = prompts.meta_info.get("validate", False)
-    
-    if not do_sample:
-        # 确定性生成（贪婪解码）
-        kwargs = dict(
-            n=1, temperature=0, top_p=1, top_k=-1,
-            max_new_tokens=self.config.response_length,
+        logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
+        tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
+        tool_map = {tool.name: tool for tool in tool_list}
+        tool_call_parser_type = get_tool_call_parser_type(tokenizer)
+        sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
+        function_call_parser = FunctionCallParser(
+            sgl_tools,
+            tool_call_parser_type,
         )
-    elif is_validate:
-        # 验证模式参数
-        kwargs = dict(
-            top_k=self.config.val_kwargs.top_k,
-            top_p=self.config.val_kwargs.top_p,
-            temperature=self.config.val_kwargs.temperature,
-            n=1,
+
+        return (
+            tool_schemas,
+            tool_map,
+            tool_call_parser_type,
+            sgl_tools,
+            function_call_parser,
         )
-    
-    # 4. SGLang引擎调用
-    with self.update_sampling_params(**kwargs):
-        if self._tp_rank == 0:  # 只在主进程中调用引擎
-            loop = asyncio.get_event_loop()
-            output = loop.run_until_complete(
-                self._engine.async_generate(
-                    prompt=None,
-                    sampling_params=self.sampling_params,
-                    return_logprob=True,
-                    input_ids=idx_list,
-                    image_data=image_list,
-                )
-            )
-        else:
-            output = None
-        
-        # 5. 结果广播到所有TP rank
-        [output] = broadcast_pyobj(
-            data=[output],
-            rank=self._rank,
-            dist_group=self._device_mesh_cpu["tp"].get_group(),
-            src=self._device_mesh_cpu["tp"].mesh[0].item(),
-        )
-    
-    # 6. 结果后处理
-    out = _post_process_outputs(self.tokenizer, output)
-    response = out[0].to(idx.device)
-    rollout_log_probs = out[1].to(idx.device)
-    
-    # 7. 序列构建
-    seq = torch.cat([idx, response], dim=-1)
-    response_length = response.size(1)
-    
-    # 8. 位置ID和注意力掩码更新
-    delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-    delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
-    response_position_ids = position_ids[:, -1:] + delta_position_id
-    position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-    
-    # 9. 构建返回数据
-    batch = TensorDict({
-        "prompts": idx,
-        "responses": response,
-        "input_ids": seq,
-        "rollout_log_probs": rollout_log_probs,
-        "attention_mask": attention_mask,
-        "position_ids": position_ids,
-    }, batch_size=batch_size)
-    
-    # 10. 内存清理
-    if self.config.free_cache_engine and self._engine is not None:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self._engine.flush_cache())
-    
-    return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 ```
 
-#### 2.2.4 `AsyncRolloutRequest` 异步请求模型
+</details>
+
+
 
 **文件**: `verl/workers/rollout/schemas.py`
 
@@ -1925,326 +1796,203 @@ if self.use_critic:  # 只有GAE算法需要Critic
 
 #### 2.4.2 Actor 更新
 
-**Critic warmup机制：**
-在训练初期，Critic的价值估计可能不准确，导致Actor更新的方向错误。通过设置预热期，让Critic先稳定下来，再开始Actor训练。
+**Critic wa### 2.2 Rollout
 
-**主控制流程**
-这是对应的Actor更新代码，在 `verl/trainer/ppo/ray_trainer.py:1085-1092`：
+数据准备完成后，进入序列生成阶段。这是RL训练中的"环境交互"环节，让当前策略生成响应序列，为后续的经验收集提供基础数据。veRL的rollout系统采用了模块化设计，通过`BaseRollout`抽象基类统一接口，支持多种推理后端（SGLang、vLLM、HF等），同时使用`DataProto`作为统一的数据容器确保数据一致性。我们以SGLang作为backend
 
-```python
-if self.config.trainer.critic_warmup <= self.global_steps:  # 预热期检查
-    with _timer("update_actor", timing_raw):
-        # 添加多轮对话的元信息，用于特殊处理
-        batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
-        # 执行PPO策略更新
-        actor_output = self.actor_rollout_wg.update_actor(batch)
-    actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
-    metrics.update(actor_output_metrics)
+#### 2.2.1 核心类架构
+
+veRL的rollout系统采用了模块化设计，主要包含以下几个重要类：
+
+**类层次结构：**
+```
+BaseRollout (抽象基类)
+├── SGLangRollout (SGLang推理引擎)
+├── HFRollout (HuggingFace推理引擎)
+├── VLLMRollout (vLLM推理引擎)
+└── NaiveRollout (简单推理引擎)
 ```
 
-**PPO更新过程：**
-1. 计算新旧策略的概率比值
-2. 使用advantage加权策略梯度
-3. 应用PPO的clip机制防止更新过大
-4. 可选地添加KL散度惩罚
+#### 2.2.2 `BaseRollout` 抽象基类
 
-#### 2.4.3 FSDP Actor 更新实现
-
-**内存管理的复杂性：**
-大模型训练的一个挑战是内存管理。veRL支持参数卸载（offloading），将暂时不用的参数移到CPU或存储，需要时再加载回GPU。这个过程需要精心协调以避免性能损失。
-
-**FSDP Actor 更新实现**
-这是对应的FSDP Actor更新实现代码，在 `verl/workers/fsdp_workers.py:575-625`：
+**文件**: `verl/workers/rollout/base.py`
 
 ```python
-def update_actor(self, data: DataProto):
-    # 数据预处理：移动到CPU以支持各种硬件配置
-    data = data.to('cpu')
+class BaseRollout(ABC):
+    """Rollout系统的抽象基类，定义了所有rollout引擎必须实现的接口"""
     
-    # 内存优化：按需加载模型参数
-    if self._is_offload_param:
-        # 将FSDP模型参数从CPU/存储加载到GPU
-        load_fsdp_model_to_gpu(self.actor_module_fsdp)
-    if self._is_offload_optimizer:
-        # 将优化器状态加载到GPU
-        load_fsdp_optimizer(optimizer=self.actor_optimizer, 
-                           device_id=get_torch_device().current_device())
-    
-    # 执行实际的策略更新
-    output = self.actor.update_policy(data=data)
+    @abstractmethod
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """生成序列的核心抽象方法
+        
+        Args:
+            prompts: 包含输入提示的DataProto对象
+            
+        Returns:
+            DataProto: 包含生成序列的DataProto对象
+        """
+        pass
 ```
 
-**FSDP的优势：**
-- **内存效率**: 参数分片减少单GPU内存需求
-- **计算效率**: 避免不必要的参数复制
-- **可扩展性**: 支持任意数量的GPU
+**设计理念：**
+- **统一接口**：所有rollout引擎都实现相同的`generate_sequences`接口
+- **可扩展性**：支持不同的推理后端（SGLang、vLLM、HF等）
+- **数据一致性**：使用`DataProto`作为统一的数据容器
 
-## 多轮对话特殊处理
+#### 2.2.3 `SGLangRollout` 核心实现
 
-### 配置文件
+**文件**: `verl/workers/rollout/sglang_rollout/sglang_rollout.py`
 
-**文件**: `examples/sglang_multiturn/config/tool_config/`
+`SGLangRollout`是veRL中最SGLang的rollout实现，支持高效的多轮对话和工具调用。其初始化流程包括工具系统初始化、分布式环境设置、推理引擎初始化和采样参数配置四个关键步骤。veRL现在在sglang_rollout下只需要看sglang_rollout这个类，async_sglang_server已经被deprecated了。
 
-多轮对话需要特殊的工具配置和状态管理：
-
-1. **工具集成**: 支持计算器、搜索等工具调用
-2. **状态保持**: SGLang 引擎维护多轮对话状态
-3. **掩码处理**: 使用 `loss_mask` 进行多轮损失计算
-4. **异步处理**: 支持并发的多轮对话生成
-
-### 关键实现
-
-**文件**: `verl/trainer/ppo/ray_trainer.py:129-178`
+**SGLangRollout**：
+`SGLangRollout`这个class是sync版本的SGLang Rollout Engine，注意到如果 enble 了 config.free_cache_engine，那么 SGLang engine的KV cache 在每次 generate_sequences 之后都会被释放掉。
+这个class负责工具初始化、分布式环境初始化、推理引擎初始化，采样参数初始化，分别对应`_init_distributed_env`, `_init_inference_engine`, `_init_sampling_params`。
 
 ```python
-def apply_kl_penalty(data: DataProto, kl_ctrl, kl_penalty="kl", multi_turn=False):
-    if multi_turn:
-        # 多轮对话使用 loss_mask 而不是 response_mask
-        loss_mask = data.batch["loss_mask"]
-        response_mask = loss_mask[:, -response_length:]
+class SGLangRollout(BaseRollout):
+    def __init__(self, actor_module, config, tokenizer, model_hf_config, 
+                 port=None, trust_remote_code=False, device_mesh=None, **kwargs):
+        """Synchronized SGLang rollout engine.
+
+        Args:
+            actor_module: Huggingface model name or path to the model. The
+                model should be supported by SGLang.
+            config: A DictConfig object containing SGLang-specific operational
+                parameters and rollout settings.
+                Refer to https://docs.sglang.ai/backend/server_arguments.html
+            processing_class: The tokenizer or processor instance compatible with the actor_module.
+            model_hf_config: The Hugging Face model's configuration (e.g.,
+                `transformers.PretrainedConfig`). It provides architectural
+                details and hyperparameters like `max_position_embeddings`,
+                used by SGLang for correct model initialization. This is
+                the model's inherent design, not SGLang's runtime behavior.
+            port: Optional port for multi-node initialization when nnodes > 1.
+            trust_remote_code: Whether or not to allow for custom models
+                defined on the Hub in their own modeling files.
+            device_mesh: Optional `DeviceMesh` object for distributed setup.
+            **kwargs: Additional keyword arguments, primarily `train_tp` for
+                Megatron Backend integration to initialize hybrid engine
+                process groups.
+        """
+
+    
+        super().__init__()
+        self.config = config
+        self._device_mesh_cpu = device_mesh
+        
+        # 1. 工具系统初始化
+        (self._tool_schemas, self._tool_map, self._tool_call_parser_type,
+         self._sgl_tools, self._function_call_parser) = self._initialize_tools(config, tokenizer)
+        
+        # 2. 分布式环境初始化
+        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
+        
+        # 3. 推理引擎初始化
+        self._init_inference_engine(trust_remote_code, actor_module, port)
+        
+        # 4. 采样参数初始化
+        self._init_sampling_params(**kwargs)
+```
+
+
+
+**`generate_sequences()`**：
+
+`generate_sequences()`是rollout的主函数，逻辑上只是为了针对是否multi-turn，采取req_level或是batch_level的rollout方法。
+```python
+def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+   
+    if self.config.multi_turn.enable:
+        return self._req_level_generate_sequences(prompts, **kwargs)
     else:
-        attention_mask = data.batch["attention_mask"]
-        response_mask = attention_mask[:, -response_length:]
-
+        return self._batch_level_generate_sequences(prompts, **kwargs)
 ```
+SGLangRollout的multi-turn由`config.multi_turn_enable`来控制，对于开启multi-turn的对话，我们会在request级别进行管理，这是因为multi-turn多半伴随着其他信号的处理和接受（比如tool use），而对于single-turn的对话，我们直接进行批处理。
 
-## 性能优化点
-
-### 1. 异步Rollout
-
-**文件**: `verl/workers/rollout/async_server.py`
-
-- 支持异步推理，提高GPU利用率
-- 并发处理多个生成请求
-
-### 2. 权重分片管理
-
-**文件**: `verl/workers/sharding_manager/`
-
-- 在推理和训练引擎间高效转换模型权重
-- 减少内存占用和传输开销
-
-### 3. 序列长度平衡
-
-**文件**: `verl/trainer/ppo/ray_trainer.py:862-875`
-
-- 自动平衡不同GPU间的token数量
-- 提高训练效率
-
----
-
-## GRPO 算法示例: 无价值函数的群组相对策略优化
-
-### GRPO 工作原理
-
-**文件**: `verl/trainer/ppo/core_algos.py:166-196`
-
-GRPO (Group Relative Policy Optimization) 是一种无需价值函数的强化学习算法，特别适用于数学推理等需要多次采样的任务：
-
-1. **群组采样**: 对每个prompt生成多个响应（如n=5）
-2. **相对奖励**: 计算每组内响应的平均奖励作为基线
-3. **优势计算**: `advantage = reward - group_mean`
-4. **无Critic**: 不需要训练独立的价值网络
-
-### 核心算法实现
-
-**GRPO优势计算**: `verl/trainer/ppo/core_algos.py:166-196`
-
+**`_batch_level_generate_sequences()` - 批处理生成**：
 ```python
-def compute_grpo_outcome_advantage(
-    token_level_rewards: torch.Tensor,
-    response_mask: torch.Tensor,
-    index: np.ndarray,
-    epsilon: float = 1e-6,
-    norm_adv_by_std_in_grpo: bool = True,
-):
-    """GRPO优势计算 - 基于群组相对奖励"""
-    scores = token_level_rewards.sum(dim=-1)  # 序列级奖励
-
-    # 按prompt索引分组计算统计量
-    id2score = defaultdict(list)
-    id2mean = {}
-    id2std = {}
-
-    for i in range(scores.shape[0]):
-        id2score[index[i]].append(scores[i])
-
-    # 计算每组的均值和标准差
-    for idx in id2score:
-        if len(id2score[idx]) > 1:
-            id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
-            id2std[idx] = torch.std(torch.tensor(id2score[idx]))
+def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+    """批处理级序列生成 - 适用于单轮对话
+    
+    核心步骤：
+    1. 数据预处理：提取token IDs和图像数据
+    2. 采样参数配置：根据验证/训练模式设置不同参数
+    3. SGLang引擎调用：异步生成序列
+    4. 结果后处理：构建完整的序列数据
+    5. 内存管理：清理KV缓存
+    """
+    # 1. 数据预处理
+    idx = prompts.batch["input_ids"]  # (bs, prompt_length)
+    attention_mask = prompts.batch["attention_mask"]
+    position_ids = prompts.batch["position_ids"]
+    
+    # 2. 多模态数据处理
+    if "multi_modal_data" in prompts.non_tensor_batch:
+        sglang_inputs = []
+        for raw_prompt_ids, multi_modal_data in zip(
+            prompts.non_tensor_batch.pop("raw_prompt_ids"),
+            prompts.non_tensor_batch.pop("multi_modal_data"),
+        ):
+            sglang_inputs.append({
+                "prompt_token_ids": raw_prompt_ids,
+                "multi_modal_data": multi_modal_data,
+                "image_data": multi_modal_data.get("image", None),
+            })
+    
+    # 3. 采样参数配置
+    do_sample = prompts.meta_info.get("do_sample", True)
+    is_validate = prompts.meta_info.get("validate", False)
+    
+    if not do_sample:
+        # 确定性生成（贪婪解码）
+        kwargs = dict(
+            n=1, temperature=0, top_p=1, top_k=-1,
+            max_new_tokens=self.config.response_length,
+        )
+    elif is_validate:
+        # 验证模式参数
+        kwargs = dict(
+            top_k=self.config.val_kwargs.top_k,
+            top_p=self.config.val_kwargs.top_p,
+            temperature=self.config.val_kwargs.temperature,
+            n=1,
+        )
+    
+    # 4. SGLang引擎调用
+    with self.update_sampling_params(**kwargs):
+        if self._tp_rank == 0:  # 只在主进程中调用引擎
+            loop = asyncio.get_event_loop()
+            output = loop.run_until_complete(
+                self._engine.async_generate(
+                    prompt=None,
+                    sampling_params=self.sampling_params,
+                    return_logprob=True,
+                    input_ids=idx_list,
+                    image_data=image_list,
+                )
+            )
         else:
-            id2mean[idx] = torch.tensor(0.0)
-            id2std[idx] = torch.tensor(1.0)
-
-    # 计算相对优势
-    for i in range(scores.shape[0]):
-        if norm_adv_by_std_in_grpo:
-            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-        else:
-            scores[i] = scores[i] - id2mean[index[i]]
-
-    scores = scores.unsqueeze(-1) * response_mask
-    return scores, scores
-
-```
-
-### 配置差异对比
-
-### PPO vs GRPO 关键配置
-
-| 配置项 | PPO | GRPO |
-| --- | --- | --- |
-| `algorithm.adv_estimator` | `gae` | `grpo` |
-| `actor_rollout_ref.rollout.n` | `1` | `5` (或更大) |
-| `actor_rollout_ref.actor.use_kl_loss` | `false` | `true` |
-| `algorithm.use_kl_in_reward` | `true` | `false` |
-| Critic 组件 | **需要** | **不需要** |
-
-### 算法选择逻辑
-
-**文件**: `verl/trainer/ppo/ray_trainer.py:323-346`
-
-```python
-if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-    self.use_critic = True  # 使用价值函数
-elif self.config.algorithm.adv_estimator in [
-    AdvantageEstimator.GRPO,
-    AdvantageEstimator.GRPO_PASSK,
-    AdvantageEstimator.REINFORCE_PLUS_PLUS,
-    # ...
-]:
-    self.use_critic = False  # 无价值函数
-
-```
-
-### GRPO 性能优势
-
-1. **内存节省**: 无需训练Critic网络
-2. **训练稳定**: 基于群组统计，减少方差
-3. **适用场景**: 特别适合数学推理、代码生成等需要多次采样的任务
-4. **实现简单**: 避免value function的复杂调参
-
-### 高级扩展: DrGRPO
-
-**文件**: `docs/algo/grpo.md`
-
-DrGRPO 解决了GRPO的长度偏差问题：
-
-```bash
-# DrGRPO配置差异
-actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-sum-norm  # 关闭序列维度平均
-actor_rollout_ref.actor.use_kl_loss=false                      # 不使用KL loss
-algorithm.norm_adv_by_std_in_grpo=false                        # 关闭标准差归一化
-
-```
-
-## 总结
-
-veRL 的 VLM multi-turn RL 工作流程通过模块化设计实现了：
-
-1. **高效推理**: SGLang 提供快速的多轮对话生成
-2. **分布式训练**: FSDP 支持大模型的并行训练
-3. **灵活奖励**: 支持多种奖励函数组合
-4. **异步处理**: 提高GPU利用率和训练效率
-5. **多模态支持**: 原生支持视觉-语言模型
-6. **算法多样性**: 支持PPO、GRPO、RLOO等多种RL算法
-
-整个系统设计既保证了性能，又维持了良好的可扩展性和易用性。
-
-flowchart TB
-subgraph Init["初始化阶段"]
-direction TB
-A[启动RayPPOTrainer] --> B1[创建资源池]
-B1 --> B2[初始化分布式Workers]
-B2 --> C1[构建Hybrid Engine]
-C1 --> D1[数据预处理]
-end
-
-```
-subgraph TrainLoop["训练循环"]
-    direction TB
-    E[数据加载] --> F[序列生成Rollout]
-    F --> G[经验处理]
-    G --> H[模型更新]
-    H --> E
-end
-
-Init --> TrainLoop
-
-subgraph Detail["详细流程"]
-    direction LR
-    subgraph Workers["Workers初始化详情"]
-        direction TB
-        W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
-        W2[CriticWorker] --> W4
-        W3[RewardModelWorker] --> W4
-        W4 --> W5[SGLang推理引擎]
-    end
-
-    subgraph Rollout["序列生成详情"]
-        direction TB
-        F1[准备生成数据] --> F2[SGLang异步生成]
-        F2 --> F3[多轮对话处理]
-    end
-
-    subgraph Experience["经验处理详情"]
-        direction TB
-        G1[重新计算Log Prob] --> G2[计算Reward]
-        G2 --> G3[GRPO优势计算]
-    end
-
-    subgraph Update["模型更新详情"]
-        direction TB
-        H1[加载FSDP模型参数] --> H2[计算策略梯度]
-        H2 --> H3[应用GRPO更新]
-        H3 --> H4[参数分片保存]
-    end
-end
-
-B2 --> Workers
-F --> Rollout
-G --> Experience
-H --> Update
-
-```
-
-flowchart TB
-subgraph Init["初始化阶段"]
-direction TB
-A[启动RayPPOTrainer] --> B1[创建资源池]
-B1 --> B2[初始化分布式Workers]
-B2 --> C1[构建Hybrid Engine]
-C1 --> D1[数据预处理]
-end
-
-```
-subgraph TrainLoop["训练循环"]
-    direction TB
-    E[数据加载] --> F1[准备生成数据]
-    F1 --> F2[SGLang异步生成]
-    F2 --> F3[多轮对话处理]
-    F3 --> G1[重新计算Log Prob]
-    G1 --> G2[计算Reward]
-    G2 --> G3[GRPO优势计算]
-    G3 --> H1[加载FSDP模型参数]
-    H1 --> H2[计算策略梯度]
-    H2 --> H3[应用GRPO更新]
-    H3 --> H4[参数分片保存]
-    H4 --> E
-end
-
-Init --> TrainLoop
-
-subgraph Workers["Workers初始化详情"]
-    direction TB
-    W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
-    W2[CriticWorker] --> W4
-    W3[RewardModelWorker] --> W4
-    W4 --> W5[SGLang推理引擎]
-end
-
-B2 --> Workers
-
-```
+            output = None
+        
+        # 5. 结果广播到所有TP rank
+        [output] = broadcast_pyobj(
+            data=[output],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+        )
+    
+    # 6. 结果后处理
+    out = _post_process_outputs(self.tokenizer, output)
+    response = out[0].to(idx.device)
+    rollout_log_probs = out[1].to(idx.device)
+    
+    # 7. 序列构建
+    seq = torch.cat([idx, response], dim=-1)
+    response_length = response.size(1)
+    
+    # 8. 位置ID和注意力掩码更新
+    delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
+    delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+    response_position_ids = posit
