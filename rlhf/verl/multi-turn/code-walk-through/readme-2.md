@@ -1016,6 +1016,7 @@ logger.log(data=metrics, step=self.global_steps)
 5. 为 SGLang 创建 `Tool` 对象。
 6. 实例化 `FunctionCallParser`。
 
+
 <details>
 <summary>SGLangRollout._initialize_tools 部分源码</summary>
 
