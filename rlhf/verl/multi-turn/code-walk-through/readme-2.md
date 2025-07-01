@@ -1240,6 +1240,31 @@ def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: in
 
 ### schema 状态机
 
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> RUNNING : _handle_pending_state()
+
+    RUNNING --> TOOL_CALLING : detect_tool_call
+    TOOL_CALLING --> RUNNING : tool_call_executed
+    TOOL_CALLING --> COMPLETED : tool_call_decode_failed
+
+    RUNNING --> COMPLETED : stop_reason == STOP
+    RUNNING --> [Exit] : finish_reason == LENGTH
+
+    COMPLETED --> [Exit]
+
+    note right of TOOL_CALLING
+        if tool_calls == None:
+        raise ValueError
+    end note
+
+    note right of RUNNING
+        if exceeds max length:
+        finish_reason = LENGTH
+    end note
+```   
+
 这些状态机挺抽象的，需要到了和 SGLang rollout 的交互部分才能真的理解到用法，不过我们还是先列举出来。
 
 1. [`FinishReasonTypeEnum`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L33)

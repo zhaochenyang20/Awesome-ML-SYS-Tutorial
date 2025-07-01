@@ -1228,6 +1228,32 @@ The important thing here is the entire `AsyncRolloutRequest`, or rather, our ent
 
 ### Schema State Machine
 
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> RUNNING : _handle_pending_state()
+
+    RUNNING --> TOOL_CALLING : detect_tool_call
+    TOOL_CALLING --> RUNNING : tool_call_executed
+    TOOL_CALLING --> COMPLETED : tool_call_decode_failed
+
+    RUNNING --> COMPLETED : stop_reason == STOP
+    RUNNING --> [Exit] : finish_reason == LENGTH
+
+    COMPLETED --> [Exit]
+
+    note right of TOOL_CALLING
+        if tool_calls == None:
+        raise ValueError
+    end note
+
+    note right of RUNNING
+        if exceeds max length:
+        finish_reason = LENGTH
+    end note
+```
+
 These state machines are quite abstract, and their usage will only become truly clear when interacting with SGLang rollout. However, let's list them out first.
 
 1.  [`FinishReasonTypeEnum`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L33)
