@@ -1,4 +1,4 @@
-# verl Multi-turn Code Walk Through (Init)
+# A Deep Dive into verl Source Code: Init
 
 We are grateful for the community's support, and the field of Agentic RL is flourishing. Our team at SGLang RL is also working intensively. Considering the rapid and formidable advancements in the field, along with the significant demand from the community for secondary development, we have chosen verl as our starting point to analyze its end-to-end multi-turn RL training process. Our aim is to cover all important classes and functions at a high level, without delving into more granular code details. We intend for our writing style to follow that of the SGLang code walk-through:
 
