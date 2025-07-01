@@ -21,7 +21,7 @@ B1 --> Workers
     end
     
     Workers --> C1[Hybrid Engine]
-end
+end 
 
 subgraph W3["Train Loop"]
     direction TB
@@ -930,6 +930,8 @@ E：`pop` 提取生成数据
 gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
 ```
 
+注意，这里我真的自己写了代码才理解到在 verl 当中，`gen_batch` 是靠读取的 dataset 得到的整个 batch 通过 pop 构造的。pop 后，batch 里面的 key 当然就没了。为此，我们想了很多办法来让 pop 前·后都有一些需要的 key，得留一手考虑。具体来说，我希望通过 uid 来把 `gen_batch` 和 `batch` 重新 union 起来，得[反复添加 uid](https://github.com/volcengine/verl/pull/2258)。
+
 F：`Rollout` 生成
 
 ```python
@@ -1003,82 +1005,244 @@ logger.log(data=metrics, step=self.global_steps)
 
 </details>
 
-## `AsyncRolloutRequest` 异步请求
+## Rollout
 
-### [`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)
+在 part 1 已经讲过了 SGLang 的几个关键函数：
 
-`SGLangRollout._initialize_tools()` 函数用于初始化 Multi-turn 对话中的工具。
+1. [`ActorRolloutRefWorker._build_rollout()`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#actorrolloutrefworker_build_rollout)
+2. [`SGLangRollout.__init__()`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrollout__init__)
+3. [`SGLangRollout.AsyncEngine`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrolloutasyncengine)
+4. [`SGLangRollout._init_inference_engine()`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrollout_init_inference_engine)
 
-1. 如果没有工具配置路径，则返回空列表和字典。
-2. 从配置文件加载工具并初始化工具列表。
-3. 创建 OpenAI 格式的工具 schema 和工具名称到工具对象的映射。
-4. 根据 Tokenizer 类型确定工具调用解析器。
-5. 为 SGLang 创建 `Tool` 对象。
-6. 实例化 `FunctionCallParser`。
+此外，我们还介绍了在[“我们究竟在异步什么？“](#我们究竟在异步什么)里面介绍了 SGLang 对 multi-turn 场景下的 `_req_level_generate_sequences` 的特殊实现。我们接着继续分析 SGLang rollout 对 multi-turn 的处理，包括状态机和 tool 调用。
 
+### [`_req_level_generate_sequences`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L853)
+
+接着上文的讨论，我们继续来看看源代码。
+
+1. 如果当前是 tp rank 0，则将一整个 batch 的 prompts 预处理成单个异步请求，并并发执行这些请求以生成序列。rollout 的返回顺序是乱序的，因此需要按照 batch ID 和在 batch 内的 offset 来对返回值重新排序。
+2. 如果不是 tp rank 0，则将输出请求列表设置为 `None`。这里其实也是之前提到过的 [mock SPMD 的体现](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrollout_init_inference_engine)。
+3. 使用分布式通信，将 tp rank 0 生成的排序后的请求列表广播给所有其他 rank。
+4. 提取 prompt IDs、response IDs、attention masks、position IDs、loss masks、原始消息和 reward scores。
+5. 使用 padding token 对 prompt IDs 和 response IDs 进行填充，使其长度一致。
+6. 将填充后的 prompt 和 response 的 IDs、attention masks 等在最后一个维度上进行拼接，形成完整的序列数据。
+7. 将处理后的 prompts 和 responses 存储到 `TensorDict` 对象中，并设置批次大小。
+8. 将包含批次化张量数据的 `TensorDict` 和包含原始消息及奖励分数的字典封装到 `DataProto` 对象中并返回。
+
+这里有个比较有趣的地方，注意到 2 中我们强调了，SGLang 并不是严格的 SPMD，但是 3 中，我们仍旧将 tp 0 得到的 response broadcast 给了所有 rank。但是，为了保持 SGLang 外部的训练循环仍旧得到的是一个 SPMD 的返回结果，我们需要让每个 tp randk 都构造并返回相同的 batch，这就需要通过 broadcast 让其他 tp rank 获得 tp 0 的计算结果。这导致了一定的计算冗余，但是相比推理本身的开销，仍旧是可以负担的。
 
 <details>
-<summary>SGLangRollout._initialize_tools 部分源码</summary>
+<summary>_req_level_generate_sequences 源码</summary>
 
 ```python
-from sglang.function_calling.function_call_parser import FunctionCallParser
-from sglang.utils.general import initialize_tools_from_config
-from sglang.tools.tool import Tool
-from omegaconf import OmegaConf
+@GPUMemoryLogger(role="sglang rollout", logger=logger)
+    @torch.no_grad()
+    def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
 
-@registry.register(SGLangRollout)
-    def _initialize_tools(self, config, tokenizer):
-        """Initialize tools from configuration.
+        do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
+        tgt_device = prompts.batch["input_ids"].device
+        if self._tp_rank == 0:
+            req_list = self._preprocess_prompt_to_async_rollout_requests(
+                prompts,
+                n=1 if is_validate else self.config.n, 
+            )
+            loop = asyncio.get_event_loop()
+            output_req_list = loop.run_until_complete(
+                asyncio.gather(
+                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                )
+            )
+            sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
+        else:
+            sorted_output_req_list = None
 
-        Args:
-            config: Configuration object containing tool-related settings,
-                    specifically `config.multi_turn.tool_config_path`.
-            tokenizer: The tokenizer instance used for parsing tool calls from
-                       the model's generated text.
-
-        Returns:
-            tuple: A tuple containing:
-                - tool_schemas (list[dict]): OpenAI-formatted JSON schemas
-                  defining each tool's capabilities.
-                - tool_map (dict[str, BaseTool]): A dictionary mapping tool
-                  names to their executable `BaseTool` objects.
-                - tool_call_parser_type (str): The identifier for the specific
-                  parser type (e.g., 'json_mode', 'tool_code') used to extract
-                  tool calls.
-                - sgl_tools (list[sglang.srt.openai_api.protocol.Tool]): Tool
-                  definitions optimized for SGLang's internal engine.
-                - function_call_parser (sglang.srt.function_call_parser.FunctionCallParser):
-                  The active parser instance responsible for extracting
-                  structured tool calls from model outputs.
-        """
-        if config.multi_turn.tool_config_path is None:
-            return [], {}, None, [], None
-
-        tools_config_file = config.multi_turn.tool_config_path
-        tool_list = initialize_tools_from_config(tools_config_file)
-
-        logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
-        tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
-        tool_map = {tool.name: tool for tool in tool_list}
-        tool_call_parser_type = get_tool_call_parser_type(tokenizer)
-        sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
-        function_call_parser = FunctionCallParser(
-            sgl_tools,
-            tool_call_parser_type,
+        dist.barrier()
+        [sorted_output_req_list] = broadcast_pyobj(
+            data=[sorted_output_req_list],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
         )
 
-        return (
-            tool_schemas,
-            tool_map,
-            tool_call_parser_type,
-            sgl_tools,
-            function_call_parser,
+        prompt_ids, response_ids = [], []
+        prompt_attention_mask, response_attention_mask = [], []
+        prompt_position_ids, response_position_ids = [], []
+        prompt_loss_mask, response_loss_mask = [], []
+        messages = []
+        reward_scores = []
+        for req in sorted_output_req_list:
+            assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
+            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), f"""Request {req.request_id} has different length of
+                {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"""
+            error_message_lines = [
+                f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
+                    greater than max_model_len {self.config.max_model_len}""",
+                f"Decoded input_ids: {self.tokenizer.decode(req.input_ids)}",
+                f"Decoded prompt_ids: {self.tokenizer.decode(req.prompt_ids)}",
+                f"Decoded response_ids: {self.tokenizer.decode(req.response_ids)}",
+                f"Messages: {req.messages}",
+                f"Max model length: {req.max_model_len}",
+            ]
+            error_message = "\n".join(error_message_lines)
+            assert len(req.input_ids) <= self.config.max_model_len, error_message
+
+            prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int, device=tgt_device))
+            response_ids.append(torch.tensor(req.response_ids, dtype=torch.int, device=tgt_device))
+            if len(req.response_ids) > self.config.response_length:
+                logger.warning(
+                    f"""{req.request_id=} has response_ids length {len(req.response_ids)}
+                    greater than max_response_len {self.config.response_length},\n{req=}"""
+                )
+            prompt_attention_mask.append(torch.tensor(req.prompt_attention_mask, dtype=torch.int, device=tgt_device))
+            response_attention_mask.append(torch.tensor(req.response_attention_mask, dtype=torch.int, device=tgt_device))
+            prompt_position_ids.append(torch.tensor(req.prompt_position_ids, dtype=torch.int, device=tgt_device))
+            response_position_ids.append(torch.tensor(req.response_position_ids, dtype=torch.int, device=tgt_device))
+            prompt_loss_mask.append(torch.tensor(req.prompt_loss_mask, dtype=torch.int, device=tgt_device))
+            response_loss_mask.append(torch.tensor(req.response_loss_mask, dtype=torch.int, device=tgt_device))
+            messages.append({"messages": req.messages})
+            reward_scores.append(req.reward_scores)
+
+        prompt_ids = pad_sequence(
+            prompt_ids,
+            batch_first=True,
+            padding_value=self.pad_token_id,
+            padding_side="left",
+        )
+        if prompt_ids.shape[1] < self.config.prompt_length:
+            prompt_ids = pad_sequence_to_length(prompt_ids, self.config.prompt_length, self.pad_token_id, left_pad=True)
+        response_ids = pad_sequence(response_ids, batch_first=True, padding_value=self.pad_token_id)
+        if response_ids.shape[1] < self.config.response_length:
+            response_ids = pad_sequence_to_length(response_ids, self.config.response_length, self.pad_token_id)
+        prompt_attention_mask = pad_sequence(
+            prompt_attention_mask,
+            batch_first=True,
+            padding_value=0,
+            padding_side="left",
+        )
+        if prompt_attention_mask.shape[1] < self.config.prompt_length:
+            prompt_attention_mask = pad_sequence_to_length(prompt_attention_mask, self.config.prompt_length, 0, left_pad=True)
+        response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
+        if response_attention_mask.shape[1] < self.config.response_length:
+            response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
+        prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0, padding_side="left")
+        if prompt_position_ids.shape[1] < self.config.prompt_length:
+            prompt_position_ids = pad_sequence_to_length(prompt_position_ids, self.config.prompt_length, 0, left_pad=True)
+        response_length = response_ids.size(1)
+        delta_position_id = torch.arange(1, response_length + 1, device=response_ids.device)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(len(sorted_output_req_list), 1)
+        response_position_ids = prompt_position_ids[:, -1:] + delta_position_id
+        prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0, padding_side="left")
+        if prompt_loss_mask.shape[1] < self.config.prompt_length:
+            prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
+        response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
+        if response_loss_mask.shape[1] < self.config.response_length:
+            response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
+
+        input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
+        attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)
+        position_ids = torch.cat((prompt_position_ids, response_position_ids), dim=-1)
+        loss_mask = torch.cat((prompt_loss_mask, response_loss_mask), dim=-1)
+
+        batch = TensorDict(
+            {
+                "prompts": prompt_ids,
+                "responses": response_ids,
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
+            },
+            batch_size=len(sorted_output_req_list),
+        )
+
+        if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
+        return DataProto(
+            batch=batch,
+            non_tensor_batch={
+                "messages": np.array(messages),
+                "reward_scores": np.array(reward_scores),
+            },
         )
 ```
 
 </details>
 
+显然，`_req_level_generate_sequences` 的核心在于这两个函数：
 
+1. `_preprocess_prompt_to_async_rollout_requests`
+2. `_async_rollout_a_request`
+
+我们分别展开。
+
+### [`_preprocess_prompt_to_async_rollout_requests`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L987)
+
+1. 将 prompts 展开，首先拆开 batch 中的每个 prompt，内层循环为每个 prompt 生成 `n` 个不同的序列。每个生成的请求都有唯一的 `batch_data_id` 和 `rollout_offset` 标识。
+2. 当配置了工具时，`_input_ids` 和 `_attention_mask` 被设为 `None`，因为工具调用需要动态构建输入。而没有配置工具的话，使用 `_pre_process_inputs` 函数处理预处理的 token IDs，去除左填充。
+3. 每个请求对象包含状态管理、工具配置、序列长度限制、tokenizer 配置等元数据，为后续的异步处理提供完整信息。
+
+<details>
+<summary>_preprocess_prompt_to_async_rollout_requests 源码</summary>
+
+```python
+def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int) -> list[AsyncRolloutRequest]:
+    assert "raw_prompt" in prompts.non_tensor_batch, "need data.return_raw_chat=True, due to no official way do parse_messages"
+    req_list = []
+    for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
+        for rollout_offset in range(n):
+            if self._tool_schemas:
+                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
+                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                _input_ids = None
+                _attention_mask = None
+            else:
+                _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
+                _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
+                _tools_kwargs = {}
+                _tool_schemas = None
+
+            req = AsyncRolloutRequest(
+                batch_data_id=data_idx,
+                rollout_offset=rollout_offset,
+                request_id=str(uuid4()),
+                state=AsyncRolloutRequestStateEnum.PENDING,
+                messages=raw_prompt.tolist(),
+                tool_schemas=_tool_schemas,
+                tools_kwargs=_tools_kwargs,
+                input_ids=_input_ids,
+                response_ids=[],
+                attention_mask=_attention_mask,
+                response_attention_mask=[],
+                response_position_ids=[],
+                response_loss_mask=[],
+                reward_scores={},
+                max_prompt_len=self.config.prompt_length,
+                max_response_len=self.config.response_length,
+                max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+                use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
+                enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
+                tokenizer=self.tokenizer,
+            )
+
+            error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
+            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), error_message
+
+            req_list.append(req)
+
+    return req_list
+```
+
+</details>
+
+这里其实重要的在于整个 `AsyncRolloutRequest`，或者说我们用于管理 tool calling 的整个状态机 [schema](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py)。
+
+【TODO】
+
+#### 2.2.4 `AsyncRolloutRequest` 异步请求模型
 
 **文件**: `verl/workers/rollout/schemas.py`
 
@@ -1215,785 +1379,74 @@ def add_tool_response_messages(self, tokenizer: PreTrainedTokenizer,
     self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
 ```
 
-#### 2.2.5 `_req_level_generate_sequences()` 请求级生成
 
-**多轮对话的核心实现**：
-```python
-def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """请求级序列生成 - 适用于多轮对话和工具调用
-    
-    核心特点：
-    1. 每个对话独立处理，支持不同的轮数
-    2. 支持工具调用和异步执行
-    3. 动态长度管理，避免等待最慢的对话
-    4. 完整的对话状态跟踪
-    """
-    # 1. 预处理：将批处理数据转换为独立请求
-    if self._tp_rank == 0:
-        req_list = self._preprocess_prompt_to_async_rollout_requests(
-            prompts,
-            n=1 if is_validate else self.config.n,  # 验证时只生成1个候选，训练时生成n个
-        )
-        
-        # 2. 并发处理所有请求
-        loop = asyncio.get_event_loop()
-        output_req_list = loop.run_until_complete(
-            asyncio.gather(*[
-                self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) 
-                for req in req_list
-            ])
-        ) # 最后生成候选的response list
-        
-def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """批量生成序列"""
-    
-    # 获取输入数据
-    idx = prompts.batch["input_ids"]
-    attention_mask = prompts.batch["attention_mask"]
-    position_ids = prompts.batch["position_ids"]
-    eos_token_id = prompts.meta_info["eos_token_id"]
-    
-    batch_size = idx.size(0)
-    
-    # 处理非张量数据
-    non_tensor_batch = prompts.non_tensor_batch
-    if "raw_prompt_ids" not in non_tensor_batch:
-        non_tensor_batch["raw_prompt_ids"] = [self._pre_process_inputs(idx[i]) for i in range(batch_size)]
-    
-    # 准备输入数据
-    sglang_inputs = [{"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch["raw_prompt_ids"]]
-    
-    # 调用生成引擎
-    output = self._engine.async_generate(input_ids=sglang_inputs, **kwargs)
-    
-    # 处理生成的输出
-    batched_output_token_ids, batched_logprobs = self._post_process_outputs(output)
-    
-    # 拼接生成的输出与原始输入
-    response = torch.cat([idx, batched_output_token_ids], dim=-1)
-    
-    # 更新注意力掩码和位置编码
-    response_attention_mask = self.get_response_mask(response, eos_token_id)
-    attention_mask = torch.cat([attention_mask, response_attention_mask], dim=-1)
-    position_ids = self.update_position_ids(position_ids, response)
-    
-    # 返回生成的批次数据
-    batch = TensorDict({
-        "prompts": idx,
-        "responses": response,
-        "input_ids": response,
-        "attention_mask": attention_mask,
-        "position_ids": position_ids
-    }, batch_size=batch_size)
-    
-    return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+### [`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)
 
-```
 
-**并发处理的优势：**
-- **资源利用率高**: 不需要等待最慢的请求
-- **支持复杂交互**: 每个对话可以有不同的工具调用序列
-- **内存效率**: 避免为所有可能的轮数预分配内存
+1. 如果没有工具配置路径，则返回空列表和字典。
+2. 从配置文件加载工具并初始化工具列表。
+3. 创建 OpenAI 格式的工具 schema 和工具名称到工具对象的映射。
+4. 根据 Tokenizer 类型确定工具调用解析器。
+5. 为 SGLang 创建 Tool 对象。
+6. 实例化 FunctionCallParser。
 
-### 2.3 经验处理阶段 (Make Experience)
-
-序列生成完成后，进入经验处理阶段。这一阶段将生成的序列转换为强化学习算法所需的训练数据，包括重新计算概率、计算奖励、评估参考策略等关键步骤。
-
-**什么是Experience？**
-在强化学习中，experience指的是智能体与环境交互产生的数据，包括状态、动作、奖励、下一状态等。在LLM训练中，experience包括输入prompt、生成的response、获得的reward，以及用于策略更新的各种概率和优势值。
-
-**重新计算 log_prob**
-这是对应的重新计算log_prob代码，在 `verl/trainer/ppo/ray_trainer.py:995-1030`：
-
-**为什么要重新计算log_prob？**
-在生成阶段，我们得到的log_prob是用于采样的，不够精确（通常是fp16/bf16），这是因为在rollout我们的目标是"快"，快速生成old_log_prob。而在训练阶段，我们需要更精确的概率计算用于PPO等RL算法，如果ratio = exp(new_log_prob - old_log_prob)差别太大，就会导致clip和KL约束失真，从而破坏训练的稳定性。此外，生成和训练可能使用不同的数值精度或计算图，重新计算确保一致性。
+<details>
+<summary>SGLangRollout._initialize_tools 部分源码</summary>
 
 ```python
-# 重新计算 old_log_probs - 这是PPO算法的关键输入
-with _timer("old_log_prob", timing_raw):
-    # 使用当前策略重新计算生成序列的概率
-    # 这个概率将作为PPO中的"old policy"概率
-    old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-    batch = batch.union(old_log_prob)  # 将结果合并到batch中
-```
+from sglang.function_calling.function_call_parser import FunctionCallParser
+from sglang.utils.general import initialize_tools_from_config
+from sglang.tools.tool import Tool
+from omegaconf import OmegaConf
+
+@registry.register(SGLangRollout)
+    def _initialize_tools(self, config, tokenizer):
+        """Initialize tools from configuration.
 
-**Reward compute**
-veRL 支持灵活的奖励计算策略，可以结合 model-based reward 和 rule-based reward，适应不同类型的任务需求。对应的代码，在 `verl/trainer/ppo/ray_trainer.py:980-993`。
-
-```python
-with _timer("reward", timing_raw):
-    # 方式1：奖励模型计算（可选）- 使用训练好的奖励模型评估响应质量
-    if self.use_rm:
-        reward_tensor = self.rm_wg.compute_rm_score(batch)
-        batch = batch.union(reward_tensor)
-    
-    # 方式2：规则/函数奖励计算 - 使用任务特定的评估函数
-    if self.config.reward_model.launch_reward_fn_async:
-        # 异步计算：适合耗时的奖励函数（如代码执行、数学验证）
-        future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
-    else:
-        # 同步计算：适合简单快速的奖励函数
-        reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-```
-
-veRL提供了多种reward计算方式，可以根据任务需求灵活选择：
-
-1. **内置Reward函数**
-
-veRL内置了多种预定义的reward函数，支持常见的数据集和任务类型：
-
-#### 数学推理任务
-```python
-# 在配置中指定数据源
-data:
-  reward_fn_key: "data_source"  # 用于标识数据源类型的键
-
-# 支持的数据源包括：
-# - "openai/gsm8k": GSM8K数学问题
-# - "hendrycks_math": 数学推理数据集
-# - "hiyouga/geometry3k": 几何问题
-```
-
-#### 代码生成任务
-```python
-# 代码执行reward
-data:
-  reward_fn_key: "data_source"
-  
-# 支持的数据源：
-# - "mbpp": Python代码执行
-# - "humaneval": HumanEval代码评估
-```
-
-#### 多模态任务
-```python
-# 视觉-语言任务
-data:
-  reward_fn_key: "data_source"
-  
-# 支持的数据源：
-# - "llava_v1_5_mix": LLaVA多模态对话
-```
-
-* **自定义Reward函数**
-
-veRL支持完全自定义的reward函数，这是最灵活的方式：
-
-#### 配置文件设置
-```yaml
-# 在配置文件中指定自定义reward函数
-custom_reward_function:
-  # 自定义reward函数文件的路径
-  path: "/path/to/your/custom_reward.py"
-  
-  # reward函数在文件中的名称（默认为compute_score）
-  name: "my_custom_reward"
-  
-  # 传递给reward函数的额外参数
-  reward_kwargs:
-    threshold: 0.8
-    penalty_factor: 0.5
-```
-
-#### 自定义Reward函数实现
-
-**基本格式**：
-```python
-# /path/to/your/custom_reward.py
-def my_custom_reward(data_source, solution_str, ground_truth, extra_info=None, **kwargs):
-    """
-    自定义reward函数
-    
-    Args:
-        data_source (str): 数据源标识符
-        solution_str (str): 模型生成的响应文本
-        ground_truth (str): 标准答案
-        extra_info (dict, optional): 额外的信息
-        **kwargs: 从配置文件中传递的额外参数
-    
-    Returns:
-        float: reward分数 (0.0-1.0)
-    """
-    # 你的reward计算逻辑
-    score = compute_custom_score(solution_str, ground_truth)
-    return score
-```
-
-**复杂Reward函数示例**：
-```python
-def advanced_reward_function(data_source, solution_str, ground_truth, extra_info=None, 
-                           threshold=0.8, penalty_factor=0.5):
-    """
-    高级自定义reward函数示例
-    
-    功能：
-    1. 基础准确性评分
-    2. 格式规范性检查
-    3. 逻辑一致性验证
-    4. 可配置的惩罚机制
-    """
-    
-    # 1. 基础准确性评分
-    accuracy_score = compute_accuracy(solution_str, ground_truth)
-    
-    # 2. 格式规范性检查
-    format_score = check_format_correctness(solution_str, data_source)
-    
-    # 3. 逻辑一致性验证
-    logic_score = verify_logic_consistency(solution_str, extra_info)
-    
-    # 4. 综合评分
-    final_score = (accuracy_score * 0.6 + 
-                   format_score * 0.2 + 
-                   logic_score * 0.2)
-    
-    # 5. 应用惩罚机制
-    if final_score < threshold:
-        final_score *= penalty_factor
-    
-    return final_score
-
-def compute_accuracy(solution, ground_truth):
-    """计算答案准确性"""
-    # 实现你的准确性计算逻辑
-    if solution.strip().lower() == ground_truth.strip().lower():
-        return 1.0
-    return 0.0
-
-def check_format_correctness(solution, data_source):
-    """检查格式正确性"""
-    if data_source == "openai/gsm8k":
-        # GSM8K特定的格式检查
-        if "\\boxed" in solution:
-            return 1.0
-        return 0.5
-    return 1.0
-
-def verify_logic_consistency(solution, extra_info):
-    """验证逻辑一致性"""
-    # 实现逻辑一致性检查
-    return 1.0
-```
-
-**返回字典格式的Reward函数**：
-```python
-def detailed_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """
-    返回详细信息的reward函数
-    
-    Returns:
-        dict: 包含多个评分维度的字典
-    """
-    accuracy = compute_accuracy(solution_str, ground_truth)
-    format_score = check_format(solution_str)
-    logic_score = check_logic(solution_str)
-    
-    return {
-        "score": accuracy * 0.7 + format_score * 0.2 + logic_score * 0.1,
-        "accuracy": accuracy,
-        "format_score": format_score,
-        "logic_score": logic_score,
-        "detailed_feedback": generate_feedback(solution_str, ground_truth)
-    }
-```
-
-* **Reward Manager类型**
-
-veRL提供了多种Reward Manager来处理不同的计算需求：
-
-#### NaiveRewardManager（默认）
-```yaml
-reward_model:
-  reward_manager: "naive"  # 默认的reward管理器
-```
-
-#### BatchRewardManager
-```yaml
-reward_model:
-  reward_manager: "batch"  # 批处理reward管理器
-```
-
-#### PrimeRewardManager
-```yaml
-reward_model:
-  reward_manager: "prime"  # Prime算法专用reward管理器
-```
-
-#### DAPORewardManager
-```yaml
-reward_model:
-  reward_manager: "dapo"  # DAPO算法专用reward管理器
-```
-
-* **异步Reward计算**
-
-对于耗时的reward计算（如代码执行、数学验证），veRL支持异步计算：
-
-```yaml
-reward_model:
-  # 启用异步reward计算
-  launch_reward_fn_async: True
-  
-  # 沙箱融合配置（用于代码执行等）
-  sandbox_fusion:
-    url: "http://localhost:8000"  # 沙箱服务URL
-    max_concurrent: 64  # 最大并发数
-```
-
-**异步Reward函数示例**：
-```python
-def async_code_execution_reward(data_source, solution_str, ground_truth, extra_info=None):
-    """
-    异步代码执行reward函数
-    
-    适用于需要执行代码验证的任务
-    """
-    import asyncio
-    import aiohttp
-    
-    async def execute_code(code):
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://localhost:8000/execute",
-                json={"code": code, "test_cases": extra_info.get("test_cases", [])}
-            ) as response:
-                result = await response.json()
-                return result["passed_tests"] / result["total_tests"]
-    
-    # 提取代码部分
-    code = extract_code_from_solution(solution_str)
-    
-    # 异步执行代码
-    loop = asyncio.get_event_loop()
-    score = loop.run_until_complete(execute_code(code))
-    
-    return score
-```
-
-* **混合Reward策略**
-
-veRL支持结合多种reward来源的混合策略：
-
-```python
-def hybrid_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """
-    混合reward函数示例
-    
-    结合：
-    1. 规则基础评分
-    2. 模型评分（如果可用）
-    3. 人工标注评分（如果可用）
-    """
-    
-    # 1. 规则基础评分
-    rule_score = compute_rule_based_score(solution_str, ground_truth)
-    
-    # 2. 模型评分（从extra_info中获取）
-    model_score = extra_info.get("model_score", 0.0)
-    
-    # 3. 人工标注评分（从extra_info中获取）
-    human_score = extra_info.get("human_score", 0.0)
-    
-    # 4. 加权组合
-    weights = {
-        "rule": 0.4,
-        "model": 0.4,
-        "human": 0.2
-    }
-    
-    final_score = (rule_score * weights["rule"] + 
-                   model_score * weights["model"] + 
-                   human_score * weights["human"])
-    
-    return final_score
-```
-
-* **Reward函数调试和监控**
-
-#### 调试输出
-```python
-def debug_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """带调试信息的reward函数"""
-    
-    print(f"[DEBUG] Data source: {data_source}")
-    print(f"[DEBUG] Solution: {solution_str}")
-    print(f"[DEBUG] Ground truth: {ground_truth}")
-    print(f"[DEBUG] Extra info: {extra_info}")
-    
-    score = compute_score(solution_str, ground_truth)
-    print(f"[DEBUG] Computed score: {score}")
-    
-    return score
-```
-
-#### 性能监控
-```python
-import time
-
-def monitored_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """带性能监控的reward函数"""
-    
-    start_time = time.time()
-    
-    # 执行reward计算
-    score = compute_complex_reward(solution_str, ground_truth)
-    
-    end_time = time.time()
-    computation_time = end_time - start_time
-    
-    # 记录性能指标
-    print(f"[PERF] Reward computation time: {computation_time:.4f}s")
-    
-    return score
-```
-
-* **Reward最佳实践**
-
-#### 配置管理
-```yaml
-# 推荐的项目结构
-project/
-├── configs/
-│   ├── reward_functions/
-│   │   ├── math_reward.py
-│   │   ├── code_reward.py
-│   │   └── custom_reward.py
-│   └── training_config.yaml
-├── scripts/
-│   └── run_training.sh
-└── README.md
-```
-
-#### 错误处理
-```python
-def robust_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """健壮的reward函数，包含错误处理"""
-    
-    try:
-        # 输入验证
-        if not solution_str or not ground_truth:
-            print(f"[WARNING] Invalid input: solution='{solution_str}', ground_truth='{ground_truth}'")
-            return 0.0
-        
-        # 执行reward计算
-        score = compute_score(solution_str, ground_truth)
-        
-        # 输出验证
-        if not isinstance(score, (int, float)) or score < 0 or score > 1:
-            print(f"[WARNING] Invalid score: {score}")
-            return 0.0
-        
-        return score
-        
-    except Exception as e:
-        print(f"[ERROR] Reward computation failed: {e}")
-        return 0.0  # 返回默认分数
-```
-
-#### 测试验证
-```python
-def test_reward_function():
-    """测试reward函数"""
-    
-    # 测试用例
-    test_cases = [
-        {
-            "data_source": "openai/gsm8k",
-            "solution": "The answer is \\boxed{42}",
-            "ground_truth": "42",
-            "expected_score": 1.0
-        },
-        {
-            "data_source": "openai/gsm8k", 
-            "solution": "The answer is 42",
-            "ground_truth": "42",
-            "expected_score": 0.5  # 格式不正确
-        }
-    ]
-    
-    for i, test_case in enumerate(test_cases):
-        score = my_custom_reward(**test_case)
-        assert abs(score - test_case["expected_score"]) < 0.01, \
-            f"Test case {i} failed: expected {test_case['expected_score']}, got {score}"
-    
-    print("All tests passed!")
-```
-
-通过以上方式，你可以根据具体任务需求灵活选择和实现reward函数，充分利用veRL提供的reward计算框架。
-
-**奖励设计的考虑：**
-- **模型奖励**: 通用但可能有偏差，适合对话、摘要等主观任务
-- **规则奖励**: 准确但覆盖有限，适合数学、代码等客观任务
-- **混合奖励**: 结合两者优势，在实际应用中很常见
-
-**reference策略评估**
-这是对应的reference策略评估代码，在 `verl/trainer/ppo/ray_trainer.py:1031-1038`：
-
-**为什么需要参考策略？**
-参考策略（Reference Policy）通常是训练前的原始模型，用于计算KL散度约束，防止新策略偏离原始行为太远。这在RLHF中特别重要，确保模型在获得高奖励的同时保持合理的语言行为。
-
-```python
-if self.use_reference_policy:
-    with _timer("ref", timing_raw):
-        if not self.ref_in_actor:
-            # 独立的参考策略模型 - 需要额外的GPU内存，但更精确
-            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch) # 计算reference model的log_prob
-        else:
-            # 使用Actor中的LoRA基模型作为参考 - 内存高效，适合LoRA微调
-            ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
-        batch = batch.union(ref_log_prob)
-```
-
-
-**Advantage函数计算**
-Advantage函数衡量某个动作相对于平均水平的好坏程度。正值表示该动作比平均好，负值表示比平均差。这是策略梯度算法的核心，帮助模型学习更好的行为。这是对应的advantage函数计算代码，在 `verl/trainer/ppo/ray_trainer.py:1062-1076`：
-
-```python
-batch = compute_advantage(
-    batch,
-    adv_estimator=self.config.algorithm.adv_estimator,    # 优势估计方法：GAE、GRPO等
-    gamma=self.config.algorithm.gamma,                    # 折扣因子：未来奖励的权重
-    lam=self.config.algorithm.lam,                        # GAE参数：偏差vs方差的权衡
-    num_repeat=self.config.actor_rollout_ref.rollout.n,   # 每个prompt的采样数
-    norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,     # GRPO特殊归一化
-    multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable, # 多轮对话支持
-    config=self.config.algorithm,
-)
-```
-
-**不同优势估计方法：**
-- **GAE**: 使用价值函数估计，偏差小但需要额外的Critic网络
-- **GRPO**: 使用群组统计，无需价值函数，适合数学推理任务
-- **REINFORCE**: 直接使用奖励，简单但方差大
-
-### 2.4 模型更新阶段 (Train)
-
-经验处理完成后，进入最终的模型更新阶段。这一阶段使用收集到的经验数据来改进策略，是强化学习训练的核心环节。
-
-**训练阶段的设计理念：**
-veRL 采用分阶段训练策略。在训练初期，可以只训练 Critic 来稳定价值估计，然后再开始 Actor 训练。这种预热策略在复杂任务中特别有效。
-
-#### 2.4.1 Critic 更新 (仅GAE算法)
-
-**为什么需要Critic？**
-Critic网络负责估计状态价值，这个估计的准确性直接影响优势函数的质量。通过独立更新Critic，可以使用更多的训练步骤和不同的学习率，提高价值估计的准确性。
-
-**主控制流程**
-这是对应的Critic更新代码，在 `verl/trainer/ppo/ray_trainer.py:1078-1083`：
-
-```python
-if self.use_critic:  # 只有GAE算法需要Critic
-    with _timer("update_critic", timing_raw):
-        # Critic更新使用回归损失，目标是准确预测累积奖励
-        critic_output = self.critic_wg.update_critic(batch)
-    critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
-    metrics.update(critic_output_metrics)
-```
-
-**Critic训练细节：**
-- **损失函数**: 通常使用MSE回归损失
-- **目标值**: 实际获得的累积奖励
-- **更新频率**: 可能比Actor更频繁，以提高估计准确性
-
-#### 2.4.2 Actor 更新
-
-**Critic wa### 2.2 Rollout
-
-数据准备完成后，进入序列生成阶段。这是RL训练中的"环境交互"环节，让当前策略生成响应序列，为后续的经验收集提供基础数据。veRL的rollout系统采用了模块化设计，通过`BaseRollout`抽象基类统一接口，支持多种推理后端（SGLang、vLLM、HF等），同时使用`DataProto`作为统一的数据容器确保数据一致性。我们以SGLang作为backend
-
-#### 2.2.1 核心类架构
-
-veRL的rollout系统采用了模块化设计，主要包含以下几个重要类：
-
-**类层次结构：**
-```
-BaseRollout (抽象基类)
-├── SGLangRollout (SGLang推理引擎)
-├── HFRollout (HuggingFace推理引擎)
-├── VLLMRollout (vLLM推理引擎)
-└── NaiveRollout (简单推理引擎)
-```
-
-#### 2.2.2 `BaseRollout` 抽象基类
-
-**文件**: `verl/workers/rollout/base.py`
-
-```python
-class BaseRollout(ABC):
-    """Rollout系统的抽象基类，定义了所有rollout引擎必须实现的接口"""
-    
-    @abstractmethod
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """生成序列的核心抽象方法
-        
         Args:
-            prompts: 包含输入提示的DataProto对象
-            
+            config: Configuration object containing tool-related settings,
+                    specifically `config.multi_turn.tool_config_path`.
+            tokenizer: The tokenizer instance used for parsing tool calls from
+                       the model's generated text.
+
         Returns:
-            DataProto: 包含生成序列的DataProto对象
+            tuple: A tuple containing:
+                - tool_schemas (list[dict]): OpenAI-formatted JSON schemas
+                  defining each tool's capabilities.
+                - tool_map (dict[str, BaseTool]): A dictionary mapping tool
+                  names to their executable `BaseTool` objects.
+                - tool_call_parser_type (str): The identifier for the specific
+                  parser type (e.g., 'json_mode', 'tool_code') used to extract
+                  tool calls.
+                - sgl_tools (list[sglang.srt.openai_api.protocol.Tool]): Tool
+                  definitions optimized for SGLang's internal engine.
+                - function_call_parser (sglang.srt.function_call_parser.FunctionCallParser):
+                  The active parser instance responsible for extracting
+                  structured tool calls from model outputs.
         """
-        pass
+        if config.multi_turn.tool_config_path is None:
+            return [], {}, None, [], None
+
+        tools_config_file = config.multi_turn.tool_config_path
+        tool_list = initialize_tools_from_config(tools_config_file)
+
+        logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
+        tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
+        tool_map = {tool.name: tool for tool in tool_list}
+        tool_call_parser_type = get_tool_call_parser_type(tokenizer)
+        sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
+        function_call_parser = FunctionCallParser(
+            sgl_tools,
+            tool_call_parser_type,
+        )
+
+        return (
+            tool_schemas,
+            tool_map,
+            tool_call_parser_type,
+            sgl_tools,
+            function_call_parser,
+        )
 ```
 
-**设计理念：**
-- **统一接口**：所有rollout引擎都实现相同的`generate_sequences`接口
-- **可扩展性**：支持不同的推理后端（SGLang、vLLM、HF等）
-- **数据一致性**：使用`DataProto`作为统一的数据容器
-
-#### 2.2.3 `SGLangRollout` 核心实现
-
-**文件**: `verl/workers/rollout/sglang_rollout/sglang_rollout.py`
-
-`SGLangRollout`是veRL中最SGLang的rollout实现，支持高效的多轮对话和工具调用。其初始化流程包括工具系统初始化、分布式环境设置、推理引擎初始化和采样参数配置四个关键步骤。veRL现在在sglang_rollout下只需要看sglang_rollout这个类，async_sglang_server已经被deprecated了。
-
-**SGLangRollout**：
-`SGLangRollout`这个class是sync版本的SGLang Rollout Engine，注意到如果 enble 了 config.free_cache_engine，那么 SGLang engine的KV cache 在每次 generate_sequences 之后都会被释放掉。
-这个class负责工具初始化、分布式环境初始化、推理引擎初始化，采样参数初始化，分别对应`_init_distributed_env`, `_init_inference_engine`, `_init_sampling_params`。
-
-```python
-class SGLangRollout(BaseRollout):
-    def __init__(self, actor_module, config, tokenizer, model_hf_config, 
-                 port=None, trust_remote_code=False, device_mesh=None, **kwargs):
-        """Synchronized SGLang rollout engine.
-
-        Args:
-            actor_module: Huggingface model name or path to the model. The
-                model should be supported by SGLang.
-            config: A DictConfig object containing SGLang-specific operational
-                parameters and rollout settings.
-                Refer to https://docs.sglang.ai/backend/server_arguments.html
-            processing_class: The tokenizer or processor instance compatible with the actor_module.
-            model_hf_config: The Hugging Face model's configuration (e.g.,
-                `transformers.PretrainedConfig`). It provides architectural
-                details and hyperparameters like `max_position_embeddings`,
-                used by SGLang for correct model initialization. This is
-                the model's inherent design, not SGLang's runtime behavior.
-            port: Optional port for multi-node initialization when nnodes > 1.
-            trust_remote_code: Whether or not to allow for custom models
-                defined on the Hub in their own modeling files.
-            device_mesh: Optional `DeviceMesh` object for distributed setup.
-            **kwargs: Additional keyword arguments, primarily `train_tp` for
-                Megatron Backend integration to initialize hybrid engine
-                process groups.
-        """
-
-    
-        super().__init__()
-        self.config = config
-        self._device_mesh_cpu = device_mesh
-        
-        # 1. 工具系统初始化
-        (self._tool_schemas, self._tool_map, self._tool_call_parser_type,
-         self._sgl_tools, self._function_call_parser) = self._initialize_tools(config, tokenizer)
-        
-        # 2. 分布式环境初始化
-        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
-        
-        # 3. 推理引擎初始化
-        self._init_inference_engine(trust_remote_code, actor_module, port)
-        
-        # 4. 采样参数初始化
-        self._init_sampling_params(**kwargs)
-```
-
-
-
-**`generate_sequences()`**：
-
-`generate_sequences()`是rollout的主函数，逻辑上只是为了针对是否multi-turn，采取req_level或是batch_level的rollout方法。
-```python
-def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-   
-    if self.config.multi_turn.enable:
-        return self._req_level_generate_sequences(prompts, **kwargs)
-    else:
-        return self._batch_level_generate_sequences(prompts, **kwargs)
-```
-SGLangRollout的multi-turn由`config.multi_turn_enable`来控制，对于开启multi-turn的对话，我们会在request级别进行管理，这是因为multi-turn多半伴随着其他信号的处理和接受（比如tool use），而对于single-turn的对话，我们直接进行批处理。
-
-**`_batch_level_generate_sequences()` - 批处理生成**：
-```python
-def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """批处理级序列生成 - 适用于单轮对话
-    
-    核心步骤：
-    1. 数据预处理：提取token IDs和图像数据
-    2. 采样参数配置：根据验证/训练模式设置不同参数
-    3. SGLang引擎调用：异步生成序列
-    4. 结果后处理：构建完整的序列数据
-    5. 内存管理：清理KV缓存
-    """
-    # 1. 数据预处理
-    idx = prompts.batch["input_ids"]  # (bs, prompt_length)
-    attention_mask = prompts.batch["attention_mask"]
-    position_ids = prompts.batch["position_ids"]
-    
-    # 2. 多模态数据处理
-    if "multi_modal_data" in prompts.non_tensor_batch:
-        sglang_inputs = []
-        for raw_prompt_ids, multi_modal_data in zip(
-            prompts.non_tensor_batch.pop("raw_prompt_ids"),
-            prompts.non_tensor_batch.pop("multi_modal_data"),
-        ):
-            sglang_inputs.append({
-                "prompt_token_ids": raw_prompt_ids,
-                "multi_modal_data": multi_modal_data,
-                "image_data": multi_modal_data.get("image", None),
-            })
-    
-    # 3. 采样参数配置
-    do_sample = prompts.meta_info.get("do_sample", True)
-    is_validate = prompts.meta_info.get("validate", False)
-    
-    if not do_sample:
-        # 确定性生成（贪婪解码）
-        kwargs = dict(
-            n=1, temperature=0, top_p=1, top_k=-1,
-            max_new_tokens=self.config.response_length,
-        )
-    elif is_validate:
-        # 验证模式参数
-        kwargs = dict(
-            top_k=self.config.val_kwargs.top_k,
-            top_p=self.config.val_kwargs.top_p,
-            temperature=self.config.val_kwargs.temperature,
-            n=1,
-        )
-    
-    # 4. SGLang引擎调用
-    with self.update_sampling_params(**kwargs):
-        if self._tp_rank == 0:  # 只在主进程中调用引擎
-            loop = asyncio.get_event_loop()
-            output = loop.run_until_complete(
-                self._engine.async_generate(
-                    prompt=None,
-                    sampling_params=self.sampling_params,
-                    return_logprob=True,
-                    input_ids=idx_list,
-                    image_data=image_list,
-                )
-            )
-        else:
-            output = None
-        
-        # 5. 结果广播到所有TP rank
-        [output] = broadcast_pyobj(
-            data=[output],
-            rank=self._rank,
-            dist_group=self._device_mesh_cpu["tp"].get_group(),
-            src=self._device_mesh_cpu["tp"].mesh[0].item(),
-        )
-    
-    # 6. 结果后处理
-    out = _post_process_outputs(self.tokenizer, output)
-    response = out[0].to(idx.device)
-    rollout_log_probs = out[1].to(idx.device)
-    
-    # 7. 序列构建
-    seq = torch.cat([idx, response], dim=-1)
-    response_length = response.size(1)
-    
-    # 8. 位置ID和注意力掩码更新
-    delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-    delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
-    response_position_ids = posit
+</details>
