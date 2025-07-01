@@ -1,4 +1,4 @@
-# When Reasoning Models Break Tokenization: The Hidden Complexity of Multiturn Training
+# The Hidden Complexity of Multiturn Training
 
 I recently spent two weeks refactoring multiturn tokenization and masking for VeRL. While VeRL already had a functional implementation, what initially seemed like a straightforward refactor turned out to be surprisingly nuanced. Through multiple iterations, we arrived at [a solution](https://github.com/volcengine/verl/pull/1668) that is both robust and flexible for VeRL users. This post shares the key learnings and design choices from that journey.
 
