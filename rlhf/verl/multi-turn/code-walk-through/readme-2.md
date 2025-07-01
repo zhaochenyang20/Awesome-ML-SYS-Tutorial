@@ -930,8 +930,6 @@ E：`pop` 提取生成数据
 gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
 ```
 
-注意，这里我真的自己写了代码才理解到在 verl 当中，`gen_batch` 是靠读取的 dataset 得到的整个 batch 通过 pop 构造的。pop 后，batch 里面的 key 当然就没了。为此，我们想了很多办法来让 pop 前·后都有一些需要的 key，得留一手考虑。具体来说，我希望通过 uid 来把 `gen_batch` 和 `batch` 重新 union 起来，得[反复添加 uid](https://github.com/volcengine/verl/pull/2258)。
-
 F：`Rollout` 生成
 
 ```python
@@ -1240,213 +1238,213 @@ def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: in
 
 这里其实重要的在于整个 `AsyncRolloutRequest`，或者说我们用于管理 tool calling 的整个状态机 [schema](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py)。
 
-【TODO】
+### schema 状态机
 
-#### 2.2.4 `AsyncRolloutRequest` 异步请求模型
+这些状态机挺抽象的，需要到了和 SGLang rollout 的交互部分才能真的理解到用法，不过我们还是先列举出来。
 
-**文件**: `verl/workers/rollout/schemas.py`
+1. [`FinishReasonTypeEnum`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L33)
 
-`AsyncRolloutRequest`是多轮对话中的核心数据结构，管理单个对话请求的完整生命周期。
+- `LENGTH`：达到最大长度限制
+- `STOP`：正常停止（如生成 EOS token）
+- `TOOL_CALL`：检测到工具调用
 
-**核心属性**：
-```python
-class AsyncRolloutRequest(BaseModel):
-    """异步rollout请求的数据模型"""
-    
-    # 基础标识
-    batch_data_id: int = 0          # 批次中的数据索引
-    rollout_offset: int = 0         # 同一数据的多次采样偏移
-    request_id: str                 # 唯一请求ID
-    state: AsyncRolloutRequestStateEnum  # 请求状态
-    
-    # 对话内容
-    messages: List[Message]         # 对话消息列表
-    tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None  # 工具模式
-    tools_kwargs: Dict[str, Any] = {}  # 工具参数
-    
-    # Token序列
-    input_ids: List[int]            # 完整输入token序列
-    prompt_ids: List[int]           # 提示部分token序列
-    response_ids: List[int]         # 响应部分token序列
-    
-    # 掩码和位置信息
-    attention_mask: List[int]       # 注意力掩码
-    position_ids: List[int]         # 位置ID
-    loss_mask: List[int]            # 损失计算掩码
-    
-    # 奖励和指标
-    reward_scores: Dict[str, float] # 工具奖励分数
-    metrics: Dict[str, List[Any]]   # 性能指标
-    
-    # 配置参数
-    max_prompt_len: int             # 最大提示长度
-    max_response_len: int = 8192    # 最大响应长度
-    max_model_len: int = 32768      # 最大模型长度
-```
+2. [`Message`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L52)
 
-**状态管理**：
-```python
-class AsyncRolloutRequestStateEnum(str, Enum):
-    """异步rollout请求的状态枚举"""
-    PENDING = "pending"      # 等待处理
-    RUNNING = "running"      # 正在运行
-    COMPLETED = "completed"  # 已完成
-    FAILED = "failed"        # 失败
-    TOOL_CALLING = "tool_calling"  # 工具调用中
-```
+- `role`：消息角色（user/assistant/tool）
+- `content`：消息内容
+- `tool_calls`：可选的工具调用列表，每个工具调用包含 `name` 和 `args` 字段
 
-**关键方法**：
+目前的实现只支持单个工具的调用，但是魔改玩家太多了，甚至可以做一个 tool manager。
 
-**`add_assistant_message()` - 添加助手消息**：
-```python
-def add_assistant_message(self, tokenizer: PreTrainedTokenizer, content: str, 
-                         tool_calls: Optional[List[ToolCall]] = None) -> None:
-    """添加助手的回复消息
-    
-    Args:
-        tokenizer: 分词器
-        content: 文本内容
-        tool_calls: 工具调用列表（可选）
-    """
-    # 创建助手消息
-    assistant_message = Message(
-        role="assistant",
-        content=content,
-        tool_calls=tool_calls,
-    )
-    self.messages.append(assistant_message)
-    
-    # 计算新消息的token
-    if tool_calls is not None:
-        # 包含工具调用的消息
-        content = tokenizer.apply_chat_template(
-            [*BASE_CHAT_HISTORY, *self.messages[-2:]],  # 用户消息 + 助手消息
-            tools=[tool.model_dump() for tool in self.tool_schemas],
-            add_generation_prompt=False,
-            tokenize=False
-        )
-    else:
-        # 普通文本消息
-        content = tokenizer.apply_chat_template(
-            [*BASE_CHAT_HISTORY, *self.messages[-2:]],
-            tools=None,
-            add_generation_prompt=False,
-            tokenize=False
-        )
-    
-    # 计算新增的token
-    content_ids = tokenizer.encode(
-        content[self.base_conv_wo_gen_prompt_end_pos:],
-        add_special_tokens=False
-    )
-    
-    # 更新输入序列
-    self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
-```
+3. [`AsyncRolloutRequestStateEnum`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L58)
 
-**`add_tool_response_messages()` - 添加工具响应**：
-```python
-def add_tool_response_messages(self, tokenizer: PreTrainedTokenizer, 
-                              contents: list[str]) -> None:
-    """添加工具响应消息
-    
-    Args:
-        tokenizer: 分词器
-        contents: 工具响应内容列表
-    """
-    if not contents:
-        return
-    
-    # 添加工具响应消息
-    self.messages.extend([
-        Message(role="tool", content=content) 
-        for content in contents
-    ])
-    
-    # 计算工具响应的token
-    content = tokenizer.apply_chat_template(
-        [*BASE_CHAT_HISTORY, *self.messages[-len(contents):]],
-        tools=[tool.model_dump() for tool in self.tool_schemas],
-        add_generation_prompt=False,
-        tokenize=False
-    )
-    content_ids = tokenizer.encode(
-        content[self.base_conv_wo_gen_prompt_end_pos:],
-        add_special_tokens=False
-    )
-    
-    # 更新输入序列（工具响应不参与损失计算）
-    self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
-```
+- `PENDING`：等待处理
+- `RUNNING`：正在运行
+- `TOOL_CALLING`：正在调用工具
+- `COMPLETED`：已完成
+- `FAILED`：失败
 
+4. [`AsyncRolloutRequest`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L68)
 
-### [`SGLangRollout._initialize_tools()`](https://github.com/volcengine/verl/blob/e67ee86f8b94bfa141da95402a254966733cba08/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L394)
+- `initialize_request`：验证必需字段（messages、max_prompt_len、tokenizer），使用 tokenizer 的 chat_template 处理消息，初始化所有序列相关字段（input_ids、attention_mask、position_ids、loss_mask），计算生成提示的位置信息
+- `_update_input_ids`：以增量方式更新序列信息，自动计算新的 position_ids，维护数据一致性验证
+- `get_generation_prompt_ids`：根据配置决定是否使用推理时的 chat_template，动态添加生成提示到输入序列
+- `add_assistant_message`：添加助手回复到消息历史，更新输入序列以包含新的回复内容，支持工具调用信息
+- `add_tool_response_messages`：添加工具响应到消息历史，更新输入序列但不标记为损失计算部分
+- `finalize`：完成请求处理，执行 tokenization 一致性检查，清理生成提示，截断输出序列到合理长度
+- `truncate_output_ids`：确保所有序列长度不超过限制，分别处理 input_ids、attention_mask、position_ids、loss_mask
 
+### [`_async_rollout_a_request`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L681)
 
-1. 如果没有工具配置路径，则返回空列表和字典。
-2. 从配置文件加载工具并初始化工具列表。
-3. 创建 OpenAI 格式的工具 schema 和工具名称到工具对象的映射。
-4. 根据 Tokenizer 类型确定工具调用解析器。
-5. 为 SGLang 创建 Tool 对象。
-6. 实例化 FunctionCallParser。
+文档写的很详尽了，容易 lost in the middle。不过，我们回到主线，先前通过 `_preprocess_prompt_to_async_rollout_requests` 构造了 `AsyncRolloutRequest` 后，返回给 `_req_level_generate_sequences`，接着进一步通过 `_async_rollout_a_request` 根据 `AsyncRolloutRequest` 的状态来 rollout 到底。
+
+1. 通过一个 `while` 循环来处理多轮对话，循环次数上限由 `self.config.multi_turn.max_turns` 控制，或者 requests 返回 `FinishReasonTypeEnum.STOP`。
+2. 在循环内部，函数根据 `_req` 的当前状态 (`AsyncRolloutRequestStateEnum`) 执行不同的操作（这块儿逻辑确实很复杂）：
+    - `PENDING` 状态：如果请求处于 `PENDING` 状态，则调用 `self._handle_pending_state(_req)` 初始化，然后将状态更新为 `RUNNING`。
+    - `TOOL_CALLING` 状态：检查最后一条消息的工具调用信息 (`_req.messages[-1].tool_calls`)。解析工具调用信息，并通过 `asyncio.gather` 并发地执行每个工具调用。工具的执行逻辑封装在 `self._tool_map` 中，通过工具的名称进行调用。在 tool call 返回后，通过 `_req.add_tool_response_messages` 将工具的响应添加到消息历史中。遍历每个工具调用及其结果，通过 `_req.update_metrics` 更新请求的指标信息。检查当前输入序列长度是否超过模型最大长度限制，如果超过，则设置 `finish_reason_type` 为 `STOP` 并跳出循环。最后，将请求状态更新回 `RUNNING`，以便进行下一轮的生成。
+    - `RUNNING` 状态：SGLang engine 需要进行 rollout。检查当前 prompt 的长度加上生成一个 token 的长度是否会超过 model context length。调用 `self._handle_engine_call` 来实际调用 SGLang engine；得到输出后，将 finish reason 从字符串转换为 `FinishReasonTypeEnum`，并递增当前对话轮数 `current_turns`。如果完成原因是达到最大长度限制 (`LENGTH`)，则将生成的内容添加到消息历史中，并结束循环。如果没有到达最大长度，则判断 SGLang engine 生成的内容是否包含工具调用，通过 `self._function_call_parser` 来解析生成的内容。如果检测到工具调用，则将 `finish_reason_type` 设置为 `TOOL_CALL`，并将请求状态更新为 `TOOL_CALLING`。然后，使用 `self._function_call_parser.parse_non_stream` 解析出工具调用，转换为 `OpenAIFunctionToolCall`。如果存在有效的工具调用，则通过 `_req.add_assistant_message` 将工具调用信息添加到消息历史中。否则，只添加生成的内容，并将 `finish_reason_type` 设置为 `STOP`，请求状态设置为 `COMPLETED`，并结束循环。如果生成的内容不包含工具调用，则直接通过 `_req.add_assistant_message` 将生成的内容添加到消息历史中，并结束循环。
+4. 如果循环达到 `self.config.multi_turn.max_turns` 上限，则将 `finish_reason_type` 设置为 `STOP`。
+5. 在对话循环结束后，为每个调用的工具计算奖励。遍历 `_req.tools_kwargs` 中的每个工具，调用工具的 `calc_reward` 方法来计算奖励，以及 `release` 方法来释放工具占用的·资源。计算结果以字典形式存储在 `tool_reward_scores` 中。
+6. 调用 `_req.finalize` 方法，完成请求的最终处理，包括执行 tokenization 一致性检查、清理生成提示、截断输出序列到合理长度等。`tool_reward_scores` 和最终的 `finish_reason_type` 会传递给 `finalize` 方法。最后，函数最终返回处理完成的 `AsyncRolloutRequest` 对象 `_req`。
 
 <details>
-<summary>SGLangRollout._initialize_tools 部分源码</summary>
+<summary>_async_rollout_a_request 源码</summary>
 
 ```python
-from sglang.function_calling.function_call_parser import FunctionCallParser
-from sglang.utils.general import initialize_tools_from_config
-from sglang.tools.tool import Tool
-from omegaconf import OmegaConf
+async def _async_rollout_a_request(
+    self,
+    req: AsyncRolloutRequest,
+    do_sample: bool = True,
+    is_validate: bool = False,
+    **kwargs,
+) -> AsyncRolloutRequest:
+    assert self._tp_rank == 0, "only the master process can call this function"
+    _req = deepcopy(req)
+    finish_reason_type = None
+    output = None
 
-@registry.register(SGLangRollout)
-    def _initialize_tools(self, config, tokenizer):
-        """Initialize tools from configuration.
+    current_turns = 0
+    while current_turns < self.config.multi_turn.max_turns:
+        if _req.state == AsyncRolloutRequestStateEnum.PENDING:
+            await self._handle_pending_state(_req)
+            _req.state = AsyncRolloutRequestStateEnum.RUNNING
+        elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
+            if _req.messages[-1].tool_calls is not None:
+                parsed_tool_calls = _req.messages[-1].tool_calls
+                tool_call_results = await asyncio.gather(
+                    *[
+                        self._tool_map[tool_call.function.name].execute(
+                            _req.request_id,
+                            tool_call.function.arguments,
+                            **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
+                        )
+                        for tool_call in parsed_tool_calls
+                    ]
+                )
+                _req.add_tool_response_messages(self.tokenizer, [resp for resp, _, _ in tool_call_results])
+                for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
+                    _req.update_metrics(metrics, tool_call.function.name)
+                if len(_req.input_ids) >= self.config.max_model_len:
+                    finish_reason_type = FinishReasonTypeEnum.STOP
+                    break
+                _req.state = AsyncRolloutRequestStateEnum.RUNNING
+            else:
+                raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
+        elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
+            # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
+            # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
+            if len(_req.get_generation_prompt_ids(self.tokenizer)) + 1 >= self.config.max_model_len:
+                finish_reason_type = FinishReasonTypeEnum.LENGTH
+                break
+            output = await self._handle_engine_call(_req, do_sample, is_validate, **kwargs)
+            content = output["text"]
+            finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+            current_turns += 1
+            if finish_reason_type == FinishReasonTypeEnum.LENGTH:
+                _req.add_assistant_message(self.tokenizer, content)
+                break
+            else:
+                if self._function_call_parser and self._function_call_parser.has_tool_call(content):
+                    finish_reason_type = FinishReasonTypeEnum.TOOL_CALL
+                    _req.state = AsyncRolloutRequestStateEnum.TOOL_CALLING
+                    try:
+                        normed_content, tool_calls = self._function_call_parser.parse_non_stream(content)
+                    except JSONDecodeError:
+                        normed_content = content
+                        tool_calls = []
+                    except AttributeError:
+                        normed_content = content
+                        tool_calls = []
+                    parsed_tool_calls = []
+                    for tool_call in tool_calls:
+                        function, has_decode_error = OpenAIFunctionCallSchema.from_openai_function_parsed_schema(
+                            OpenAIFunctionParsedSchema(
+                                name=tool_call.name,
+                                arguments=tool_call.parameters,
+                            )
+                        )
+                        # Drop the tool call if its arguments has decode error
+                        if has_decode_error:
+                            continue
+                        parsed_tool_calls.append(
+                            OpenAIFunctionToolCall(
+                                id=str(tool_call.tool_index),
+                                function=function,
+                            )
+                        )
+                    if len(parsed_tool_calls) > 0:
+                        _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls)
+                    else:
+                        _req.add_assistant_message(self.tokenizer, content)
+                        finish_reason_type = FinishReasonTypeEnum.STOP
+                        _req.state = AsyncRolloutRequestStateEnum.COMPLETED
+                        break
+                else:
+                    _req.add_assistant_message(self.tokenizer, content)
+                    break
 
-        Args:
-            config: Configuration object containing tool-related settings,
-                    specifically `config.multi_turn.tool_config_path`.
-            tokenizer: The tokenizer instance used for parsing tool calls from
-                       the model's generated text.
+    if current_turns >= self.config.multi_turn.max_turns:
+        finish_reason_type = FinishReasonTypeEnum.STOP
 
-        Returns:
-            tuple: A tuple containing:
-                - tool_schemas (list[dict]): OpenAI-formatted JSON schemas
-                  defining each tool's capabilities.
-                - tool_map (dict[str, BaseTool]): A dictionary mapping tool
-                  names to their executable `BaseTool` objects.
-                - tool_call_parser_type (str): The identifier for the specific
-                  parser type (e.g., 'json_mode', 'tool_code') used to extract
-                  tool calls.
-                - sgl_tools (list[sglang.srt.openai_api.protocol.Tool]): Tool
-                  definitions optimized for SGLang's internal engine.
-                - function_call_parser (sglang.srt.function_call_parser.FunctionCallParser):
-                  The active parser instance responsible for extracting
-                  structured tool calls from model outputs.
-        """
-        if config.multi_turn.tool_config_path is None:
-            return [], {}, None, [], None
+    # Calculate the reward for each tool
+    async def calc_reward_and_release_fn(name: str, tool: BaseTool):
+        reward = await tool.calc_reward(_req.request_id, **_req.tools_kwargs[name].get("calc_reward_kwargs", {}))
+        await tool.release(_req.request_id, **_req.tools_kwargs[name].get("release_kwargs", {}))
+        return name, reward
 
-        tools_config_file = config.multi_turn.tool_config_path
-        tool_list = initialize_tools_from_config(tools_config_file)
+    tool_reward_tasks = []
+    for name in _req.tools_kwargs.keys():
+        tool = self._tool_map[name]
+        tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
+    tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
+    tool_reward_scores = dict(tool_reward_scores)
+    _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
 
-        logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
-        tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
-        tool_map = {tool.name: tool for tool in tool_list}
-        tool_call_parser_type = get_tool_call_parser_type(tokenizer)
-        sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
-        function_call_parser = FunctionCallParser(
-            sgl_tools,
-            tool_call_parser_type,
-        )
-
-        return (
-            tool_schemas,
-            tool_map,
-            tool_call_parser_type,
-            sgl_tools,
-            function_call_parser,
-        )
+    return _req
 ```
 
 </details>
+
+### pop and union
+
+经过艰难深挖，我们终于完成了 Rollout 的理解，现在回到 `RayPPOTrainer.fit()` 上。我们来看看 rollout 部分的实现逻辑：
+
+```python
+with marked_timer("step", timing_raw):
+    # generate a batch
+    with marked_timer("gen", timing_raw, color="red"):
+        if not self.async_rollout_mode:
+            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+        else:
+            self.async_rollout_manager.wake_up()
+            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+            self.async_rollout_manager.sleep()
+        timing_raw.update(gen_batch_output.meta_info["timing"])
+        gen_batch_output.meta_info.pop("timing", None)
+
+    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+        with marked_timer("gen_max", timing_raw, color="purple"):
+            gen_baseline_batch = deepcopy(gen_batch)
+            gen_baseline_batch.meta_info["do_sample"] = False
+            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+
+            batch = batch.union(gen_baseline_output)
+            reward_baseline_tensor = self.reward_fn(batch)
+            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
+            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+
+            batch.batch["reward_baselines"] = reward_baseline_tensor
+
+            del gen_baseline_batch, gen_baseline_output
+
+    batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+    # repeat to align with repeated responses in rollout
+    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+    batch = batch.union(gen_batch_output)
+```
+
+值得一提的是，我自己写了代码才理解到在 verl 当中，发给 rollout engine 的并不是整个完整的从 dataset 读取的 batch，而是通过 pop 构造的 `gen_batch`。pop 是一个就地操作，完成后 batch 里面的 key 当然就没了。为此，如果想让 pop 前后都有一些需要的 key，得留一手考虑。比如说，我希望通过 uid 来把 `gen_batch` 和 `batch` 重新 union 起来，得[反复添加 uid](https://github.com/volcengine/verl/pull/2258)。
+
+
+
