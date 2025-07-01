@@ -1,4 +1,4 @@
-# A Deep Dive into verl Source Code: Part 2
+# A Deep Dive into verl Source Code: Rollout
 
 In [Part 1](readme.md), we introduced the initialization process of verl. In this part, we will further explore the rollout process of verl.
 
