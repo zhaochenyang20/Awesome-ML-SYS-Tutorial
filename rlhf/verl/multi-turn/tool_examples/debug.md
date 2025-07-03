@@ -1,4 +1,4 @@
-# A Quick Reproduction of Error in Multi-Stage Wake Up
+# A Quick Reproduction of Error in Multi-Stage Wake Up [Fixed Already]
 
 Nan has found that utilzing multi-stage wake up will encounter `illegal memory access` error. We are still debugging to find out. Here is how I am working to reproduce the error.
 
