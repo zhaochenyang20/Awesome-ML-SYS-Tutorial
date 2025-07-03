@@ -3,7 +3,20 @@
 Nan has found that utilzing multi-stage wake up will encounter `illegal memory access` error. We are still debugging to find out. Here is how I am working to reproduce the error.
 
 ```bash
+docker run \
+    -it \
+    --shm-size 32g \
+    --gpus all \
+    -v {Huggingface-Cache-Path}:/root/.cache \
+    --ipc=host \
+    --network=host \
+    --privileged \
+    --name sglang_{your-name} \
+    lmsysorg/sglang:dev \
+    /bin/zsh
 
+apt update
+apt install -y python3.10 python3.10-venv
 
 python3 -m venv ~/.python/veRL-multiturn-rollout
 source ~/.python/veRL-multiturn-rollout/bin/activate
