@@ -43,7 +43,7 @@ async def update_weights(self, params):
 参数是逐个进行聚合并且更新的，更新完一个参数后 release 一个，然后继续循环。我们以单个参数为例。假设这个参数的 size 是 `[1024, 1024]`，FSDP 的 TP size 是 4，而 SGLang 的 TP size 是 2。因此在更新参数开始前， 每个 rank 上在 FSDP engine 内有 `[256, 1024]` 大小的 tensor，而 SGLang engine 有 `[512, 1024]` 大小的 tensor。
 
 1. 权重导出：每个 rank 调用 `_preprocess_tensor_for_update_weights()` 将当前参数的完整 tensor 进行聚合，实际上把分散在各个 GPU 上的参数分片都聚合到了每个 rank 上，每个 rank 上都有一份当前参数的完整 tensor。此时，这个 parameter 会有三份，前两份是 FSDP 和 SGLang 本身就有的 `[512, 1024]` 和 `[256, 1024]`，第三份是为了聚合而单独开辟的 `[1024, 1024]` 大小的 tensor。
-2. tensor 序列化：调用 `MultiprocessingSerializer.serialize()`，将每个 rank 上聚合到的参数序列化，得到序列化后的 handle，称为 `serialized_tensor`。注意，虽然序列化传入的参数是聚合得到的那个 `[1024, 1024]` 的 tensor，但是实际上返回的只有被序列化的 handle。handle 近似于指向 tensor 实际存储的指针，存放了虚拟地址，stripe，size 等等meta信息，以及后续在 SGLang engine load 新参数过程中需要的 CUDA IPC handle。
+2. tensor 序列化：调用 `MultiprocessingSerializer.serialize()`，将每个 rank 上聚合到的参数序列化，得到序列化后的 handle，称为 `serialized_tensor`。注意，虽然序列化传入的参数是聚合得到的那个 `[1024, 1024]` 的 tensor，但是实际上返回的只有被序列化的 handle。handle 近似于指向 tensor 实际存储的指针，存放了虚拟地址，stripe，size 等等 meta data，以及后续在 SGLang engine load 新参数过程中需要的 CUDA IPC handle。
 3. 聚合 handler 到 FSDP TP 0：虽然每个 rank 上都聚合了当前参数的完整 tensor，但是只有 tp 0 通过 `gather_object` 收集了所有 rank 的 handle。
 4. 跨进程传递：FSDP TP rank 0 将收集到的 handler tuple 列表打包为 `List[LocalSerializedTensor]` 对象用于后续重建。接着，通过跨进程通信传递给 SGLang Engine。这里传递的只有序列化后的 handle，而非实际数据。
 5. SGLang Engine 重建 tensor：SGLang 的每个 TP rank 调用 `_unwrap_tensor()` 来处理 `LocalSerializedTensor`。在 `_unwrap_tensor` 中，monkey patch 了 torch 的 `rebuild_cuda_tensor`，然后通过 `tp_rank` 和 `MultiprocessingSerializer.deserialize()` 反序列化得到属于该 tp_worker rank 的 handle。
