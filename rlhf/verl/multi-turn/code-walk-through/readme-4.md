@@ -43,27 +43,18 @@ async def update_weights(self, params):
 参数是逐个进行聚合并且更新的，更新完一个参数后 release 一个，然后继续循环。我们以单个参数为例。假设这个参数的 size 是 `[1024, 1024]`，FSDP 的 TP size 是 4，而 SGLang 的 TP size 是 2。因此在更新参数开始前， 每个 rank 上在 FSDP engine 内有 `[256, 1024]` 大小的 tensor，而 SGLang engine 有 `[512, 1024]` 大小的 tensor。
 
 1. 权重导出：每个 rank 调用 `_preprocess_tensor_for_update_weights()` 将当前参数的完整 tensor 进行聚合，实际上把分散在各个 GPU 上的参数分片都聚合到了每个 rank 上，每个 rank 上都有一份当前参数的完整 tensor。此时，这个 parameter 会有三份，前两份是 FSDP 和 SGLang 本身就有的 `[512, 1024]` 和 `[256, 1024]`，第三份是为了聚合而单独开辟的 `[1024, 1024]` 大小的 tensor。
-<<<<<<< HEAD
 2. tensor 序列化：调用 `MultiprocessingSerializer.serialize()`，将每个 rank 上聚合到的参数序列化，得到序列化后的 handler，称为 `serialized_tensor`。注意，虽然序列化传入的参数是聚合得到的那个 `[1024, 1024]` 的 tensor，但是实际上返回的只有被序列化的 handler。handler 近似于指向 tensor 实际存储的指针，存放了虚拟地址，stripe，size 等等信息，以及后续在 SGLang engine load 新参数过程中需要的 CUDA IPC handler。
 3. 聚合 handler 到 FSDP TP 0：虽然每个 rank 上都聚合了当前参数的完整 tensor，但是只有 tp 0 通过 `gather_object` 收集了所有 rank 的 handler。
 4. 跨进程传递：FSDP TP rank 0 将收集到的 handler tuple 列表打包为 `LocalSerializedTensor` 对象用于后续重建。接着，通过跨进程通信传递给 SGLang Engine。这里传递的只有序列化后的 handler，而非实际数据。
-5. SGLang Engine 重建 tensor：SGLang 的每个 TP rank 调用 `_unwrap_tensor()`，向下将被序列化传递到 SGLang engine 的 handle tuple 通过 `MultiprocessingSerializer.deserialize()` 反序列化，在 SGLang engine 侧得到 handler tuple，并将其构造为新的 tensor 对象。如此以来，新的 tensor 对象通过共用 handle tuple，直接指向先前被聚合的 FSDP tensor 的同一块显存，并且共享了完整的 meta data，完成重建。
-5. SGLang engine change load weights：重建后的 tensor 传递给 `ModelRunner.load_weights`，将原本这个 weights 的 handle tuple 更换为新的 handle tuple，完成整个参数更新过程。
-=======
-2. tensor 序列化：调用 `MultiprocessingSerializer.serialize()`，将每个 rank 上聚合到的参数序列化，得到序列化后的 handle，称为 `serialized_tensor`。注意，虽然序列化传入的参数是聚合得到的那个 `[1024, 1024]` 的 tensor，但是实际上返回的只有被序列化的 handle。handle 近似于指向 tensor 实际存储的指针，存放了虚拟地址，stripe，size 等等 meta data，以及后续在 SGLang engine load 新参数过程中需要的 CUDA IPC handle。
-3. 聚合 handler 到 FSDP TP 0：虽然每个 rank 上都聚合了当前参数的完整 tensor，但是只有 tp 0 通过 `gather_object` 收集了所有 rank 的 handle。
-4. 跨进程传递：FSDP TP rank 0 将收集到的 handler tuple 列表打包为 `List[LocalSerializedTensor]` 对象用于后续重建。接着，通过跨进程通信传递给 SGLang Engine。这里传递的只有序列化后的 handle，而非实际数据。
-5. SGLang Engine 重建 tensor：SGLang 的每个 TP rank 调用 `_unwrap_tensor()` 来处理 `LocalSerializedTensor`。在 `_unwrap_tensor` 中，monkey patch 了 torch 的 `rebuild_cuda_tensor`，然后通过 `tp_rank` 和 `MultiprocessingSerializer.deserialize()` 反序列化得到属于该 tp_worker rank 的 handle。
-6. SGLang engine change handler：注意到，本轮需要更新的参数在 SGLang engine 中本身就存在，对 SGLang engine 而言，只需要将原本的参数的 handler 在 `load_weights` 时更换为反序列化后得到的 handler，然后这个新的 handler 进行切片，再将被替换掉的 handler 指向的原本的 tensor 释放掉，然后释放掉切片后不需要的 tensor。
->>>>>>> 3189b1add9fb18ab1ab44586ba252a6e11d51518
+5. SGLang Engine 重建 tensor：SGLang 的每个 TP rank 调用 `_unwrap_tensor()`，顺着 `LocalSerializedTensor.get -> MultiprocessingSerializer.deserialize` 向下调用，反序列化恢复了在 FSDP 侧聚合得到的完整 tensor 的 handler tuple。接着，构造新的 python tensor 对象，将刚刚恢复的 handler tuple 作为新的 Python tensor 对象的 handle tuple。通过共享 handle 的机制，新的 tensor 对象和 FSDP 侧聚合得到的完整 tensor 共享了一切 meta data，也指向了同一块显存，完成了所谓的 tensor 重建过程。
+6. SGLang engine change load weights：重建后的 tensor 传递给 `ModelRunner.load_weights`，将原本这个 parameter 的 tensor 更换为新的 tensor，完成整个参数更新过程。
 
 由此以来，其实在任意一个 TP 上，只是临时创建了一个 `[1024, 1024]` 的 tensor，然后原本的 handler 被更换后，这个 `[1024, 1024]` 的 tensor 所不用的那一半会被 release 掉，原本 SGLang engine 里面的 handler 指向的旧的 tensor 会被释放掉，并没有显存泄露。
+
 
 <div style="text-align: center;">
   <img src="./update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
 </div>
-
-这么分析后其实还是蛮复杂的，我们继续逐层深入。本文主要采用 FSDP 训练 backend，对 megatron 略有区别但是大同小异。
 
 ## 权重导出
 
@@ -250,4 +241,4 @@ class LocalSerializedTensor:
         return MultiprocessingSerializer.deserialize(self.values[rank])
 ```
 
-每个 tp rank 调用 `_unwrap_tensor` 接口，一路顺着 `LocalSerializedTensor.get -> MultiprocessingSerializer.deserialize` 向下调用，反序列化得到了自身需要的 handler tuple，创建一个新的 Python tensor 对象，恢复了 tensor 的 meta data，通过 CUDA IPC handle 将新的 tensor 对象指向先前被聚合的 FSDP tensor 的同一块显存，并且将新的 tensor 转移到当前的 GPU 上（虽然都是在同一 GPU 内的，实际上 `to(torch.cuda.current_device())` 没有影响）。这就是所谓的 tensor 重建过程。重建结束后，得到 `named_tensors`，直接 load 进 SGLang engine，在底层就是把原本的 handle tuple 更换掉即可。
+每个 tp rank 调用 `_unwrap_tensor` 接口，在 `tensor.get(tp_rank)` 一步中，顺着 `LocalSerializedTensor.get -> MultiprocessingSerializer.deserialize` 向下调用，反序列化恢复了在 FSDP 侧聚合得到的完整 tensor 的 handler tuple。接着，构造新的 python tensor 对象，将刚刚恢复的 handler tuple 作为新的 Python tensor 对象的 handle tuple。这样一来，通过共享 handle 的机制，新的 tensor 对象和 FSDP 侧聚合得到的完整 tensor 共享了一切 meta data，自然也指向了同一块显存，完成了所谓的 tensor 重建过程。重建结束后，这个新的 tensor 对象被传递给 `ModelRunner.load_weights`，在 SGLang 底层把原本的 tensor 更换掉即可。
