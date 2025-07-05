@@ -108,278 +108,162 @@ Ji Li（蚂蚁），Zhuoran Yin（CMU），Changyi Yang（CMU），Chengxi Li（
 | `data.custom_cls.path` | 包含自定义数据集类的文件路径。如果未指定，将使用预实现的默认数据集。 |
 | `data.custom_cls.name` | 指定文件中的数据集类名。 |
 
-### Actor, Rollout & Reference 模型
+### Actor, Rollout & Reference Worker 配置
 
-| 参数名称 (Parameter Name)                                                    | 描述 (Description)                                                                                                                                                                                                         |
+Critic 和 Actor 的参数是非常一致的，不再赘述。
+
+| 参数名称 | 描述 |
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `actor_rollout_ref.hybrid_engine`                                            | 是否为混合引擎，目前仅支持混合引擎。 (Whether it's a hybrid engine, currently only supports hybrid engine.)                                                                                                                |
-| `actor_rollout_ref.model.path`                                               | Huggingface 模型路径。可以是本地路径或 HDFS 路径。 (Huggingface model path. This can be either local path or HDFS path.)                                                                                                   |
-| `actor_rollout_ref.model.use_shm`                                            | 是否使用共享内存（SHM）来加速模型权重的加载。 (Whether to use shared memory (SHM) for accelerating the loading of model weights.)                                                                                          |
-| `actor_rollout_ref.model.external_lib`                                       | 用于注册 Huggingface 模型/分词器的额外 Python 包。 (Additional Python packages to register huggingface models/tokenizers.)                                                                                                 |
-| `actor_rollout_ref.model.override_config`                                    | 用于覆盖模型原始配置，主要用于 dropout。 (Used to override model's original configurations, mainly dropout.)                                                                                                               |
-| `actor_rollout_ref.model.enable_gradient_checkpointing`                      | 为 actor 启用梯度检查点。 (Enable gradient checkpointing for actor.)                                                                                                                                                       |
-| `actor_rollout_ref.model.enable_activation_offload`                          | 为 actor 启用激活卸载。 (Enable activation offloading for actor.)                                                                                                                                                          |
-| `actor_rollout_ref.model.use_remove_padding`                                 | 训练期间是否移除输入中的填充（padding）词元。 (Whether to remove padding tokens in inputs during training.)                                                                                                                |
-| `actor_rollout_ref.model.lora_rank`                                          | 设置为正值以启用 LoRA（例如，32）。 (Set to positive value to enable LoRA (e.g., 32).)                                                                                                                                     |
-| `actor_rollout_ref.model.lora_alpha`                                         | LoRA 的缩放因子。 (LoRA scaling factor.)                                                                                                                                                                                   |
-| `actor_rollout_ref.model.target_modules`                                     | 应用 LoRA 的目标模块。选项："all-linear" 或线性层列表。 (Target modules to apply LoRA. Options: "all-linear" or list of linear layers.)                                                                                    |
-| `actor_rollout_ref.model.use_liger`                                          | 是否使用 Liger 进行线性层融合。 (Whether to use Liger for linear layer fusion.)                                                                                                                                            |
-| `actor_rollout_ref.model.use_fused_kernels`                                  | 是否使用自定义融合核（如 FlashAttention, fused MLP）。 (Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).)                                                                                            |
-| `actor_rollout_ref.model.fused_kernel_options.impl_backend`                  | 融合核的实现后端。选项："triton" 或 "torch"。需要和 `use_fused_kernels` 配合使用 (Implementation backend for fused kernels. Options: "triton" or "torch".)                                                                 |
-| `actor_rollout_ref.model.trust_remote_code`                                  | 是否允许加载远程代码模型。 (Whether to enable loading a remote code model.)                                                                                                                                                |
-| `actor_rollout_ref.actor.strategy`                                           | 训练策略：fsdp, fsdp2 或 megatron。这里使用 fsdp。 (fsdp, fsdp2 or megatron. fsdp backend used here.)                                                                                                                      |
-| `actor_rollout_ref.actor.ppo_mini_batch_size`                                | PPO 中每个样本拆分成的子批次大小。 (Split each sample into sub-batches of this size for PPO.)                                                                                                                              |
-| `actor_rollout_ref.actor.ppo_micro_batch_size`                               | [已弃用] 全局微批次大小。 ([Deprecated] Global micro batch size.)                                                                                                                                                          |
-| `actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu`                       | 每个 GPU 的本地微批次大小。 (Local per-GPU micro batch size.)                                                                                                                                                              |
-| `actor_rollout_ref.actor.use_dynamic_bsz`                                    | 是否在运行时动态调整批次大小。 (Whether to automatically adjust batch size at runtime.)                                                                                                                                    |
-| `actor_rollout_ref.actor.ppo_max_token_len_per_gpu`                          | 单个 PPO 批次中每个 GPU 的最大词元数；影响梯度累积。 (Max tokens per GPU in one PPO batch; affects gradient accumulation.)                                                                                                 |
-| `actor_rollout_ref.actor.grad_clip`                                          | Actor 更新的梯度裁剪。 (Gradient clipping for actor updates.)                                                                                                                                                              |
-| `actor_rollout_ref.actor.clip_ratio`                                         | PPO 裁剪比率。 (PPO clip ratio.)                                                                                                                                                                                           |
-| `actor_rollout_ref.actor.clip_ratio_low`                                     | 非对称裁剪的下界（用于 dual-clip PPO）。 (Lower bound for asymmetric clipping (used in dual-clip PPO).)                                                                                                                    |
-| `actor_rollout_ref.actor.clip_ratio_high`                                    | 非对称裁剪的上界（用于 dual-clip PPO）。 (Upper bound for asymmetric clipping (used in dual-clip PPO).)                                                                                                                    |
-| `actor_rollout_ref.actor.clip_ratio_c`                                       | Dual-clip PPO 中的常数 C；当优势 < -C 时进行裁剪。 (Constant C in Dual-clip PPO; clips when advantage < -C.)                                                                                                               |
-| `actor_rollout_ref.actor.loss_agg_mode`                                      | 损失聚合模式："token-mean", "seq-mean-token-sum", 或 "seq-mean-token-mean"。 (Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean".)                                                        |
-| `actor_rollout_ref.actor.entropy_coeff`                                      | PPO 损失中的熵正则化系数。 (Entropy regularization coefficient in PPO loss.)                                                                                                                                               |
-| `actor_rollout_ref.actor.use_kl_loss`                                        | 是否使用 KL 损失代替 KL 奖励惩罚。对于 GRPO 为 True。 (Whether to use KL loss instead of KL reward penalty. True for GRPO.)                                                                                                |
-| `actor_rollout_ref.actor.use_torch_compile`                                  | 是否使用 torch.compile()。 (Whether to use torch.compile().)                                                                                                                                                               |
-| `actor_rollout_ref.actor.kl_loss_coef`                                       | 启用 use_kl_loss 时的 KL 损失系数。用于 GRPO。 (KL loss coefficient when use_kl_loss is enabled. For GRPO.)                                                                                                                |
-| `actor_rollout_ref.actor.kl_loss_type`                                       | KL 散度损失的类型。选项："kl", "abs", "mse", "low_var_kl", "full"。 (Type of KL divergence loss. Options: "kl"(k1), "abs", "mse"(k2), "low_var_kl"(k3), "full".)                                                           |
-| `actor_rollout_ref.actor.ppo_epochs`                                         | 每个批次的 PPO 轮数。 (Number of PPO epochs per batch.)                                                                                                                                                                    |
-| `actor_rollout_ref.actor.shuffle`                                            | 在 PPO 轮次之间打乱训练数据。 (Shuffle training data across PPO epochs.)                                                                                                                                                   |
-| `actor_rollout_ref.actor.ulysses_sequence_parallel_size`                     | Ulysses-style 模型并行的序列并行大小。 (Sequence parallelism size for Ulysses-style model parallelism.)                                                                                                                    |
-| `actor_rollout_ref.actor.entropy_from_logits_with_chunking`                  | 通过分块计算熵以减少内存峰值。 (calculate entropy with chunking to reduce memory peak.)                                                                                                                                    |
-| `actor_rollout_ref.actor.entropy_checkpointing`                              | 重新计算熵。 (recompute entropy.)                                                                                                                                                                                          |
-| `actor_rollout_ref.actor.checkpoint.save_contents`                           | 保存的检查点中包含的内容。 (What to include in saved checkpoints.)                                                                                                                                                         |
-| `actor_rollout_ref.actor.checkpoint.load_contents`                           | 从检查点加载时指定的内容。 (For more flexibility, you can specify the contents to load from the checkpoint.)                                                                                                               |
-| `actor_rollout_ref.actor.optim.lr`                                           | 学习率。 (Learning rate.)                                                                                                                                                                                                  |
-| `actor_rollout_ref.actor.optim.lr_warmup_steps`                              | 预热步数；负值则由 lr_warmup_steps_ratio 决定。 (Warmup steps; negative value delegates to lr_warmup_steps_ratio.)                                                                                                         |
-| `actor_rollout_ref.actor.optim.lr_warmup_steps_ratio`                        | 预热步数比例（当 lr_warmup_steps 为负时使用）。 (Warmup steps ratio (used if lr_warmup_steps is negative).)                                                                                                                |
-| `actor_rollout_ref.actor.optim.min_lr_ratio`                                 | 余弦调度器的最小学习率比例。 (Minimum LR ratio for cosine schedule.)                                                                                                                                                       |
-| `actor_rollout_ref.actor.optim.num_cycles`                                   | 学习率调度中的余弦周期数。 (Number of cosine cycles in LR schedule.)                                                                                                                                                       |
-| `actor_rollout_ref.actor.optim.warmup_style`                                 | 学习率预热风格："constant" 或 "cosine"。 (LR warmup style: "constant" or "cosine".)                                                                                                                                        |
-| `actor_rollout_ref.actor.optim.total_training_steps`                         | 总训练步数（必须在运行时覆盖）。 (Total training steps (must be overridden at runtime).)                                                                                                                                   |
-| `actor_rollout_ref.actor.optim.weight_decay`                                 | 权重衰减。 (Weight decay.)                                                                                                                                                                                                 |
-| `actor_rollout_ref.actor.fsdp_config.wrap_policy.min_num_params`             | 触发 FSDP 包装一个层的最小参数数量。 (Minimum number of parameters to trigger wrapping a layer with FSDP.)                                                                                                                 |
-| `actor_rollout_ref.actor.fsdp_config.param_offload`                          | 是否将模型参数卸载到 CPU（以速度换内存）。 (Whether to offload model parameters to CPU (trades speed for memory).)                                                                                                         |
-| `actor_rollout_ref.actor.fsdp_config.optimizer_offload`                      | 是否将优化器状态卸载到 CPU。 (Whether to offload optimizer state to CPU.)                                                                                                                                                  |
-| `actor_rollout_ref.actor.fsdp_config.offload_policy`                         | 仅用于 FSDP2：训练期间卸载参数/梯度/优化器。 (Only for FSDP2: offload param/grad/optimizer during train.)                                                                                                                  |
-| `actor_rollout_ref.actor.fsdp_config.reshard_after_forward`                  | 仅用于 FSDP2：前向传播后重新分片以减少内存占用。 (Only for FSDP2: Reshard after forward pass to reduce memory footprint.)                                                                                                  |
-| `actor_rollout_ref.actor.fsdp_config.fsdp_size`                              | 每个 FSDP 分片组中的 GPU 数量；-1 表示自动。 (Number of GPUs in each FSDP shard group; -1 means auto.)                                                                                                                     |
-| `actor_rollout_ref.actor.fsdp_config.forward_prefetch`                       | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。 (Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather before the current forward computation.)                                   |
-| `actor_rollout_ref.actor.profiler.discrete`                                  | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。 (True for each task has its own database, False for all tasks in one training step share one database.)                                                      |
-| `actor_rollout_ref.actor.profiler.all_ranks`                                 | 是否对所有 rank 进行性能分析。 (Whether to profile all ranks.)                                                                                                                                                             |
-| `actor_rollout_ref.actor.profiler.ranks`                                     | 将被分析的 rank。null 或 [0,1,...]。 (The ranks that will be profiled. null or [0,1,...].)                                                                                                                                 |
-| `actor_rollout_ref.ref.strategy`                                             | Reference 模型的 FSDP 配置，与 actor 相同。 (FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default.)                                                                |
-| `actor_rollout_ref.ref.fsdp_config.param_offload`                            | FSDP 中是否卸载参数。 (whether to offload parameters in FSDP.)                                                                                                                                                             |
-| `actor_rollout_ref.ref.fsdp_config.reshard_after_forward`                    | 仅用于 FSDP2：是否在模型前向传播后重新分片以节省内存。 (whether to perform reshard after model forward to save memory.)                                                                                                                  |
-| `actor_rollout_ref.ref.fsdp_config.forward_prefetch`                         | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。 (Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather before the current forward computation.)                                   |
-| `actor_rollout_ref.ref.fsdp_config.wrap_policy.min_num_params`               | FSDP 包装模块中的最小参数量。 (minimum number of params in a wrapped module.)                                                                                                                                              |
-| `actor_rollout_ref.ref.use_torch_compile`                                    | 是否启用 torch.compile。 (whether to enable torch.compile.)                                                                                                                                                                |
-| `actor_rollout_ref.ref.log_prob_micro_batch_size`                            | [将被弃用] 计算 log_prob 时单次前向传播的批次大小（全局）。 ([Will be deprecated] The batch size for one forward pass in the computation of log_prob. Global batch size.)                                                  |
-| `actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu`                    | 计算 log_prob 时单次前向传播的批次大小（每个 GPU 的本地大小）。 (The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.)                                                            |
-| `actor_rollout_ref.ref.log_prob_use_dynamic_bsz`                             | 为 log_prob 计算启用动态批次大小（序列打包）。 (enable dynamic batch size (sequence packing) for log_prob computation.)                                                                                                    |
-| `actor_rollout_ref.ref.log_prob_max_token_len_per_gpu`                       | 每个 GPU 的最大词元长度。 (the max token length per GPU.)                                                                                                                                                                  |
-| `actor_rollout_ref.ref.ulysses_sequence_parallel_size`                       | 序列并行大小。 (sequence parallel size.)                                                                                                                                                                                   |
-| `actor_rollout_ref.ref.entropy_from_logits_with_chunking`                    | 通过分块计算熵以减少内存峰值。 (calculate entropy with chunking to reduce memory peak.)                                                                                                                                    |
-| `actor_rollout_ref.ref.entropy_checkpointing`                                | 重新计算熵。 (recompute entropy.)                                                                                                                                                                                          |
-| `actor_rollout_ref.ref.profiler.discrete`                                    | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。 (True for each task has its own database, False for all tasks in one training step share one database.)                                                      |
-| `actor_rollout_ref.ref.profiler.all_ranks`                                   | 是否对所有 rank 进行性能分析。 (Whether to profile all ranks.)                                                                                                                                                             |
-| `actor_rollout_ref.ref.profiler.ranks`                                       | 将被分析的 rank。null 或 [0,1,...]。 (The ranks that will be profiled. null or [0,1,...].)                                                                                                                                 |
-| `actor_rollout_ref.rollout.name`                                             | Rollout 模型类型：hf/vllm/sglang。 ([rollout.name](http://rollout.name/): hf/vllm/sglang.)                                                                                                                                 |
-| `actor_rollout_ref.rollout.mode`                                             | 同步：LLM，异步：AsyncLLM。 (sync: LLM, async: AsyncLLM.)                                                                                                                                                                  |
-| `actor_rollout_ref.rollout.temperature`                                      | Rollout 的采样温度。 (Sampling temperature for rollout.)                                                                                                                                                                   |
-| `actor_rollout_ref.rollout.top_k`                                            | Top-k 采样参数。vLLM rollout 为 -1，HF rollout 为 0。 (Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.)                                                                                                   |
-| `actor_rollout_ref.rollout.top_p`                                            | Top-p 采样参数。默认为 1.0。 (Top-p sampling parameter. Default 1.0.)                                                                                                                                                      |
-| `actor_rollout_ref.rollout.use_fire_sampling`                                | 是否使用 Fire Sampling (https://arxiv.org/abs/2410.21236)。 (Whether to use Fire Sampling.)                                                                                                                                |
-| `actor_rollout_ref.rollout.prompt_length`                                    | 通常与 data.max_prompt_length 相同。 (typically the same as data max prompt length.)                                                                                                                                       |
-| `actor_rollout_ref.rollout.response_length`                                  | 通常与 data.max_response_length 相同。 (typically the same as data max response length.)                                                                                                                                   |
-| `actor_rollout_ref.rollout.dtype`                                            | Rollout 模型参数类型。与 actor 模型的 FSDP/Megatron 类型对齐。 (Rollout model parameters type. Align with actor model's FSDP/Megatron type.)                                                                               |
-| `actor_rollout_ref.rollout.gpu_memory_utilization`                           | vLLM/SGLang 用于 KV 缓存的 GPU 内存比例。 (Fraction of GPU memory used by vLLM/SGLang for KV cache.)                                                                                                                       |
-| `actor_rollout_ref.rollout.ignore_eos`                                       | 是否在遇到 EOS 后忽略它并继续生成。 (Whether to ignore EOS and continue generating after EOS is hit.)                                                                                                                      |
-| `actor_rollout_ref.rollout.enforce_eager`                                    | 是否禁用 CUDA graph。默认为 True 以允许缓存释放。 (Whether to disable CUDA graph. Default True to allow cache freeing.)                                                                                                    |
-| `actor_rollout_ref.rollout.free_cache_engine`                                | 生成后是否释放引擎 KVCache。启用时需设置 enforce_eager=True。 (Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.)                                                                      |
-| `actor_rollout_ref.rollout.load_format`                                      | Rollout 模型权重的加载器：dummy_dtensor, hf, megatron 等。 (Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.)                                                                              |
-| `actor_rollout_ref.rollout.layered_summon`                                   | 对于大模型，分层加载可以节省内存但会变慢。 (for huge model, layered summon can save memory (prevent OOM) but make it slower.)                                                                                              |
-| `actor_rollout_ref.rollout.tensor_model_parallel_size`                       | Rollout 的张量并行大小。仅对 vLLM 有效。 (TP size for rollout. Only effective for vLLM.)                                                                                                                                   |
-| `actor_rollout_ref.rollout.max_num_batched_tokens`                           | 一个批次中的最大词元数。 (max number of tokens in a batch.)                                                                                                                                                                |
-| `actor_rollout_ref.rollout.max_model_len`                                    | Rollout 的最大长度。 (max length for rollout.)                                                                                                                                                                             |
-| `actor_rollout_ref.rollout.max_num_seqs`                                     | 序列的最大数量。 (max length of sequences.)                                                                                                                                                                                |
-| `actor_rollout_ref.rollout.log_prob_micro_batch_size`                        | [将被弃用] 计算 log_prob 时单次前向传播的批次大小（全局）。 ([Will be deprecated] The batch size for one forward pass in the computation of log_prob. Global batch size.)                                                  |
-| `actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu`                | 计算 log_prob 时单次前向传播的批次大小（每个 GPU 的本地大小）。 (The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.)                                                            |
-| `actor_rollout_ref.rollout.log_prob_use_dynamic_bsz`                         | 为 log_prob 计算启用动态批次大小（序列打包）。 (enable dynamic batch size (sequence packing) for log_prob computation.)                                                                                                    |
-| `actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu`                   | log_prob 计算的最大词元长度。 (max token length for log_prob computation.)                                                                                                                                                 |
-| `actor_rollout_ref.rollout.disable_log_stats`                                | 禁用日志统计。 (disable logging statistics.)                                                                                                                                                                               |
-| `actor_rollout_ref.rollout.enable_chunked_prefill`                           | 设置为 True 可能获得更高吞吐量。激活时请增加 max_num_batched_tokens 或减少 max_model_len。 (may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.) |
-| `actor_rollout_ref.rollout.do_sample`                                        | 仅适用于HF rollout，训练 rollout 期间是否采样。False 使用贪婪采样。 (Whether to sample during training rollout. False uses greedy sampling.)                                                                               |
-| `actor_rollout_ref.rollout.n`                                                | 响应数量（即采样次数）。> 1 用于 grpo。 (number of responses (i.e. num sample times). > 1 for grpo.)                                                                                                                       |
-| `actor_rollout_ref.rollout.engine_kwargs.vllm.swap_space`                    | 推理引擎使用的交换空间（GB）。null 使用默认值（如 4 GB）。 (Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).)                                                                                  |
-| `actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache` | 是否为多模态模型禁用预处理器缓存。 (Whether to disable the preprocessor cache for multimodel models.)                                                                                                                      |
-| `actor_rollout_ref.rollout.engine_kwargs.sglang.attention_backend`           | sglang 引擎的注意力后端。选项：flashinfer, triton, flashmla, null 为默认。 (The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.)                                             |
-| `actor_rollout_ref.rollout.val_kwargs.top_k`                                 | 验证时的 Top-k 采样参数。 (Top-k sampling parameter for validation.)                                                                                                                                                       |
-| `actor_rollout_ref.rollout.val_kwargs.top_p`                                 | 验证时的 Top-p 采样参数。 (Top-p sampling parameter for validation.)                                                                                                                                                       |
-| `actor_rollout_ref.rollout.val_kwargs.temperature`                           | 验证时的采样温度。 (Sampling temperature for validation.)                                                                                                                                                                  |
-| `actor_rollout_ref.rollout.val_kwargs.n`                                     | 是否为验证重复 n 次。 (whether to repeat n times for validation.)                                                                                                                                                          |
-| `actor_rollout_ref.rollout.val_kwargs.do_sample`                             | 验证时是否采样。False 使用贪婪采样。 (Whether to sample during validation. False uses greedy sampling.)                                                                                                                    |
-| `actor_rollout_ref.rollout.multi_turn.enable`                                | 对于多轮工具交互任务设为 True；也应将 [rollout.name](http://rollout.name/) 设为 sglang。 (set to True for multi-turn tool interaction tasks; should set [rollout.name](http://rollout.name/) to sglang as well.)           |
-| `actor_rollout_ref.rollout.multi_turn.max_turns`                             | 最大轮数，null 表示无限制。 (null for no limit (default max_length // 3).)                                                                                                                                                 |
-| `actor_rollout_ref.rollout.multi_turn.tool_config_path`                      | 工具配置文件路径，null 表示无工具。 (null for no tool.)                                                                                                                                                                    |
-| `actor_rollout_ref.rollout.multi_turn.completion_callback`                   | 完成回调函数，null 表示默认回调。 (null for default callback.)                                                                                                                                                             |
-| `actor_rollout_ref.rollout.multi_turn.use_inference_chat_template`           | True: 使用模型默认聊天模板；False: 使用训练记录的 token id。 (True: use model's default chat template; False: use recorded token ids for training.)                                                                        |
-| `actor_rollout_ref.rollout.multi_turn.enable_tokenization_sanity_check`      | 是否启用分词一致性检查，以确保逐轮分词与一次性分词结果相同。 (Whether to enable tokenization sanity check for multi-turn rollout.)                                                                                         |
-| `actor_rollout_ref.rollout.profiler.discrete`                                | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。 (True for each task has its own database, False for all tasks in one training step share one database.)                                                      |
-| `actor_rollout_ref.rollout.profiler.all_ranks`                               | 是否对所有 rank 进行性能分析。 (Whether to profile all ranks.)                                                                                                                                                             |
-| `actor_rollout_ref.rollout.profiler.ranks`                                   | 将被分析的 rank。null 或 [0,1,...]。 (The ranks that will be profiled. null or [0,1,...].)                                                                                                                                 |
+| `actor_rollout_ref.hybrid_engine`                                            | 目前只支持 hybird engine，将 actor 和 rollout 模型放在同一资源组上。                                                         |
+| `actor_rollout_ref.model.path`                                               | Huggingface 模型路径。可以是本地路径或 HDFS 路径。                                                             |
+| `actor_rollout_ref.model.use_shm`                                            | 是否使用共享内存（SHM）来加速模型权重的加载。                                                                                          |
+| `actor_rollout_ref.model.external_lib`                                       | 用于注册 Huggingface 模型/分词器的额外 Python 包。                                                                                                 |
+| `actor_rollout_ref.model.override_config`                                    | 用于覆盖模型原始配置，主要用于 dropout。                                                                                                               |
+| `actor_rollout_ref.model.enable_gradient_checkpointing`                      | actor 训练过程是否重算梯度，以时间换空间。                                                              |
+| `actor_rollout_ref.model.enable_activation_offload`                          | actor 训练是否将 activation offload 到 CPU。                                                                         |
+| `actor_rollout_ref.model.use_remove_padding`                                 | 训练期间是否移除输入中的 padding元。                                                                                                                |
+| `actor_rollout_ref.model.use_liger`                                          | 是否使用 Liger kernel 进行线性层融合。                                                                            |
+| `actor_rollout_ref.model.use_fused_kernels`                                  | 是否使用自定义 fused kernel（如 FlashAttention, fused MLP）。                      |
+| `actor_rollout_ref.model.fused_kernel_options.impl_backend`                  | 融合核的实现后端，triton 或 torch。需要和 `use_fused_kernels` 配合使用                                                                 |
+| `actor_rollout_ref.model.trust_remote_code`                                  | 是否信任本地的的 huggingface cache；注意，这个 remote 是相对 huggingface 而言的，所以这个参数考虑的是“是否信任本地”。                                     |
+| `actor_rollout_ref.actor.strategy`                                           | 训练 backend fsdp, fsdp2 或 megatron。        |
+| `actor_rollout_ref.actor.grad_clip`                                          | Actor 更新的梯度裁剪。                                                                                                                                                              |
+| `actor_rollout_ref.actor.clip_ratio`                                         | PPO 裁剪比率。                                                                                                                                                                                           |
+| `actor_rollout_ref.actor.clip_ratio_low`                                     | 非对称裁剪的下界（用于 dual-clip PPO）。                                                                                                                    |
+| `actor_rollout_ref.actor.clip_ratio_high`                                    | 非对称裁剪的上界（用于 dual-clip PPO）。                                                                                                                    |
+| `actor_rollout_ref.actor.clip_ratio_c`                                       | Dual-clip PPO 中的常数 C；当优势 < -C 时进行裁剪。                                                                                                               |
+| `actor_rollout_ref.actor.loss_agg_mode`                                      | 损失聚合模式：`token-mean`, `seq-mean-token-sum`, 或 `seq-mean-token-mean`。                                                                                                                        |
+| `actor_rollout_ref.actor.entropy_coeff`                                      | PPO 损失中的熵正则化系数。                                                                                                                                               |
+| `actor_rollout_ref.actor.use_kl_loss`                                        | 是否使用 KL 损失代替 KL 奖励惩罚。对于 GRPO 为 True。                                                                                                |
+| `actor_rollout_ref.actor.use_torch_compile`                                  | 是否使用 `torch.compile()`。                                                                   |
+| `actor_rollout_ref.actor.kl_loss_coef`                                       | 启用 `use_kl_loss` 时的 KL 损失系数，用于 GRPO。                                                                                                                |
+| `actor_rollout_ref.actor.kl_loss_type`                                       | KL 散度损失的类型。选项：`kl`, `abs`, `mse`, `low_var_kl`, `full`。                                                                                                                           |
+| `actor_rollout_ref.actor.ppo_epochs`                                         | PPO 轮数。                                                                                                                                     |
+| `actor_rollout_ref.actor.shuffle`                                            | 打乱训练数据。                                                                                                  |
+| `actor_rollout_ref.actor.ulysses_sequence_parallel_size`                     | Ulysses 类的 sequence parallel 大小。                                            |
+| `actor_rollout_ref.actor.entropy_from_logits_with_chunking`                  | 通过分块计算熵以减少显存峰值。                                                                                                      |
+| `actor_rollout_ref.actor.entropy_checkpointing`                              | 是否将 entropy 通过 checkpoint 存下来。                               |
+| `actor_rollout_ref.actor.checkpoint.save_contents`                           | 保存的检查点中包含的内容。                                                                                                         |
+| `actor_rollout_ref.actor.checkpoint.load_contents`                           | 从检查点加载时指定的内容。                                                                                                         |
+| `actor_rollout_ref.actor.optim.lr`                                           | 学习率。                                                                                                             |
+| `actor_rollout_ref.actor.optim.lr_warmup_steps`                              | 预热步数；负值则由 `lr_warmup_steps_ratio` 决定。        |
+| `actor_rollout_ref.actor.optim.lr_warmup_steps_ratio`                        | 预热步数比例（当 `lr_warmup_steps` 为负时使用）。                                                                                                                |
+| `actor_rollout_ref.actor.optim.min_lr_ratio`                                 | 余弦调度器的最小学习率比例。                                                                                                                |
+| `actor_rollout_ref.actor.optim.num_cycles`                                   | 学习率调度中的余弦周期数。                                                                                                                |
+| `actor_rollout_ref.actor.optim.warmup_style`                                 | 学习率预热风格：`constant` 或 `cosine`。                                                      |
+| `actor_rollout_ref.actor.optim.total_training_steps`                         | 总训练步数。                                                                                                                |
+| `actor_rollout_ref.actor.optim.weight_decay`                                 | 权重衰减系数，控制训练过程中对权重施加的 L2 正则化的强度。                                                                                                                |
+| `actor_rollout_ref.actor.fsdp_config.wrap_policy.min_num_params`             | 触发 FSDP 包装一个层的最小参数数量。                                                                                                                |
+| `actor_rollout_ref.actor.fsdp_config.param_offload`                          | 是否将模型参数卸载到 CPU（以速度换内存）。                                                                                                         |
+| `actor_rollout_ref.actor.fsdp_config.optimizer_offload`                      | 是否将优化器状态卸载到 CPU。                                                                                                                |
+| `actor_rollout_ref.actor.fsdp_config.offload_policy`                         | 仅用于 FSDP2：训练期间卸载参数/梯度/优化器。                                                                                                                  |
+| `actor_rollout_ref.actor.fsdp_config.reshard_after_forward`                  | 仅用于 FSDP2：前向传播后重新分片以减少内存占用。                                                                                                  |
+| `actor_rollout_ref.actor.fsdp_config.fsdp_size`                              | 每个 FSDP 分片组中的 GPU 数量；-1 表示自动。                                                                                                                     |
+| `actor_rollout_ref.actor.fsdp_config.forward_prefetch`                       | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。                                                                                                   |
+| `actor_rollout_ref.actor.profiler.discrete`                                  | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。                                                                                                                      |
+| `actor_rollout_ref.actor.profiler.all_ranks`                                 | 是否对所有 rank 进行性能分析。                                                                                                                      |
+| `actor_rollout_ref.actor.profiler.ranks`                                     | 将被分析的 rank。null 或 [0,1,...]。                                                                                                                      |
+| `actor_rollout_ref.ref.strategy`                                             | Reference 模型的 FSDP 配置，与 actor 相同。                                                                                                                      |
+| `actor_rollout_ref.ref.fsdp_config.param_offload`                            | FSDP 中是否卸载参数。                                                                                                                      |
+| `actor_rollout_ref.ref.fsdp_config.reshard_after_forward`                    | 仅用于 FSDP2：是否在模型前向传播后重新分片以节省内存。                                                                                                                  |
+| `actor_rollout_ref.ref.fsdp_config.forward_prefetch`                         | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。                                                                                                   |
+| `actor_rollout_ref.ref.fsdp_config.wrap_policy.min_num_params`               | FSDP 包装模块中的最小参数量。                                                                                                                      |
+| `actor_rollout_ref.ref.profiler.discrete`                                    | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。                                                                                                                      |
+| `actor_rollout_ref.ref.profiler.all_ranks`                                   | 是否对所有 rank 进行性能分析。                                                                                                                      |
+| `actor_rollout_ref.ref.profiler.ranks`                                       | 将被分析的 rank。null 或 [0,1,...]。                                                                                                                      |
 
-### 3. Critic (`critic`)
+### Reward Model
 
-| 参数名称 (Parameter Name) | 描述 (Description) |
-| :--- | :--- |
-| `critic.rollout_n` | 每次更新的 rollout 数量（与 actor 的 rollout.n 保持一致）。 (Number of rollouts per update (mirrors actor rollout_n).) |
-| `critic.strategy` | 用于 Critic 模型训练的 fsdp 或 fsdp2 策略。 (fsdp or fsdp2 strategy used for critic model training.) |
-| `critic.optim.lr` | 学习率。 (Learning rate.) |
-| `critic.optim.lr_warmup_steps_ratio` | 预热步数比例；总步数将在运行时注入。 (Warmup steps ratio; total steps will be injected at runtime.) |
-| `critic.optim.min_lr_ratio` | 余弦调度器的最小学习率比例。 (Minimum LR ratio for cosine schedule.) |
-| `critic.optim.warmup_style` | 学习率预热风格："constant" 或 "cosine"。 (LR warmup style: "constant" or "cosine".) |
-| `critic.optim.total_training_steps` | 总训练步数（必须在运行时覆盖）。 (Total training steps (must be overridden at runtime).) |
-| `critic.optim.weight_decay` | 权重衰减。 (Weight decay.) |
-| `critic.model.path` | 预训练模型权重的路径。 (Path to pretrained model weights.) |
-| `critic.model.use_shm` | 是否使用共享内存加载模型。 (Whether to use shared memory for loading the model.) |
-| `critic.model.tokenizer_path` | 分词器路径（默认为 actor 的模型路径）。 (Tokenizer path (defaults to actor's model path).) |
-| `critic.model.override_config` | Hugging Face 配置覆盖。 (Hugging Face config override.) |
-| `critic.model.external_lib` | 外部模型实现（可选）。 (External model implementation (optional).) |
-| `critic.model.enable_gradient_checkpointing` | 启用梯度检查点以节省内存。 (Enable gradient checkpointing to save memory.) |
-| `critic.model.enable_activation_offload` | 将激活卸载到 CPU 以减少 GPU 内存使用。 (Offload activations to CPU to reduce GPU memory usage.) |
-| `critic.model.use_remove_padding` | 使用移除填充优化（节省计算）。 (Use remove padding optimization (saves compute).) |
-| `critic.model.trust_remote_code` | 是否信任来自 Hugging Face 模型的远程代码。 (Whether to trust remote code from Hugging Face models.) |
-| `critic.model.fsdp_config.param_offload` | 是否将模型参数卸载到 CPU。 (Whether to offload model parameters to CPU.) |
-| `critic.model.fsdp_config.optimizer_offload` | 是否将优化器状态卸载到 CPU。 (Whether to offload optimizer state to CPU.) |
-| `critic.model.fsdp_config.offload_policy` | 仅用于 FSDP2：训练期间卸载参数/梯度/优化器。 (Only for FSDP2: offload param/grad/optimizer during train.) |
-| `critic.model.fsdp_config.reshard_after_forward` | 仅用于 FSDP2：前向传播后重新分片以减少内存占用。 (Only for FSDP2: Reshard after forward pass to reduce memory footprint.) |
-| `critic.model.fsdp_config.wrap_policy.min_num_params` | 触发 FSDP 包装的最小参数数量。 (Minimum number of parameters to trigger wrapping.) |
-| `critic.model.fsdp_config.fsdp_size` | 每个 FSDP 分片组中的 GPU 数量；-1 表示自动。 (Number of GPUs in each FSDP shard group; -1 means auto.) |
-| `critic.model.fsdp_config.forward_prefetch` | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。 (Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather before the current forward computation.) |
-| `critic.model.lora_rank` | 设置为正值以启用 LoRA（例如，32）。 (Set to positive value to enable LoRA (e.g., 32).) |
-| `critic.model.lora_alpha` | LoRA 缩放因子。 (LoRA scaling factor.) |
-| `critic.model.target_modules` | LoRA 目标模块："all-linear" 或线性投影层列表。 (LoRA target modules: "all-linear" or list of linear projection layers.) |
-| `critic.ppo_mini_batch_size` | 每次更新的 PPO 小批量大小。 (PPO mini-batch size per update.) |
-| `critic.ppo_micro_batch_size` | [已弃用] 全局微批次大小。 ([Deprecated] Global micro batch size.) |
-| `critic.ppo_micro_batch_size_per_gpu` | 每个 GPU 的本地微批次大小。 (Local per-GPU micro batch size.) |
-| `critic.forward_micro_batch_size` | 仅前向传播的批次大小（全局）。 (Forward-only batch size (global).) |
-| `critic.forward_micro_batch_size_per_gpu` | 仅前向传播的批次大小（每个 GPU）。 (Forward-only batch size (per GPU).) |
-| `critic.use_dynamic_bsz` | 是否在运行时动态调整批次大小。 (Whether to automatically adjust batch size at runtime.) |
-| `critic.ppo_max_token_len_per_gpu` | 单个 PPO 批次中每个 GPU 的最大词元数（对 critic 加倍）。 (Max tokens per GPU in one PPO batch (doubled for critic).) |
-| `critic.forward_max_token_len_per_gpu` | 前向传播中每个 GPU 的最大词元长度。 (Max token length per GPU in forward pass.) |
-| `critic.ulysses_sequence_parallel_size` | Ulysses-style 模型并行的序列并行大小。 (Sequence parallelism size for Ulysses-style model parallelism.) |
-| `critic.ppo_epochs` | 每个批次的 PPO 轮数。 (Number of PPO epochs per batch.) |
-| `critic.shuffle` | 在 PPO 轮次之间打乱训练数据。 (Shuffle training data across PPO epochs.) |
-| `critic.grad_clip` | Critic 更新的梯度裁剪。 (Gradient clipping for critic updates.) |
-| `critic.cliprange_value` | PPO 值函数裁剪范围。 (PPO value function clipping range.) |
-| `critic.loss_agg_mode` | 损失聚合模式。 (Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean".) |
-| `critic.checkpoint.save_contents` | 保存的检查点中包含的内容。 (What to include in saved checkpoints.) |
-| `critic.checkpoint.load_contents` | 加载检查点时包含的内容。 (What to include when loading checkpoints.) |
-| `critic.profiler.discrete` | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。 (True for each task has its own database, False for all tasks in one training step share one database.) |
-| `critic.profiler.profile_all_ranks` | 是否对所有 rank 进行性能分析。 (Whether to profile all ranks.) |
-
-### 4. Reward 模型 (`reward_model`)
-
-| 参数名称 (Parameter Name) | 描述 (Description) |
+| 参数名称 | 描述 |
 | --- | --- |
-| `reward_model.enable` | 是否启用奖励模型。如果为 False，则仅使用用户定义的奖励函数计算奖励。 (Whether to enable reward model. If False, we compute the reward only with the user-defined reward functions.) |
-| `reward_model.strategy` | FSDP 策略："fsdp" 或 "fsdp2"或"megatron"。 (FSDP strategy: "fsdp" or "fsdp2" or "megatron".) |
-| `reward_model.model.input_tokenizer` | 输入分词器。如果奖励模型的聊天模板与策略不一致，则需要此项。 (Input tokenizer. If the reward model’s chat template is inconsistent with the policy, we need to first decode to plaintext, then apply the rm’s chat_template.) |
-| `reward_model.model.path` | RM 的 HDFS 路径或本地路径。仅支持 AutoModelForSequenceClassification。 (RM’s HDFS path or local path. Note that RM only supports AutoModelForSequenceClassification.) |
-| `reward_model.model.use_shm` | 是否使用共享内存加载模型。 (Whether to use shared memory for loading the model.) |
-| `reward_model.model.external_lib` | 外部模型实现（可选）。 (External model implementation (optional).) |
-| `reward_model.model.use_remove_padding` | 使用移除填充优化（节省计算）。 (Use remove padding optimization (saves compute).) |
-| `reward_model.model.use_fused_kernels` | 是否使用融合的奖励核以加速。 (Whether to use fused reward kernels for speedup.) |
-| `reward_model.model.trust_remote_code` | 是否允许加载远程代码模型，默认为 False。 (Whether to enable loading a remote code model, default to False.) |
-| `reward_model.model.fsdp_config.wrap_policy.min_num_params` | 触发 FSDP 包装的最小参数数量。 (Minimum number of parameters to trigger wrapping.) |
-| `reward_model.model.fsdp_config.param_offload` | 是否将模型参数卸载到 CPU。 (Whether to offload model parameters to CPU.) |
-| `reward_model.model.fsdp_config.reshard_after_forward` | 仅用于 FSDP2：前向传播后重新分片以减少内存占用。 (Only for FSDP2: Reshard after forward pass to reduce memory footprint.) |
-| `reward_model.model.fsdp_config.fsdp_size` | 每个 FSDP 分片组中的 GPU 数量；-1 表示自动。 (Number of GPUs in each FSDP shard group; -1 means auto.) |
-| `reward_model.model.fsdp_config.forward_prefetch` | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。 (Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather before the current forward computation.) |
-| `reward_model.micro_batch_size` | [已弃用] 全局微批次大小。 ([Deprecated] Global micro batch size.) |
-| `reward_model.micro_batch_size_per_gpu` | 每个 GPU 的本地微批次大小。 (Local per-GPU micro batch size.) |
-| `reward_model.max_length` | 用于评分处理的最大序列长度。 (Maximum sequence length to process for scoring.) |
-| `reward_model.ulysses_sequence_parallel_size` | Ulysses-style 模型并行的序列并行大小。 (Sequence parallelism size for Ulysses-style model parallelism.) |
-| `reward_model.use_dynamic_bsz` | 是否在运行时动态调整批次大小。 (Whether to dynamically adjust batch size at runtime.) |
-| `reward_model.forward_max_token_len_per_gpu` | 单次前向传播中每个 GPU 的最大词元数。 (Maximum number of tokens per GPU in one forward pass.) |
-| `reward_model.reward_manager` | 定义计算基于规则的奖励和处理不同奖励源的机制。 (This defines the mechanism of computing rule-based reward and handling different reward sources.) |
-| `reward_model.launch_reward_fn_async` | 是否在 log_prob 期间异步启动自定义奖励函数。 (Whether to launch custom reward function asynchronously during log_prob.) |
-| `reward_model.sandbox_fusion.url` | 用于沙箱执行的云/本地函数 URL。 (Cloud/local function URL for sandbox execution.) |
-| `reward_model.sandbox_fusion.max_concurrent` | 允许到沙箱的最大并发请求数。 (Max concurrent requests allowed to sandbox.) |
-| `reward_model.profiler.discrete` | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。 (True for each task has its own database, False for all tasks in one training step share one database.) |
-| `reward_model.profiler.all_ranks` | 是否对所有 rank 进行性能分析。 (Whether to profile all ranks.) |
-| `reward_model.profiler.ranks` | 将被分析的 rank。null 或 [0,1,...]。 (The ranks that will be profiled. null or [0,1,...].) |
+| `reward_model.enable` | 是否启用奖励模型。如果为 False，则仅使用用户定义的奖励函数计算奖励。 |
+| `reward_model.strategy` | FSDP 策略：`fsdp` 或 `fsdp2`或`megatron`。 |
+| `reward_model.model.input_tokenizer` | 输入分词器。如果奖励模型的聊天模板与策略不一致，则需要此项。 |
+| `reward_model.model.path` | RM 的 HDFS 路径或本地路径。仅支持 AutoModelForSequenceClassification。 |
+| `reward_model.model.use_shm` | 是否使用共享内存加载模型。 |
+| `reward_model.model.external_lib` | 外部模型实现（可选）。 |
+| `reward_model.model.use_remove_padding` | 使用移除填充优化（节省计算）。 |
+| `reward_model.model.use_fused_kernels` | 是否使用融合的奖励核以加速。 |
+| `reward_model.model.trust_remote_code` | 是否允许加载远程代码模型，默认为 False。 |
+| `reward_model.model.fsdp_config.wrap_policy.min_num_params` | 触发 FSDP 包装的最小参数数量。 |
+| `reward_model.model.fsdp_config.param_offload` | 是否将模型参数卸载到 CPU。 |
+| `reward_model.model.fsdp_config.reshard_after_forward` | 仅用于 FSDP2：前向传播后重新分片以减少内存占用。 |
+| `reward_model.model.fsdp_config.fsdp_size` | 每个 FSDP 分片组中的 GPU 数量；-1 表示自动。 |
+| `reward_model.model.fsdp_config.forward_prefetch` | 仅用于 FSDP1：在前向计算完成前预取下一次前向传播的 all-gather。 |
+| `reward_model.reward_manager` | 定义计算基于规则的奖励和处理不同奖励源的机制。 |
+| `reward_model.launch_reward_fn_async` | 是否在 log_prob 期间异步启动自定义奖励函数。 |
+| `reward_model.sandbox_fusion.url` | 用于远程 reward 函数的 URL。 |
+| `reward_model.sandbox_fusion.max_concurrent` | 允许到沙箱的最大并发请求数。 |
+| `reward_model.profiler.discrete` | True 表示每个任务有自己的数据库，False 表示所有任务共享一个。 |
 
-### 5. 自定义奖励函数 (`custom_reward_function`)
+### Custom Reward Function
 
-| 参数名称 (Parameter Name) | 描述 (Description) |
+| 参数名称 | 描述 |
 | --- | --- |
-| `custom_reward_function.path` | 包含自定义奖励函数的文件路径。 (The path to the file containing your customized reward function.) |
-| `custom_reward_function.name` | 指定文件中的奖励函数名称。默认为 'compute_score'。 (The name of the reward function within the specified file. Default is 'compute_score'.) |
+| `custom_reward_function.path` | 包含自定义奖励函数的文件路径。 |
+| `custom_reward_function.name` | 指定文件中的奖励函数名称。默认为 `compute_score`。 |
 
-### 6. 算法 (`algorithm`)
+### Algorithm
 
-| 参数名称 (Parameter Name) | 描述 (Description) |
+| 参数名称 | 描述 |
 | --- | --- |
-| `algorithm.gamma` | 未来奖励的折扣因子。 (Discount factor for future rewards.) |
-| `algorithm.lam` | GAE 估计器中偏差和方差的权衡。 (Trade-off between bias and variance in the GAE estimator.) |
-| `algorithm.adv_estimator` | 优势估计器类型："gae", "grpo", "reinforce_plus_plus" 等。 (Advantage estimator type: "gae", "grpo", "reinforce_plus_plus", etc.) |
-| `algorithm.norm_adv_by_std_in_grpo` | 是否在 GRPO 中按标准差归一化优势。 (Whether to normalize advantages by std (specific to GRPO).) |
-| `algorithm.use_kl_in_reward` | 是否在奖励中启用 KL 惩罚。 (Whether to enable in-reward KL penalty.) |
-| `algorithm.kl_penalty` | 如何估计 KL 散度："kl", "abs", "mse", "low_var_kl", 或 "full"。 (How to estimate KL divergence: "kl", "abs", "mse", "low_var_kl", or "full".) |
-| `algorithm.kl_ctrl.type` | KL 控制类型："fixed" 或 "adaptive"。 (KL control type: "fixed" or "adaptive".) |
-| `algorithm.kl_ctrl.kl_coef` | KL 惩罚的初始系数。 (Initial coefficient for KL penalty.) |
-| `algorithm.kl_ctrl.horizon` | 自适应控制器的 horizon 值（如果启用）。 (Horizon value for adaptive controller (if enabled).) |
-| `algorithm.kl_ctrl.target_kl` | 目标 KL 散度（用于自适应控制器）。 (Target KL divergence (used for adaptive controller).) |
-| `algorithm.use_pf_ppo` | 是否启用偏好反馈 PPO。 (Whether to enable preference feedback PPO.) |
-| `algorithm.pf_ppo.reweight_method` | 样本重加权方法："pow", "max_min", 或 "max_random"。 (Method for reweighting samples: "pow", "max_min", or "max_random".) |
-| `algorithm.pf_ppo.weight_pow` | "pow" 方法中用于权重缩放的幂。 (Power used for weight scaling in "pow" method.) |
+| `algorithm.gamma` | 未来奖励的折扣因子。 |
+| `algorithm.lam` | GAE 估计器中偏差和方差的权衡。 |
+| `algorithm.adv_estimator` | 优势估计器类型：`gae`, `grpo`, `reinforce_plus_plus` 等。 |
+| `algorithm.norm_adv_by_std_in_grpo` | 是否在 GRPO 中按标准差归一化优势。 |
+| `algorithm.use_kl_in_reward` | 是否在奖励中启用 KL 惩罚。 |
+| `algorithm.kl_penalty` | 如何估计 KL 散度：`kl`, `abs`, `mse`, `low_var_kl`, 或 `full`。 |
+| `algorithm.kl_ctrl.type` | KL 控制类型：`fixed` 或 `adaptive`。 |
+| `algorithm.kl_ctrl.kl_coef` | KL 惩罚的初始系数。 |
+| `algorithm.kl_ctrl.horizon` | 自适应控制器的 horizon 值（如果启用）。 |
+| `algorithm.kl_ctrl.target_kl` | 目标 KL 散度（用于自适应控制器）。 |
+| `algorithm.use_pf_ppo` | 是否启用偏好反馈 PPO。 |
+| `algorithm.pf_ppo.reweight_method` | 样本重加权方法：`pow`, `max_min`, 或 `max_random`。 |
+| `algorithm.pf_ppo.weight_pow` | `pow` 方法中用于权重缩放的幂。 |
 
-### 7. 训练器 (`trainer`)
+### Trainer
 
-| 参数名称 (Parameter Name) | 描述 (Description) |
+| 参数名称 | 描述 |
 | --- | --- |
-| `trainer.balance_batch` | 是否在分布式工作节点间平衡批次大小。 (Whether to balance batch sizes across distributed workers.) |
-| `trainer.total_epochs` | 训练的总轮数。 (Number of epochs in training.) |
-| `trainer.total_training_steps` | 总训练步数（可显式设置或从轮数派生）。 (Total training steps (can be set explicitly or derived from epochs).) |
-| `trainer.profile_steps` | 将被分析的步骤。null 表示不进行分析。 (The steps that will be profiled. null means no profiling. null or [1,2,5,...].) |
-| `trainer.controller_nsight_options.trace` | 对于controller进程，选择要追踪的 API（比如cuda，nvtx，cublas，etc）。 (Select the API(s) to be traced.) |
-| `trainer.controller_nsight_options.cuda-memory-usage` | 对于controller进程，是否profile CUDA 内存使用情况。必须是字符串 "true" 或 "false"。 (Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".) |
-| `trainer.controller_nsight_options.cuda-graph-trace` | 对于controller进程，是否将CUDA graphs 将被作为一个整体进行追踪。 (CUDA graphs will be traced as a whole.) |
-| `trainer.worker_nsight_options.trace` | 对于worker进程，选择要追踪的 API。 (Select the API(s) to be traced.) |
-| `trainer.worker_nsight_options.cuda-memory-usage` | 对于worker进程，是否profile CUDA 内存使用情况。必须是字符串 "true" 或 "false"。 (Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".) |
-| `trainer.worker_nsight_options.cuda-graph-trace` | 对于worker进程，是否CUDA graphs 将被作为一个整体进行追踪。 (CUDA graphs will be traced as a whole.) |
-| `trainer.worker_nsight_options.capture-range` | 仅在 torch.cuda.profiler.start 和 stop 范围内进行分析。默认值为cudaProfilerApi，不要更改此配置。 (Profiling only in a range of torch.cuda.profiler.start and stop. Do not change this config.) |
-| `trainer.worker_nsight_options.capture-range-end` | 指定捕获范围结束时的期望行为。 (Specify the desired behavior when a capture range ends.) |
-| `trainer.worker_nsight_options.kill` | 向目标应用程序的进程组发送信号。我们让程序自行退出。 (Send signal to the target application's process group. We let the program to exit by itself.) |
-| `trainer.project_name` | 用于实验跟踪（如 wandb）的项目名称。 (Project name for experiment tracking (e.g., wandb).) |
-| `trainer.experiment_name` | 用于在跟踪工具中识别运行的实验名称。 (Experiment name for run identification in tracking tools.) |
-| `trainer.logger` | 使用的日志后端："console", "wandb" 等。 (Logging backends to use: "console", "wandb", etc.) |
-| `trainer.log_val_generations` | 验证期间要记录的生成数量。 (Number of generations to log during validation.) |
-| `trainer.rollout_data_dir` | 用于记录 rollout 数据的目录；如果为 null 则不转储。 (Directory for logging rollout data; no dump if null.) |
-| `trainer.validation_data_dir` | 用于记录验证数据的目录；如果为 null 则不转储。 (Directory for logging validation data; no dump if null.) |
-| `trainer.nnodes` | 训练中使用的节点数。 (Number of nodes used in the training.) |
-| `trainer.n_gpus_per_node` | 每个节点的 GPU 数量。 (Number of GPUs per node.) |
-| `trainer.save_freq` | 模型检查点的保存频率（按迭代次数）。 (Save frequency (by iteration) for model checkpoints.) |
-| `trainer.resume_mode` | 恢复模式："auto", "disable", 或 "resume_path"。 (Resume mode: "auto", "disable", or "resume_path".) |
-| `trainer.resume_from_path` | 从该路径恢复训练（仅当 resume_mode 为 "resume_path" 时使用）。 (Path to resume training from (only used when resume_mode is "resume_path").) |
-| `trainer.val_before_train` | 是否在训练开始前运行验证。 (Whether to run validation before training begins.) |
-| `trainer.val_only` | 是否只运行验证。 (Whether to run validation only.) |
-| `trainer.test_freq` | 验证频率（以训练迭代次数计）。 (Validation frequency (in training iterations).) |
-| `trainer.critic_warmup` | 在更新策略之前预热 critic 的迭代次数。 (Number of iterations to warm up the critic before updating policy.) |
-| `trainer.default_hdfs_dir` | 用于保存检查点的默认分布式文件系统路径。 (Default path to distributed filesystem for saving checkpoints.) |
-| `trainer.del_local_ckpt_after_load` | 加载后是否删除本地检查点。 (Whether to delete local checkpoints after loading.) |
-| `trainer.default_local_dir` | 用于保存检查点的默认本地目录。 (Default local directory for saving checkpoints.) |
-| `trainer.max_actor_ckpt_to_keep` | 保留的 actor 检查点的最大数量。 (Maximum number of actor checkpoints to keep.) |
-| `trainer.max_critic_ckpt_to_keep` | 保留的 critic 检查点的最大数量。 (Maximum number of critic checkpoints to keep.) |
-| `trainer.ray_wait_register_center_timeout` | Ray worker 等待注册的超时时间（秒）。 (Timeout (in seconds) for Ray worker to wait for registration.) |
-| `trainer.device` | 运行训练的设备（如 "cuda", "cpu"）。 (Device to run training on (e.g., "cuda", "cpu").) |
+| `trainer.balance_batch` | 是否在分布式工作节点间平衡批次大小。 |
+| `trainer.total_epochs` | 训练的总轮数。 |
+| `trainer.total_training_steps` | 总训练步数（可显式设置或从轮数派生）。 |
+| `trainer.profile_steps` | 将被分析的步骤。null 表示不进行分析。 |
+| `trainer.controller_nsight_options.trace` | 对于controller进程，选择要追踪的 API（比如cuda，nvtx，cublas，etc）。 |
+| `trainer.controller_nsight_options.cuda-memory-usage` | 对于controller进程，是否profile CUDA 内存使用情况。必须是字符串 `"true"` 或 `"false"`。 |
+| `trainer.controller_nsight_options.cuda-graph-trace` | 对于controller进程，是否将CUDA graphs 将被作为一个整体进行追踪。 |
+| `trainer.worker_nsight_options.trace` | 对于worker进程，选择要追踪的 API。 |
+| `trainer.worker_nsight_options.cuda-memory-usage` | 对于worker进程，是否profile CUDA 内存使用情况。必须是字符串 `"true"` 或 `"false"`。 |
+| `trainer.worker_nsight_options.cuda-graph-trace` | 对于worker进程，是否CUDA graphs 将被作为一个整体进行追踪。 |
+| `trainer.worker_nsight_options.capture-range` | 仅在 torch.cuda.profiler.start 和 stop 范围内进行分析。默认值为cudaProfilerApi，不要更改此配置。 |
+| `trainer.worker_nsight_options.capture-range-end` | 指定捕获范围结束时的期望行为。 |
+| `trainer.worker_nsight_options.kill` | 向目标应用程序的进程组发送信号。我们让程序自行退出。 |
+| `trainer.project_name` | 用于实验跟踪（如 wandb）的项目名称。 |
+| `trainer.experiment_name` | 用于在跟踪工具中识别运行的实验名称。 |
+| `trainer.logger` | 使用的日志后端：`console`, `wandb` 等。 |
+| `trainer.log_val_generations` | 验证期间要记录的生成数量。 |
+| `trainer.rollout_data_dir` | 用于记录 rollout 数据的目录；如果为 null 则不转储。 |
+| `trainer.validation_data_dir` | 用于记录验证数据的目录；如果为 null 则不转储。 |
+| `trainer.nnodes` | 训练中使用的节点数。 |
+| `trainer.n_gpus_per_node` | 每个节点的 GPU 数量。 |
+| `trainer.save_freq` | 模型检查点的保存频率（按迭代次数）。 |
+| `trainer.resume_mode` | 恢复模式：`auto`, `disable`, 或 `resume_path`。 |
+| `trainer.resume_from_path` | 从该路径恢复训练（仅当 resume_mode 为 `resume_path` 时使用）。 |
+| `trainer.val_before_train` | 是否在训练开始前运行验证。 |
+| `trainer.val_only` | 是否只运行验证。 |
+| `trainer.test_freq` | 验证频率（以训练迭代次数计）。 |
+| `trainer.critic_warmup` | 在更新策略之前预热 critic 的迭代次数。 |
+| `trainer.default_hdfs_dir` | 用于保存检查点的默认分布式文件系统路径。 |
+| `trainer.del_local_ckpt_after_load` | 加载后是否删除本地检查点。 |
+| `trainer.default_local_dir` | 用于保存检查点的默认本地目录。 |
+| `trainer.max_actor_ckpt_to_keep` | 保留的 actor 检查点的最大数量。 |
+| `trainer.max_critic_ckpt_to_keep` | 保留的 critic 检查点的最大数量。 |
+| `trainer.ray_wait_register_center_timeout` | Ray worker 等待注册的超时时间（秒）。 |
+| `trainer.device` | 运行训练的设备（如 `cuda`, `cpu`）。 |
 
-### 8. Ray 初始化 (`ray_init`)
+### Ray Init
 
-| 参数名称 (Parameter Name) | 描述 (Description) |
+| 参数名称 | 描述 |
 | --- | --- |
-| `ray_init.num_cpus` | Ray 使用的 CPU 数量。使用 SLURM 时应使用固定数字而不是 null。 (Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.) |
-| `ray_init.timeline_json_file` | 保存 Ray 时间线 JSON 文件以进行性能分析的路径。 (Path to save Ray timeline JSON for performance profiling.) |
+| `ray_init.num_cpus` | Ray 使用的 CPU 数量。使用 SLURM 时应使用固定数字而不是 null。 |
+| `ray_init.timeline_json_file` | 保存 Ray 时间线 JSON 文件以进行性能分析的路径。 |

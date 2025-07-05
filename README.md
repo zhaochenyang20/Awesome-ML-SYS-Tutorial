@@ -17,6 +17,7 @@ $$
 
 ## RLHF System 开发笔记
 
+- [verl 参数速览](./rlhf/verl/multi-turn/code-walk-through/readme-5.md)：verl 参数速览，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-5-EN.md)。
 - [深入浅出理解 verl 源码（Rollout）](./rlhf/verl/multi-turn/code-walk-through/readme-2.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1923349757566388159)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-2-EN.md)。
 - [深入浅出理解 verl 源码（初始化）](./rlhf/verl/multi-turn/code-walk-through/readme.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1920751852749849692)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme_EN.md)。
 - [从 tokenizer 视角来分析 Agentic 多轮训练的复杂性](rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking_ZH.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1917126584806139373)和[英文版本](rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking.md)。
