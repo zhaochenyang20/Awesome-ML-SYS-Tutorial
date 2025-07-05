@@ -15,7 +15,7 @@ Ji Li（蚂蚁），Zhuoran Yin（CMU），Changyi Yang（CMU），Chengxi Li（
 | `actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu` <br> `critic.ppo_micro_batch_size_per_gpu` | **作用**：定义了在单个 GPU 上进行一次 forward/backward 的数据大小。<br><br>**详细解释**：这是实现梯度累积的核心参数。mini-batch 会被再次切分为若干个 micro-batch。例如，在单卡上，`ppo_mini_batch_size = 256`，`ppo_micro_batch_size_per_gpu = 32`，那么梯度累积的步数就是 `256 / 32 = 8`。这意味着模型会运行 8 次 forward 得到 loss，然后 backward 的到 gradient。每次处理 32 个样本，直到累积完整个 mini-batch 计算出的梯度。此时，使用累积的总梯度，对模型参数进行一次更新（`optimizer.step()`）。这个值必须根据显存大小来严格调整，是防止 OOM 的关键。<br><br>**影响与权衡**：增大此值，减少了梯度累积的次数，可以提高训练的吞吐量，增大显存消耗。|
 | `actor_rollout_ref.actor.ppo_micro_batch_size` <br> `critic.ppo_micro_batch_size`（Deprecated) | **作用**：已弃用，被 `per_gpu` 版本取代，因为它能更好地适应分布式训练环境。 |
 
-## 基于 token 数量的 batch size 控制
+## Dynamic Batch Size
 
 当样本长度差异很大时，按样本数量划分批次可能导致不同批次的计算量极不均衡，而基于 token 总数来控制 batch size 是一种平衡每个 batch 训练时间的方案。
 
@@ -23,131 +23,92 @@ Ji Li（蚂蚁），Zhuoran Yin（CMU），Changyi Yang（CMU），Chengxi Li（
 | --- | --- |
 | `actor_rollout_ref.actor.ppo_max_token_len_per_gpu` <br> `critic.ppo_max_token_len_per_gpu` | **作用**：定义了一个 PPO micro batch size 中，单个 GPU 能处理的最大 Token 总数。<br><br>**详细解释**：这是 `ppo_micro_batch_size_per_gpu` 的替代方案，与 `use_dynamic_bsz` 配合使用。系统会自动打包样本，直到总 Token 量（`prompt_len + response_len`）接近这个阈值，形成一个动态的 micro batch size，从而稳定计算效率；无论长短样本，每个微批次的计算量都相对恒定。<br>例如，设置为 `actor_rollout_ref.actor.ppo_max_token_len_per_gpu = 16384`，系统可能会打包 16 个长度为 1024 的样本（16 * 1024 = 16384）或者 64个长度为 256 的样本（64 * 256 = 16384）。<br><br>**影响与权衡**：通常比固定样本数的微批次效率更高，能更好地利用计算资源，减少 GPU 不稳定性。通常设置为 `n * ({data.max_prompt_length} + {data.max_response_length})` |
 | `reward_model.forward_max_token_len_per_gpu` <br> `critic.forward_max_token_len_per_gpu` <br> `actor_rollout_ref.ref.log_prob_max_token_len_per_gpu` | **作用**：只进行 forward 计算的 Model 的一个 micro-batch 的 token 最大数量。<br><br>**详细解释**：一些模型（Reward Model, Critic 求 value, Reference Model 求 log probs）在 make experience 阶段只有 forward 计算，此时 rollout engine 已经 offload 了，而 training engine 还没启动，显存占用是很少的。因此，可以为它们设置一个更大的 batch size 以加速计算。这些参数同样是 `use_dynamic_bsz` 的一部分，用于优化这些特定任务的执行效率。 |
+| `critic.forward_micro_batch_size_per_gpu` <br> `reward_model.micro_batch_size_per_gpu` <br> `actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu` | **作用**：同样为只进行 forward 计算的 model 设置 micro-batch size。<br><br>**详细解释**：同上一行参数。 |
+| `actor_rollout_ref.actor.use_dynamic_bsz` <br> `critic.use_dynamic_bsz` <br> `reward_model.use_dynamic_bsz` | **作用**：是否启用 Dynamic Batch Size。<br><br>**详细解释**：当此项为 `True` 时，系统会忽略基于样本数的 `micro_batch_size_per_gpu` 参数，转而使用基于 Token 数的 `max_token_len_per_gpu` 参数来构建 batch。 |
+| `trainer.balance_batch` | **作用**：是否在分布式训练的各个 dp rank 间平衡 batch size。<br><br>**详细解释**：在 single controller 上将 data 重新排序使得每个 dp rank 获得相似数目的 token。 |
 
+## Rollout Sampling Parameters
 
-### 4. 辅助模型与动态均衡化策略
-
-| 参数名称 | 详细解释 |
+| 参数名称 | 作用与解释 |
 | --- | --- |
-| `critic.forward_micro_batch_size_per_gpu` <br> `reward_model.micro_batch_size_per_gpu` <br> `actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu` | **作用**：为 Critic（计算 Value）、Reward Model 和 Reference Model 这些只需要前向传播的组件，分别设置其微批次大小。<br><br>**详细解释**：由于没有反向传播和梯度计算，这些操作的显存占用远小于 Actor/Critic 的训练步骤。因此，可以为它们设置比训练微批次 (`ppo_micro_batch_size_per_gpu`) 更大的值，以加快计算速度。 |
-| `actor_rollout_ref.actor.use_dynamic_bsz` <br> `critic.use_dynamic_bsz` <br> `reward_model.use_dynamic_bsz` | **作用**：是否启用**动态批次大小 (Dynamic Batch Size)**。<br><br>**详细解释**：当此项为 `True` 时，系统会忽略基于样本数的 `micro_batch_size_per_gpu` 参数，转而使用基于 Token 数的 `max_token_len_per_gpu` 参数来构建批次。这对于处理长度可变序列的 Transformer 模型非常高效。 |
-| `trainer.balance_batch` | **作用**：是否在分布式训练的各个dp rank间平衡批次大小。<br><br>**详细解释**：在single controller上将data重新排序使得每个dp rank获得相似数目的token。 |
+| `actor_rollout_ref.rollout.temperature` | temperature 值越高，概率分布越平滑，生成结果更多样、更随机；值越低，分布越尖锐，生成结果更倾向于高概率词元，更确定、更保守。`temperature=0` 通常等同于 Greedy Decoding。 |
+| `actor_rollout_ref.rollout.top_k` | 在每一步生成时，只考虑概率最高的 K 个 token 进行采样。例如，`top_k=50` 表示只从概率前 50 的 token 中选择。<br>- 禁用时：在 Hugging Face 中设置为 `0` 或 `None`，在 SGLang 中设置为 `-1`（此时从整个词汇表采样）。|
+| `actor_rollout_ref.rollout.top_p` | 从概率最高的 token 开始累加，直到它们的总概率达到 P，然后从这个 nucleus token 集合中进行采样。是一种动态选择采样范围的方法。`top_p=1.0` 表示不限制。 |
+| `actor_rollout_ref.rollout.use_fire_sampling` | 是否使用 Fire Sampling，来自字节的[论文](https://arxiv.org/abs/2410.21236)。 |
+| `actor_rollout_ref.rollout.n` | 为每个 prompt 生成的 response 数量，也即 GRPO 中的 group size。|
+| `actor_rollout_ref.rollout.ignore_eos` | 是否忽略 EOS (End-of-Sentence) 标记。如果为 `True`，即使模型生成了 EOS 标记，也会继续生成直到达到 `max_response_length`。 |
 
-# Rollout 阶段关键参数解析
+## Performance and Resource Management
 
-Rollout 阶段是强化学习（RL）的核心环节，它负责使用当前的策略模型（Actor）与环境（由提示 Prompt 定义）交互，生成用于训练的经验数据。
-
-Rollout Engine 的配置主要集中在 `actor_rollout_ref.rollout` 这个部分。其参数可以分为几大类：**引擎选择与模式**、**采样与生成控制**、**性能与资源管理**、**SGLang/vLLM）配置**、**多轮对话配置** 和 **验证阶段配置**。
+| 参数名称 | 作用与解释 |
+| --- | --- |
+| `actor_rollout_ref.rollout.prompt_length` | 最大的 prompt 长度，过长则被截断。 |
+| `actor_rollout_ref.rollout.response_length` | 最大的 response 长度，到达最大长度时 SGLang engine 会直接返回。 |
+| `actor_rollout_ref.rollout.dtype` | 模型数据类型。例如 `bfloat16`, `float16`，需要与训练阶段的模型类型对齐，否则更新模型参数的时候还需要做量化。 |
+| `actor_rollout_ref.rollout.gpu_memory_utilization` | SGLang 中模型参数和 KV Cache占显存的比例，如果使用 0.4.8.post1 以上版本 SGLang，则可以设置到 0.85，使用以下版本的 SGLang 则需要设置到 0.5 左右。|
+| `actor_rollout_ref.rollout.free_cache_engine` | Rollout 后是否释放引擎缓存；SGLang 中启用此选项将触发 `flush_cache()` 操作：清空 kv cache pool，将所有 slots 标记为可用。通过释放 KV Cache 的逻辑占用，但是不释放物理显存。为什么需要 flush kv cache 可以参考[此处](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrolloutasyncengine)。|
+| `actor_rollout_ref.rollout.load_format` | 模型权重加载模式。例如 `dummy_dtensor`（随机初始化权重，用于快速调试）、`hf`、`safetensors`（推荐，安全且高效）。 |
+| `actor_rollout_ref.rollout.tensor_model_parallel_size` (TP_SIZE) | 张量并行大小，表示用多少个 GPU 来共同运行一个 SGLang engine。例如，`TP_SIZE=4` 表示将一个大模型的权重切成 4 份，由 4 个 GPU 协同完成推理。 |
+| `actor_rollout_ref.rollout.max_model_len` | 模型能处理的最大总长度（prompt + response）；如果未设置，通常由模型配置决定。 |
+| `actor_rollout_ref.rollout.max_num_seqs` | 引擎能同时处理的最大请求量，或者说同时推理的最多 prompts 数量。 |
+| `actor_rollout_ref.rollout.enable_chunked_prefill` | 是否启用 Chunked Prefill，对于非常长的 Prompt，可以将其分块处理，减少显存峰值，但是降低吞吐量。 |
+| `actor_rollout_ref.rollout.disable_log_stats` | 是否禁用推理引擎的统计日志，以减少控制台输出。 |
 
 ---
 
-### 1. 引擎选择与模式 (`name`, `mode`)
+### SGLang 配置
 
 | 参数名称 | 作用与解释 |
 | --- | --- |
-| `actor_rollout_ref.rollout.name` | **选择 Rollout 引擎的实现**。这是决定如何执行生成的关键参数。<br><br>**选项**: <br>- `hf`: 使用标准的 Hugging Face `generate` 方法。功能齐全但性能较低，适合快速原型验证或小规模实验。<br>- `sglang`: 使用 SGLang 推理引擎。提供了更灵活的控制流和模板功能，特别适合复杂的多轮对话、工具调用等场景。|
-| `actor_rollout_ref.rollout.mode` | **设置引擎的运行模式**。<br>  sglang 无需该参数的设置。可以通过设置actor_rollout_ref.rollout.multi_turn.enable  在sglang rollout 开启request-level 的异步调度 |
+| `actor_rollout_ref.rollout.engine_kwargs.sglang.attention_backend` | **SGLang 使用的注意力后端**。可以选择如 `flashinfer`, `triton`, `flashmla`, `null`  几种实现，以适应自身显卡。 |
 
 ---
 
-### 2. 采样与生成控制 (`temperature`, `top_k`, `top_p`, `do_sample`, `n`, etc.)
+### multi-turn tool calling
 
-这些参数控制模型如何从其输出的概率分布中选择下一个 Token，从而决定了生成内容的多样性和质量。
-
-| 参数名称 | 作用与解释 |
-| --- | --- |
-| `actor_rollout_ref.rollout.temperature` | **采样温度**。值越高（>1.0），概率分布越平滑，生成结果更多样、更随机；值越低（<1.0），分布越尖锐，生成结果更倾向于高概率词元，更确定、更保守。`temperature=0` 通常等同于贪心解码（Greedy Decoding）。 |
-| `actor_rollout_ref.rollout.top_k` | **Top-K 采样**。 **Top-K 采样**。在每一步生成时，只考虑概率最高的 K 个 token 进行采样。例如，`top_k=50` 表示只从概率前 50 的 token 中选择。<br>- 禁用时：在 Hugging Face 中设置为 `0` 或 `None`，在 vLLM/SGLang 中设置为 `-1`（此时从整个词汇表采样）|
-| `actor_rollout_ref.rollout.top_p` | **Top-P (Nucleus) 采样**。从概率最高的词元开始累加，直到它们的总概率达到 P，然后从这个核心（Nucleus）词元集合中进行采样。这是一种动态选择采样范围的方法。`top_p=1.0` 表示不限制。 |
-| `actor_rollout_ref.rollout.use_fire_sampling` | **是否使用 Fire Sampling**。一种新颖的采样技术，旨在提高生成质量，详情可参考[相关论文](https://arxiv.org/abs/2410.21236)。 |
-| `actor_rollout_ref.rollout.do_sample` | **该设置仅用于HF Rollout**, **是否进行采样**。如果为 `True`，则使用上述 `temperature`, `top_k`, `top_p` 等参数进行随机采样。如果为 `False`，则使用贪心解码，总是选择概率最高的词元。
-| `actor_rollout_ref.rollout.n` | **为每个 Prompt 生成的响应数量**。对于标准 PPO，通常为 1。对于 GRPO 等需要比较多个响应的算法，此值会大于 1。 |
-| `actor_rollout_ref.rollout.ignore_eos` | **是否忽略 EOS (End-of-Sentence) 标记**。如果为 `True`，即使模型生成了 EOS 标记，也会继续生成直到达到 `max_response_length`。 |
-
-### 3. 性能与资源管理
-
-这些参数主要用于优化 Rollout 阶段的性能、速度和显存使用。
+这部分参数主要用于需要多轮交互的场景，如工具调用、连续对话等，由 SGLang Engine 支持。
 
 | 参数名称 | 作用与解释 |
 | --- | --- |
-| `actor_rollout_ref.rollout.prompt_length` | **最大 Prompt 长度**。通常引用 `data.max_prompt_length`。 |
-| `actor_rollout_ref.rollout.response_length` | **最大生成响应长度**。通常引用 `data.max_response_length`。 |
-| `actor_rollout_ref.rollout.dtype` | **模型数据类型**。例如 `bfloat16`, `float16`。需要与训练阶段的模型类型对齐，以确保数值一致性。 |
-| `actor_rollout_ref.rollout.gpu_memory_utilization` | **KV 缓存的 GPU 显存使用率**。仅对 SGLang/vLLM有效。对于SGLang，表示模型参数和KV Cache占显存的比例。$(\text{model weights} + \text{KV cache pool}) / \text{GPU memory capacity}$.|
-| `actor_rollout_ref.rollout.enforce_eager` | **是否强制启用 Eager 模式** (禁用 CUDA Graph)。仅适用于 vLLM。默认为 `True`。<br> - **说明**：CUDA Graph 可优化性能，但会带来额外的显存开销。禁用 CUDA Graph（即启用 Eager 模式）可减少 Rollout 阶段的显存消耗。<br> - **SGLang 注意事项**：在 SGLang 中禁用 CUDA Graph 需在引擎参数中显式设置 `disable_cuda_graph=True`。 |
-| `actor_rollout_ref.rollout.free_cache_engine` | **Rollout 后是否释放引擎缓存**。<br> - **vLLM 用法**：与 `enforce_eager=True` 配合使用，可在每批 Rollout 后主动释放 KV Cache。<br> - **SGLang 用法与限制**：SGLang 中启用此选项仍需 `enforce_eager=True`。但请注意，**当前设置不会禁用 SGLang 的 CUDA Graph**（此问题将在后续版本修复）。 <br> - **核心机制**：启用 `free_cache_engine` 将触发 `flush_cache()` 操作：清空内存池状态，**将所有槽位（slots）标记为可用**（`free_slots`）。此操作通过释放 KV Cache 的逻辑占用，**辅助 `release_memory_occupation` 实现对物理显存的彻底回收**。|
-| `actor_rollout_ref.rollout.load_format` | **模型权重加载格式**。例如 `dummy_dtensor`（随机初始化权重，用于快速调试）、`hf`、`safetensors`（推荐，安全且高效）。 |
-| `actor_rollout_ref.rollout.tensor_model_parallel_size` (TP_SIZE) | **张量并行大小**。仅对 SGLang/vLLM 有效。表示用多少个 GPU 来共同运行一个模型实例。例如，`TP_SIZE=4` 表示将一个大模型的权重切成 4 份，由 4 个 GPU协同完成推理。 |
-| `actor_rollout_ref.rollout.max_num_batched_tokens` | 仅适用vLLM，见训练参数详解。 |
-| `actor_rollout_ref.rollout.max_model_len` | **模型能处理的最大总长度**（prompt + response）。如果未设置，通常由模型配置决定。 |
-| `actor_rollout_ref.rollout.max_num_seqs` | 仅适用vLLM，SGLang有类似参数（max_running_requests）但未启用。**引擎能同时处理的最大序列数**。这是并发度的另一个限制。 |
-| `actor_rollout_ref.rollout.enable_chunked_prefill` | 仅适用vLLM。**是否启用分块预填充 (Chunked Prefill)**。对于非常长的 Prompt，可以将其分块处理，减少显存峰值，可能提高吞-吐量。 |
-| `actor_rollout_ref.rollout.disable_log_stats` | **仅适用vLLM。是否禁用推理引擎的统计日志**，以减少控制台输出。 |
+| `actor_rollout_ref.rollout.multi_turn.enable` | 是否启用多轮对话模式。 |
+| `actor_rollout_ref.rollout.multi_turn.max_turns` | 最多进行 tool calling 的轮次，null 时会默认设置成 `max_model_len // 3` 来避免无限对话。|
+| `actor_rollout_ref.rollout.multi_turn.tool_config_path` | 工具配置文件路径，定义模型可以调用的外部工具。 |
+| `actor_rollout_ref.rollout.multi_turn.completion_callback` | 自定义 callback function，在每轮生成后可以执行自定义逻辑。 |
+| `actor_rollout_ref.rollout.multi_turn.use_inference_chat_template` | 是否使用模型在 inference 阶段的 chat template。`True` 表示遵循 inference 阶段的模板格式。`False` 表示使用预训练中的模板，可能包含额外思考过程的完整 Token 序列。对于任何模型，一定要保证在 post training 和后续 inference 进行测试的阶段采用一致的模板。 |
+| `actor_rollout_ref.rollout.multi_turn.enable_tokenization_sanity_check` | 是否进行 tokenization 安全性检查，检查逐轮 tokenize 的结果与一次 tokenize 整个 chat history 的结果一致。 |
 
----
-
-### 4. 特定引擎（SGLang/vLLM）配置 (`engine_kwargs`)
+### 验证阶段配置
 
 | 参数名称 | 作用与解释 |
 | --- | --- |
-| `actor_rollout_ref.rollout.engine_kwargs.vllm.swap_space` | **vLLM 使用的交换空间（GB）**，默认为 `4GB`。当 GPU 显存不足以容纳所有 KV Cache 时，vLLM 可以将一部分不常用的 Cache 交换到 CPU 内存或磁盘。此参数设置该交换空间的大小。 |
-| `actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache` | **是否禁用多模态模型的预处理器缓存**。 |
-| `actor_rollout_ref.rollout.engine_kwargs.sglang.attention_backend` | **SGLang 使用的注意力后端**。可以选择如 `flashinfer`, `triton`, `flashmla`, `null`  几种实现，以获得最佳性能。 |
+| `actor_rollout_ref.rollout.val_kwargs.*` | 验证阶段的 sampling parameters，这允许我们在 post training 和 validation 时使用不同的 sampling parameters。例如，验证时通常设置 `temperature=0` 和 `do_sample=False` 来进行贪心解码，以获得更稳定的评估结果。 |
 
----
-
-### 5. 多轮对话配置 (`multi_turn`)
-
-这部分参数主要用于需要多轮交互的场景，如工具调用、连续对话等，通常由 `sglang` 引擎支持。
+### Dataset
 
 | 参数名称 | 作用与解释 |
 | --- | --- |
-| `actor_rollout_ref.rollout.multi_turn.enable` | **是否启用多轮对话模式**。 |
-| `actor_rollout_ref.rollout.multi_turn.max_turns` | **模型生成的最大轮次** null 时会默认设置成max_model_len//3 来避免无限对话。
-| `actor_rollout_ref.rollout.multi_turn.tool_config_path` | **工具配置文件路径**。定义了模型可以调用的外部工具。 |
-| `actor_rollout_ref.rollout.multi_turn.completion_callback` | **自定义完成回调函数**。在每轮生成后可以执行自定义逻辑。 |
-| `actor_rollout_ref.rollout.multi_turn.use_inference_chat_template` | **是否使用模型的原生聊天模板**。`True` 表示遵循生产环境的模板格式。`False` 表示使用训练数据中记录的、可能包含额外思考过程的完整 Token 序列，以保持训练和推理的一致性。 |
-| `actor_rollout_ref.rollout.multi_turn.enable_tokenization_sanity_check` | **是否进行分词健全性检查**。确保逐轮分词的结果与一次性分词整个对话历史的结果一致。 |
+| `data.tokenizer` | Tokenizer 的类或路径。如果为 null，将从模型中自动推断。 |
+| `data.use_shm` | 是否使用共享内存（shared memory）来加载数据。 |
+| `data.train_files` | 训练集 parquet 文件。可以是列表或单个文件；路径可以是本地路径或 HDFS 路径。 |
+| `data.val_files` | 验证集 parquet 文件。可以是列表或单个文件。 |
+| `data.prompt_key` | 数据集中 prompt 的字段。默认为 `prompt`。 |
+| `data.reward_fn_key` | 用于选择奖励函数（如果每个样本使用不同奖励函数）的字段。 |
+| `data.max_prompt_length` | 最大提示长度。所有提示将向左填充到此长度。 |
+| `data.return_raw_input_ids` | 是否返回未添加聊天模板的原始 `input_ids`;当 reward model 的 chat template 与 policy model 不同时使用。 |
+| `data.return_raw_chat` | 是否返回未应用聊天模板的原始 response。 |
+| `data.return_full_prompt` | 是否返回带有聊天模板的完整 prompt。 |
+| `data.shuffle` | 是否在 DataLoader 中打乱数据。 |
+| `data.validation_shuffle` | 是否打乱验证集。 |
+| `data.filter_overlong_prompts` | 是否过滤超长的 prompt。 |
+| `data.filter_overlong_prompts_workers` | 过滤超长 prompt 的工作进程数。对于大型数据集，使用多进程加速。默认为 1。 |
+| `data.truncation` | 如果 `input_ids` 或 `prompt` 超过最大长度，则进行截断。 |
+| `data.image_key` | 多模态数据集中表示图像的字段。默认为 `images`。 |
+| `data.video_key` | 多模态数据集中表示视频的字段。 |
+| `data.trust_remote_code` | 是否信任本地的的 huggingface cache；注意，这个 remote 是相对 huggingface 而言的，所以这个参数考虑的是“是否信任本地”。 |
+| `data.custom_cls.path` | 包含自定义数据集类的文件路径。如果未指定，将使用预实现的默认数据集。 |
+| `data.custom_cls.name` | 指定文件中的数据集类名。 |
 
-### 6. 验证阶段配置 (`val_kwargs`)
-
-| 参数名称 | 作用与解释 |
-| --- | --- |
-| `actor_rollout_ref.rollout.val_kwargs.*` | **验证阶段的专属采样参数**。这允许你在训练（探索性更强）和验证（确定性更强）时使用不同的生成策略。例如，验证时通常设置 `temperature=0` 和 `do_sample=False` 来进行贪心解码，以获得稳定、可复现的评估结果。 |
-
-这些参数共同构成了 Rollout Engine 的完整配置，允许用户在**功能、性能、资源使用和生成策略**之间进行精细的权衡和定制。
-
-# 整体参数概览
-
-### 1. 数据 (`data`)
-
-| 参数名称 (Parameter Name) | 描述 (Description) |
-| --- | --- |
-| `data.tokenizer` | 分词器（Tokenizer）的类或路径。如果为 null，将从模型中自动推断。 (Tokenizer class or path. If null, it will be inferred from the model.) |
-| `data.use_shm` | 是否使用共享内存（shared memory）来加载数据。 (Whether to use shared memory for data loading.) |
-| `data.train_files` | 训练集 parquet 文件。可以是列表或单个文件。路径可以是本地路径或 HDFS 路径。 (Training set parquet. Can be a list or a single file. The path can be either a local path or an HDFS path.) |
-| `data.val_files` | 验证集 parquet 文件。可以是列表或单个文件。 (Validation parquet. Can be a list or a single file.) |
-| `data.prompt_key` | 数据集中表示提示（prompt）的字段。默认为 'prompt'。 (The field in the dataset where the prompt is located. Default is 'prompt'.) |
-| `data.reward_fn_key` | 用于选择奖励函数（如果每个样本使用不同奖励函数）的字段。 (The field used to select the reward function (if using different ones per example).) |
-| `data.max_prompt_length` | 最大提示长度。所有提示将向左填充到此长度。如果长度过长，将报告错误。 (Maximum prompt length. All prompts will be left-padded to this length. An error will be reported if the length is too long.) |
-| `data.max_response_length` | 最大响应长度。RL 算法（如 PPO）中的 rollout 生成最多此长度。 (Maximum response length. Rollout in RL algorithms (e.g. PPO) generates up to this length.) |
-| `data.train_batch_size` | 在一次不同 RL 算法的训练迭代中采样的批次大小。 (Batch size sampled for one training iteration of different RL algorithms.) |
-| `data.val_batch_size` | 验证期间使用的批次大小。可以为 null。 (Batch size used during validation. Can be null.) |
-| `data.return_raw_input_ids` | 是否返回未添加聊天模板的原始 input_ids。当奖励模型的聊天模板与策略模型不同时使用。 (Whether to return the original input_ids without adding chat template. This is used when the reward model's chat template differs from the policy.) |
-| `data.return_raw_chat` | 是否返回未应用聊天模板的原始聊天（提示）。 (Whether to return the original chat (prompt) without applying chat template.) |
-| `data.return_full_prompt` | 是否返回带有聊天模板的完整提示。 (Whether to return the full prompt with chat template.) |
-| `data.shuffle` | 是否在数据加载器中打乱数据。 (Whether to shuffle the data in the dataloader.) |
-| `data.validation_shuffle` | 是否打乱验证集。 (Whether to shuffle the validation set.) |
-| `data.filter_overlong_prompts` | 是否过滤超长的提示。 (Whether to filter overlong prompts.) |
-| `data.filter_overlong_prompts_workers` | 过滤超长提示的工作进程数。对于大型数据集，使用多进程加速。默认为 1。 (Number of workers for filtering overlong prompts. For large-scale datasets, use multiprocessing to speed up. Default is 1.) |
-| `data.truncation` | 如果 input_ids 或 prompt 超过最大长度，则进行截断。选项：'error'、'left' 或 'right'。 (Truncate the input_ids or prompt if they exceed max_prompt_length. Options: 'error', 'left', or 'right'.) |
-| `data.image_key` | 多模态数据集中表示图像的字段。默认为 'images'。 (The field in the multi-modal dataset where the image is located. Default is 'images'.) |
-| `data.video_key` | 多模态数据集中表示视频的字段。 (The field in the multi-modal dataset where the video is located.) |
-| `data.trust_remote_code` | 如果远程分词器有 Python 文件，此标志决定是否允许使用它。 (If the remote tokenizer has a Python file, this flag determines whether to allow using it.) |
-| `data.custom_cls.path` | 包含自定义数据集类的文件路径。如果未指定，将使用预实现的默认数据集。 (The path to the file containing your customized dataset class. If not specified, pre-implemented dataset will be used.) |
-| `data.custom_cls.name` | 指定文件中的数据集类名。 (The name of the dataset class within the specified file.) |
-
-### 2. Actor, Rollout & Reference 模型 (`actor_rollout_ref`)
+### Actor, Rollout & Reference 模型
 
 | 参数名称 (Parameter Name)                                                    | 描述 (Description)                                                                                                                                                                                                         |
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
