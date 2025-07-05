@@ -249,50 +249,6 @@ class LocalSerializedTensor:
 
 有了 `update_weights_from_tensor` 的理解，我们进一步分析 SLIME 在 co-locate 策略下的权重同步策略。
 
-### 建立连接
-
-SLIME调用`async_init_weight_update_connections`来建立训练侧和推理侧的链接。
-
-```python
-def async_init_weight_update_connections(self, rollout):
-        """
-        Connect rollout engines and actors, e.g. initialize the process group between them
-        to update weights after each training stage.
-        """
-
-        return [
-            # 核心链接部分
-            actor.connect_rollout_engines.remote(
-                rollout.rollout_engines,
-                rollout.rollout_engine_lock,
-            )
-            for actor in self._actor_handlers
-        ]
-```
-
-其中真正建立链接的部分是`connect_rollout_engines.remote`。这里通过`dist.new_group`创建了一个进程组，注释中说明前提：第`i`组`goup_ranks`和第`i`个`rollout engine`被调度到了同一个GPU上。并且定义了组中`rank`之间使用`nccl`，所以在之后的`broadcast+all_gather`过程中，`rank`之间会通过`CUDA IPC`进行显存拷贝，不用通过CPU或者网络传输。
-
-```python
-def connect_rollout_engines(self, rollout_engines, rollout_engine_lock):
-    # ...
-    if self.args.colocate:
-        # Here we assume the gpu id of rollout engines and train actors are the same.
-        for i, engine in enumerate(self.rollout_engines):
-            start_rank = i * self.args.rollout_num_gpus_per_engine
-            end_rank = (i + 1) * self.args.rollout_num_gpus_per_engine
-            group_ranks = list(range(start_rank, end_rank))
-            new_group = dist.new_group(
-                ranks=group_ranks,
-                backend="nccl",
-            )
-            if dist.get_rank() in group_ranks:
-                self._ipc_gather_src = start_rank
-                self._ipc_gather_group = new_group
-                self._ipc_engine = engine
-```
-
-
-
 ### SLIME 训练侧
 
 以下是SLIME中，当`colocate = True`时，权重更新的主要路径为`GPU->GPU + CUDA-IPC` ，核心流程如下：
@@ -387,15 +343,39 @@ def _update_converted_params_from_tensor(self, converted_named_tensors):
 ```
 
 1. **清空 cache & 加载参数: **向所有`rollout engine`发送清空`cache`指令，并等待清空完成。确保旧的`cache`不影响新一轮的`rollout`。在`Co-located`模式下，加载参数需要先进行一次`CPU -> GPU`的拷贝。SLIME的实现方式是，将CPU缓存中的权重拷贝到`src_rank`中，其他`rank`暂时被`empty tensoer`填充，等待之后的`broadcast`。
-2. **权重聚合: **先在`PP/EP`组内做`broadcast`，在`PP/EP`维度保证每个`rank`拥有完整参数，再通过`dist.all_gather` + `torch.cat`完成TP层面的聚合，得到完整的`tensor`，之后进行hf命名转换。我们在建立连接的部分知道，这部分的通信是通过`nccl `完成的，不需要通过CPU或者网络。与之相对，Verl 没有显式 `broadcast+all_gather`, 而是通过`_preprocess_tensor_for_update_weights()`将当前参数的完整 tensor 进行聚合，之后进行序列化操作。
-3. **tensor 序列化 + 聚合 handle tuple: **这部分与Verl一样，使用`MultiprocessingSerializer.serialize`进行序列化，生成`handle tuple`然后通过`gather_object`将所有`handle tuple`聚合到`src_rank`。
-4. **传递 handler tuples: ** 通过`ray`框架将聚合的`handler tuple`传递给SGLang，不同于Verl不经过`ray` 直接调用SGLang。
+2. **权重聚合: **先在`PP/EP`组内做`broadcast`，在`PP/EP`维度保证每个`rank`拥有完整参数，再通过`dist.all_gather` + `torch.cat`完成TP层面的聚合，得到完整的`tensor`。Verl中只有`TP`维度的并行，可以通过`full_tensor`直接将这一维度的`DTensor`聚合成`tensor`。在SLIME中，存在不同切分方式的多维度并行，所以不能简单地用`full_tensor`，需要手动将切片`broadcast`到每个`rank`并`all gather`。
+3. **tensor 序列化: **与Verl一样，使用`MultiprocessingSerializer.serialize`进行序列化。
+4. **聚合 handle tuples: ** 在SLIME训练启动时，会将在同一组GPU的`ranks`和`rollout engine`设定在同一一个`processgroup` -- `_ipc_gather_group`中，并设定通信方式为`nccl`，通过`dist.gather()`完成`handle tuple`的聚合。在Verl中，使用了`device_mesh["infer_tp"].get_group()`来完成聚合，这是一种更新的方式，可以更加方便地设置多维`process group`。
 
-###  小结
+```python
+# 我们可以假设第i组rank和第i个rollout engine在同一组GPU中
+for i, engine in enumerate(self.rollout_engines):
+    start_rank = i * self.args.rollout_num_gpus_per_engine
+    end_rank = (i + 1) * self.args.rollout_num_gpus_per_engine
+    group_ranks = list(range(start_rank, end_rank))
+    new_group = dist.new_group(
+        ranks=group_ranks,
+        backend="nccl",
+    )
+    if dist.get_rank() in group_ranks:
+        self._ipc_gather_src = start_rank
+        self._ipc_gather_group = new_group
+        self._ipc_engine = engine
+```
 
-在Colocated模式时 Slime 与 Verl 在**tensor序列化 + 聚合 handler tuple**部分完全一致,差异主要是 Slime 需要自己在 PP/EP/TP 三层并行里把张量补全，因此多了两轮 broadcast 和一次显存 concat。
+###  
+
+5. **传递 handler tuples: ** 通过`ray`框架将聚合的`handler tuple`传递给SGLang，不同于Verl不经过`ray` 直接调用SGLang。
+
+   
+
+### 小结
+
+在Colocated模式时 Slime 与 Verl 都使用了序列化机制，向rollout engine传递聚合后的`handle tuple`。
+
+不同之处在于Slime 需要自己在 PP/EP/TP 三层并行里把张量聚合，需要手动进行`broadcast + all gather`。并且在`handle tuple`聚合过程中，Verl使用了更新的`device mesh`，而SLIME使用了传统的`process group`。
+
 在整个过程中只有在开始时加载权重需要CPU → GPU后续全部 GPU→GPU。 
-
 ## 三种权重更新方式的对比
 
 知易行难，我个人的 RL 系统开发就是从权重更新接口开始的。RL 系统无非就是需要把 inference engine 接进去，每次做一系列推理，然后训练完了更新权重就行了；可是其中的心酸滋味，自然只有真的打磨过，才能体会。我在这里梳理三种权重更新的接口，本质上也是在梳理两种：
