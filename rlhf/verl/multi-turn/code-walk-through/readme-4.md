@@ -245,10 +245,9 @@ class LocalSerializedTensor:
 
 每个 tp rank 调用 `_unwrap_tensor` 接口，在 `tensor.get(tp_rank)` 一步中，顺着 `LocalSerializedTensor.get -> MultiprocessingSerializer.deserialize` 向下调用，反序列化恢复了在 FSDP 侧聚合得到的完整 tensor 的 handler tuple。接着，构造新的 python tensor 对象，将刚刚恢复的 handler tuple 作为新的 Python tensor 对象的 handle tuple。这样一来，通过共享 handle 的机制，新的 tensor 对象和 FSDP 侧聚合得到的完整 tensor 共享了一切 meta data，自然也指向了同一块显存，完成了所谓的 tensor 重建过程。重建结束后，这个新的 tensor 对象被传递给 `ModelRunner.load_weights`，在 SGLang 底层把原本的 tensor 更换掉即可。
 
-# SLIME中的权重同步策略
+## SLIME 中的权重同步策略
 
-## Co-located
-在这个模式下，train actors和rollout engine在同一组GPU中，他们之间可以通过`nccl`完成权重同步更新，绕过CPU与网络。同时还使用了与Verl一样的tensor序列化策略，保证了高效的权重同步。
+有了 `update_weights_from_tensor` 的理解，我们进一步分析 SLIME 在 co-locate 策略下的权重同步策略。
 
 ### 建立连接
 
