@@ -245,7 +245,157 @@ class LocalSerializedTensor:
 
 每个 tp rank 调用 `_unwrap_tensor` 接口，在 `tensor.get(tp_rank)` 一步中，顺着 `LocalSerializedTensor.get -> MultiprocessingSerializer.deserialize` 向下调用，反序列化恢复了在 FSDP 侧聚合得到的完整 tensor 的 handler tuple。接着，构造新的 python tensor 对象，将刚刚恢复的 handler tuple 作为新的 Python tensor 对象的 handle tuple。这样一来，通过共享 handle 的机制，新的 tensor 对象和 FSDP 侧聚合得到的完整 tensor 共享了一切 meta data，自然也指向了同一块显存，完成了所谓的 tensor 重建过程。重建结束后，这个新的 tensor 对象被传递给 `ModelRunner.load_weights`，在 SGLang 底层把原本的 tensor 更换掉即可。
 
-## SLIME 中的权重更新策略
+# SLIME中的权重同步策略
+
+## Co-located
+在这个模式下，train actors和rollout engine在同一组GPU中，他们之间可以通过`nccl`完成权重同步更新，绕过CPU与网络。同时还使用了与Verl一样的tensor序列化策略，保证了高效的权重同步。
+
+### 建立连接
+
+SLIME调用`async_init_weight_update_connections`来建立训练侧和推理侧的链接。
+
+```python
+def async_init_weight_update_connections(self, rollout):
+        """
+        Connect rollout engines and actors, e.g. initialize the process group between them
+        to update weights after each training stage.
+        """
+
+        return [
+            # 核心链接部分
+            actor.connect_rollout_engines.remote(
+                rollout.rollout_engines,
+                rollout.rollout_engine_lock,
+            )
+            for actor in self._actor_handlers
+        ]
+```
+
+其中真正建立链接的部分是`connect_rollout_engines.remote`。这里通过`dist.new_group`创建了一个进程组，注释中说明前提：第`i`组`goup_ranks`和第`i`个`rollout engine`被调度到了同一个GPU上。并且定义了组中`rank`之间使用`nccl`，所以在之后的`broadcast+all_gather`过程中，`rank`之间会通过`CUDA IPC`进行显存拷贝，不用通过CPU或者网络传输。
+
+```python
+def connect_rollout_engines(self, rollout_engines, rollout_engine_lock):
+    # ...
+    if self.args.colocate:
+        # Here we assume the gpu id of rollout engines and train actors are the same.
+        for i, engine in enumerate(self.rollout_engines):
+            start_rank = i * self.args.rollout_num_gpus_per_engine
+            end_rank = (i + 1) * self.args.rollout_num_gpus_per_engine
+            group_ranks = list(range(start_rank, end_rank))
+            new_group = dist.new_group(
+                ranks=group_ranks,
+                backend="nccl",
+            )
+            if dist.get_rank() in group_ranks:
+                self._ipc_gather_src = start_rank
+                self._ipc_gather_group = new_group
+                self._ipc_engine = engine
+```
+
+
+
+### SLIME 训练侧
+
+以下是SLIME中，当`colocate = True`时，权重更新的主要路径为`GPU->GPU + CUDA-IPC` ，核心流程如下：
+
+```python
+def update_weights_from_tensor(self):
+    # ...
+    params = []
+    for info in param_infos:
+        # 将CPU中权重加载到src_rank
+        if dist.get_rank() == info.src_rank:
+            params.append(
+                torch.nn.Parameter(self.params_dict[info.name].to(device=torch.cuda.current_device()))
+            )
+        else:
+            params.append(torch.empty(info.shape, dtype=info.dtype, device=torch.cuda.current_device()))
+        # 在PP/EP维度broadcast
+        if pp_size > 1:
+            handles = []
+            for info, param in zip(param_infos, params):
+                if info.src_rank in dist.get_process_group_ranks(mpu.get_pipeline_model_parallel_group()):
+                    handles.append(
+                        torch.distributed.broadcast(
+                            param, src=info.src_rank, group=mpu.get_pipeline_model_parallel_group(), async_op=True
+                        )
+                    )
+            for handle in handles:
+                handle.wait()
+
+        if ep_size > 1:
+            handles = []
+            for info, param in zip(param_infos, params):
+                if ".experts." in info.name:
+                    src_rank = (
+                        info.src_rank
+                        if info.src_rank in dist.get_process_group_ranks(mpu.get_expert_model_parallel_group())
+                        else rank
+                    )
+                    handles.append(
+                        torch.distributed.broadcast(
+                            param, src=src_rank, group=mpu.get_expert_model_parallel_group(), async_op=True
+                        )
+                    )
+            for handle in handles:
+                handle.wait()
+                
+        converted_named_tensors = []
+        for info, param in zip(param_infos, params):
+            # set tp attrs
+            for key, value in info.attrs.items():
+                setattr(param, key, value)
+            # TP维度聚合成完整tensor
+            param = update_weight_utils.all_gather_param(info.name, param)
+            param = update_weight_utils.remove_padding(info.name, param, self.vocab_size)
+            converted_named_tensors.extend(
+                update_weight_utils.convert_to_hf(
+                    self.args, self.model_name, info.name, param, self.quantization_config
+                )
+            )
+        self._update_converted_params_from_tensor(converted_named_tensors)
+        
+def all_gather_param(name, param):
+	# ...
+    param_partitions = [torch.empty_like(param.data) for _ in range(tp_size)]
+    dist.all_gather(param_partitions, param.data, group=tp_group)
+    partition_dim = param.partition_dim
+    # ...
+    param = torch.cat(param_partitions, dim=partition_dim)
+    return param
+        
+def _update_converted_params_from_tensor(self, converted_named_tensors):
+    monkey_patch_torch_reductions()
+    # tensor序列化
+    ipc_handle = MultiprocessingSerializer.serialize(converted_named_tensors, output_str=True)
+    ipc_handles = (
+        [None] * dist.get_world_size(self._ipc_gather_group) if self._ipc_gather_src == dist.get_rank() else None
+    )
+    # 聚合handle tuple
+    dist.gather_object(
+        ipc_handle,
+        object_gather_list=ipc_handles,
+        dst=self._ipc_gather_src,
+        group=self._ipc_gather_group,
+    )
+	# 通过ray将handle tuple传递给SGLang
+    if dist.get_rank() == self._ipc_gather_src:
+        ref = self._ipc_engine.update_weights_from_tensor.remote(
+            ipc_handles=ipc_handles,
+        )
+        ray.get(ref)
+	# ...
+```
+
+1. **清空 cache & 加载参数: **向所有`rollout engine`发送清空`cache`指令，并等待清空完成。确保旧的`cache`不影响新一轮的`rollout`。在`Co-located`模式下，加载参数需要先进行一次`CPU -> GPU`的拷贝。SLIME的实现方式是，将CPU缓存中的权重拷贝到`src_rank`中，其他`rank`暂时被`empty tensoer`填充，等待之后的`broadcast`。
+2. **权重聚合: **先在`PP/EP`组内做`broadcast`，在`PP/EP`维度保证每个`rank`拥有完整参数，再通过`dist.all_gather` + `torch.cat`完成TP层面的聚合，得到完整的`tensor`，之后进行hf命名转换。我们在建立连接的部分知道，这部分的通信是通过`nccl `完成的，不需要通过CPU或者网络。与之相对，Verl 没有显式 `broadcast+all_gather`, 而是通过`_preprocess_tensor_for_update_weights()`将当前参数的完整 tensor 进行聚合，之后进行序列化操作。
+3. **tensor 序列化 + 聚合 handle tuple: **这部分与Verl一样，使用`MultiprocessingSerializer.serialize`进行序列化，生成`handle tuple`然后通过`gather_object`将所有`handle tuple`聚合到`src_rank`。
+4. **传递 handler tuples: ** 通过`ray`框架将聚合的`handler tuple`传递给SGLang，不同于Verl不经过`ray` 直接调用SGLang。
+
+###  小结
+
+在Colocated模式时 Slime 与 Verl 在**tensor序列化 + 聚合 handler tuple**部分完全一致,差异主要是 Slime 需要自己在 PP/EP/TP 三层并行里把张量补全，因此多了两轮 broadcast 和一次显存 concat。
+在整个过程中只有在开始时加载权重需要CPU → GPU后续全部 GPU→GPU。 
 
 ## 三种权重更新方式的对比
 
