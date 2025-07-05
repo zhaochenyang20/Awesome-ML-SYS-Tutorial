@@ -1,6 +1,8 @@
-# RL 系统深思：深入理解基于 Hybrid Engine 的 RL 框架的权重更新机制
+# RL 系统深思：深入理解权重更新机制
 
-因为工作需要，最近终于得空能够再次深入去学习思考主流 RL 框架的系统设计。我们希望能够通过一系列文档分享我们的思考，也希望能够得到大家的反馈，和志同道合的朋友一同打造更好的开源 RLHF 框架。我们将这系列文章称为 RL 系统深思。本文是这系列的第一篇，重点讨论 Hybird Engine 下的权重更新机制。本文将会以 SLIME 和 verl 为主，讨论二者更新权重的整体逻辑，重点分析 SGLang `update_weights_from_tensor` 的机制；对于其他两种 update 方法，我们会在本文中进行对比分析。
+因为工作需要，最近终于得空能够再次深入去学习思考主流 RL 框架的系统设计。我们希望能够通过一系列文档分享我们的思考，也希望能够得到大家的反馈，和志同道合的朋友一同打造更好的开源 RLHF 框架。我们将这系列文章称为 RL 系统深思。本文是这系列的第一篇，重点讨论各类权重更新机制。本文首先分析 verl 这种 co-locate 策略下的权重更新方式，也是我自己第一次从头到尾理解了基于 handle tuple 重建 tensor 来实现的权重更新。接着，我们会剖析 SLIME 框架下的权重更新模式。SLIME 能够灵活使用 co-locate 与 dis-aggregate 两种策略，代码也更为简洁，并且对 MOE 模型有特定的优化。最后，我们会横向对比三种权重更新方式。
+
+## verl 当中 co-locate 策略的权重更新
 
 从逻辑上，在 co-locate 策略下的权重更新都是类似的，我们以 FSDP training backend 为例，给出一个简化而通用的更新流程，核心就是这样一个[代码片段](https://github.com/volcengine/verl/blob/0508af25b66e839772fba8e79d97896bf0d843d3/verl/workers/sharding_manager/fsdp_sglang.py#L160)：
 
@@ -56,7 +58,7 @@ async def update_weights(self, params):
   <img src="./update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
 </div>
 
-## 权重导出
+### 权重导出
 
 权重导出和 handle tuple 序列化在同一行完成：
 
@@ -121,7 +123,7 @@ if isinstance(tensor, DTensor):
     return tensor.full_tensor()
 ```
 
-## tensor 序列化
+### tensor 序列化
 
 序列化由 `MultiprocessingSerializer.serialize` 完成，如同前文所说，序列化一个 tensor 实际上得到的返回值是序列化后的 handler，或者更严谨的说法是 handler tuple。我们来看看序列化最后层层向下调用的 `reduce_tensor()` 函数的返回值：
 
@@ -150,7 +152,7 @@ if isinstance(tensor, DTensor):
 
 可见，对一个 CUDA Tensor 调用 `reduce_tensor`，实际上返回的是一个 Python Tuple，包含了重建 Tensor 所需的一切，而绝不包含实际存储的数据本身。接着，这个 handler tuple 通过进程间通信（比如 zmq）传递给接收方。接收方拿到的自然也不是数据本身，而是一组可以帮助重新找到（重建）这个 tensor 的 handler，我们在后文中会以 handler tuple 来指代。
 
-## 聚合 handler
+### 聚合 handler
 
 注意到，在聚合 tensor 并且序列化的过程中，从未指定不同 tp 的区别，可见对于当前正在更新的参数，每个 tp 上都会额外申请一片显存空间，聚合得到完整的 tensor，并且序列化得到其 handler tuple。考虑到单个参数并不大，这种做法仍旧安全。接着，每个 tp 都得到 handle tuple 后，将 handle tuple 也进行聚合：
 
@@ -242,3 +244,16 @@ class LocalSerializedTensor:
 ```
 
 每个 tp rank 调用 `_unwrap_tensor` 接口，在 `tensor.get(tp_rank)` 一步中，顺着 `LocalSerializedTensor.get -> MultiprocessingSerializer.deserialize` 向下调用，反序列化恢复了在 FSDP 侧聚合得到的完整 tensor 的 handler tuple。接着，构造新的 python tensor 对象，将刚刚恢复的 handler tuple 作为新的 Python tensor 对象的 handle tuple。这样一来，通过共享 handle 的机制，新的 tensor 对象和 FSDP 侧聚合得到的完整 tensor 共享了一切 meta data，自然也指向了同一块显存，完成了所谓的 tensor 重建过程。重建结束后，这个新的 tensor 对象被传递给 `ModelRunner.load_weights`，在 SGLang 底层把原本的 tensor 更换掉即可。
+
+## SLIME 中的权重更新策略
+
+## 三种权重更新方式的对比
+
+知易行难，我个人的 RL 系统开发就是从权重更新接口开始的。RL 系统无非就是需要把 inference engine 接进去，每次做一系列推理，然后训练完了更新权重就行了；可是其中的心酸滋味，自然只有真的打磨过，才能体会。我在这里梳理三种权重更新的接口，本质上也是在梳理两种：
+
+1. `update_weights_from_disk`：这是最简单的接口，在保证 engine 运行的情况下，直接从磁盘读取权重，然后层层向下调用 `ModelRunner.load_weights` 接口更新权重。实际使用上，在 RL 过程中每次完成 target policy 的更新，将 target policy 存下来，然后再调用 `update_weights_from_disk` 接口更新即可。听上去效率不高，毕竟要将权重写入下层存储，然后再读取上来，整体速度由下层存储的 I/O 效率决定。然而，倘若下层存储的读写速度足够快，或者 SGLang Engine 能够高效并行地去读取磁盘，未必这是个不能采用的方案。此外，在写入下层存储的时候，顺带也完成了 checkpoint 的写入。用其他的接口来更新权重，checkpoint 的管理还需要有另一套异步逻辑。最后，我认为 `update_weights_from_disk` 是最能够满足 rollout 动态扩缩容需求的接口。倘若在训练过程中，发现 Rollout 慢的出奇，使用 `update_weights_from_distributed` 方案的话，为了进行扩缩容，得先将已有的通讯组暂停，然后加入新的 Rollout Engine，重新建立通讯组，这个过程的工程复杂程度可想而知。如果使用 `update_weights_from_disk` 接口，直接在 Rollout Engine 上层的 DP router 上加入一个新的 Rollout Engine，然后所有 Rollout Engine 从同一个 checkpoint 上读取权重用于更新即可。`update_weights_from_disk` 在 co-locate 和 disaggregate 策略下都能使用，但是支持 co-locate 策略的框架基本都采用了 `update_weights_from_tensor`。在主流框架中，AReaL 选择了 `update_weights_from_disk`。
+
+
+2. `update_weights_from_distributed`：这是我实现的接口，在逻辑上和 `update_weights_from_tensor` 类似，但是 from distributed 是通过 nccl 或者 IB 在不同资源组之间通讯，只能用于 disaggregated 策略。具体来说，在 Training Engine 和 Rollout Engine 分离放置在两个不同的资源组的时，将二者建立一个统一的通讯组。每次 training engine 更新完权重后，将分离的权重逐个 parameter 聚合在 Training Engine 的 TP 0 上，然后从 Training Engine 的 TP 0 传递到 Rollout Engine 的每个 TP 上。Rollout Engine 的每个 TP 再自己 shard 取出需要的部分，然后参数 load 了即可。
+
+3. `update_weights_from_tensor`：其实和 `update_weights_from_distributed` 类似，逻辑上都要走一次聚合，但是如同我们前文的分析，`update_weights_from_tensor` 是只做 handle tuple 序列化传递，不传递实际数据的。from tensor 主要的麻烦是 co-locate 策略为了 rollout engine 的 offload 和 upload，对 rollout engine 的侵入性很强。在 MOE 上的很多优化都没法启用，比如经典的 DeepSeek DP Attention，而这在 dis-aggregate 策略下是天然支持的。
