@@ -1,4 +1,4 @@
-# verl Parameter Quick Look
+# verl Parameter Handbook
 
 Due to the use of [Hydra](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#%E8%84%9A%E6%9C%AC%E9%85%8D%E7%BD%AE), verl's parameters are scattered throughout the framework, and the official parameter documentation lacks updates. Therefore, our SGLang RL team, in collaboration with the Amazon AGI SF Lab, has compiled a quick look at verl's parameters. Given the large number of parameters, it is difficult for us to guarantee that every interpretation is absolutely correct, but each has been repeatedly reviewed by us. After careful consideration, we decided to share this parameter quick look with the community, hoping it will be helpful to everyone. The contributors to this guide are:
 

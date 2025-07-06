@@ -17,8 +17,12 @@ $$
 
 ## RLHF System 开发笔记
 
+<<<<<<< HEAD
 - [RL 系统深思：深入理解权重更新机制](./rlhf/verl/multi-turn/code-walk-through/readme-4.md)：半年工作的总结，深入理解权重更新机制，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925210722704531547)和[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-4-EN.md)。
 - [verl 参数速览](./rlhf/verl/multi-turn/code-walk-through/readme-5.md)：verl 参数速览，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-5-EN.md)。
+=======
+- [verl 参数速览](./rlhf/verl/multi-turn/code-walk-through/readme-5.md)：verl 参数速览，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925041836998783250)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-5-EN.md)。
+>>>>>>> e834701f926e11d947a667582b084a12b2a13f64
 - [深入浅出理解 verl 源码（Rollout）](./rlhf/verl/multi-turn/code-walk-through/readme-2.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1923349757566388159)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-2-EN.md)。
 - [深入浅出理解 verl 源码（初始化）](./rlhf/verl/multi-turn/code-walk-through/readme.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1920751852749849692)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme_EN.md)。
 - [从 tokenizer 视角来分析 Agentic 多轮训练的复杂性](rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking_ZH.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1917126584806139373)和[英文版本](rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking.md)。
