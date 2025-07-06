@@ -1,4 +1,4 @@
-# RL System Deep Thinking: A Deep Dive into Weight Update Mechanisms
+# RL System Deep Thinking: Weight Update Mechanisms
 
 Due to work requirements, I recently had the opportunity to once again delve into and reflect upon the system design of mainstream RL frameworks. We hope to share our thoughts through a series of documents and receive feedback, collaborating with like-minded friends to build a better open-source RLHF framework. We're calling this series "RL System Reflections." This is the first article in the series, focusing on various weight update mechanisms. We will start by analyzing the weight update method in `verl` under a co-located strategy, where I first understood from scratch how weight updates are implemented by reconstructing tensors from handle tuples. Next, we will dissect the weight update model in the `slime` framework, focusing on its ingenious bucket update strategy. Finally, we will conduct a horizontal comparison of three weight update methods and briefly share some of my personal thoughts. All feedback and corrections are welcome.
 
