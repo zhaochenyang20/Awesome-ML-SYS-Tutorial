@@ -1,6 +1,6 @@
-# RL System Deep Thinking: A Deep Dive into Weight Update Mechanisms
+# RL System Deep Thinking: Weight Update Mechanisms
 
-Due to work requirements, I recently had the opportunity to once again delve into and reflect upon the system design of mainstream RL frameworks. We hope to share our thoughts through a series of documents and receive feedback, collaborating with like-minded friends to build a better open-source RLHF framework. We're calling this series "RL System Reflections." This is the first article in the series, focusing on various weight update mechanisms. We will start by analyzing the weight update method in `verl` under a co-located strategy, where I first understood from scratch how weight updates are implemented by reconstructing tensors from handle tuples. Next, we will dissect the weight update model in the `slime` framework, focusing on its ingenious bucket update strategy. Finally, we will conduct a horizontal comparison of three weight update methods and briefly share some of my personal thoughts. All feedback and corrections are welcome.
+I recently had the opportunity to once again delve into and reflect upon the system design of mainstream RL frameworks. We hope to share our thoughts through a series of documents and receive feedback, collaborating with like-minded friends to build a better open-source RLHF framework. We're calling this series "RL System Deep Thinking." This is the first article in the series, focusing on various weight update mechanisms. We will start by analyzing the weight update method in `verl` under a co-located strategy, where I first understood from scratch how weight updates are implemented by reconstructing tensors from handle tuples. Next, we will dissect the weight update model in the `slime` framework, focusing on its ingenious bucket update strategy. Finally, we will conduct a horizontal comparison of three weight update methods and briefly share some of my personal thoughts. All feedback and corrections are welcome.
 
 As is customary, I'd like to thank all the friends who participated in the discussion and writing of this document:
 
@@ -8,7 +8,7 @@ Zhuoran Yin (CMU), Changyi Yang (CMU), Ji Li (Ant Group), Chengxi Li (CMU), Biao
 
 (The order is based on the member list in our WeChat group 😂)
 
-## Weight Update in `verl`'s Co-located Strategy
+## Weight Update in verl's co-located strategy
 
 Logically, weight updates under a co-located strategy are all similar. We'll use the FSDP training backend as an example to provide a simplified and general update process. The core is this [code snippet](https://github.com/volcengine/verl/blob/0508af25b66e839772fba8e79d97896bf0d843d3/verl/workers/sharding_manager/fsdp_sglang.py#L160):
 
@@ -59,9 +59,9 @@ Parameters are gathered and updated one by one. After one parameter is updated, 
 
 Through this process, on any given TP rank, only a temporary `[1024, 1024]` tensor is created. After the original handler is replaced, the unused half of this `[1024, 1024]` tensor is released. The old tensor pointed to by the original SGLang engine handler is also freed, preventing any memory leaks.
 
-\<div style="text-align: center;"\>
-\<img src="./update\_weights.jpg" alt="Update Weights Diagram" style="width:50%;"\>
-\</div\>
+<div style="text-align: center;">
+<img src="./update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
+</div>
 
 ### Weight Export
 
@@ -202,9 +202,9 @@ if self.device_mesh["infer_tp"].get_local_rank() == 0:
 
 The code then moves to the SGLang side. Let's look at the source code for [ModelRunner.update\_weights\_from\_tensor](https://github.com/sgl-project/sglang/blob/392e441ad17c78b68638f2d959fcf592d19b4834/python/sglang/srt/model_executor/model_runner.py#L774). Note that for SGLang, `ModelRunner` is a very low-level class; above it is the `TpModelManager`. This means that `update_weights_from_tensor` is actually called by each TP rank of SGLang. You can refer to this diagram for the specific SGLang architecture:
 
-\<div style="text-align: center;"\>
-\<img src="../../../../sglang/code-walk-through/sglang-architecture.svg" alt="SGLang Architecture" style="width:50%;"\>
-\</div\>
+<div style="text-align: center;">
+<img src="../../../../sglang/code-walk-through/sglang-architecture.svg" alt="SGLang Architecture" style="width:50%;">
+</div>
 
 Let's get back to the main track and examine the `update_weights_from_tensor` interface executed on each TP rank at the SGLang low level:
 
@@ -272,8 +272,8 @@ Alright, with this foundation, let's quickly review the specific weight update p
 
 Here is some relevant code for better understanding:
 
-\<details\>
-\<summary\>slime weight update code\</summary\>
+<details>
+<summary>slime weight update code</summary>
 
 ```python
 def update_weights_from_tensor(self):
@@ -394,7 +394,7 @@ def _update_converted_params_from_tensor(self, converted_named_tensors):
     torch.cuda.empty_cache()
 ```
 
-\</details\>
+</details>
 
 ## Comparison of Three Weight Update Methods
 
