@@ -55,9 +55,7 @@ python3 ./examples/data_preprocess/gsm8k_multiturn_w_tool.py
 ```
 
 ```bash
-mkdir -p logs
+bash profile-sglang.sh 1
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-
-nohup bash examples/grpo_trainer/run_qwen2-7b_seq_balance.sh trainer.experiment_name=qwen2-7b_rm-gsm8k-grpo-seq-balance-$(now) > logs/gsm8k-$(now).log 2>&1 &
+# The final 1 is the number of SGLang TP size.
 ```
