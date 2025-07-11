@@ -1,47 +1,52 @@
-# VERL 中的 Wandb Weave / MLflow Trace 功能使用说明
+# VERL 中的 Wandb Weave 功能
 
-PR: [feat: trace rollout generation and tool calls using weave](https://github.com/volcengine/verl/pull/2345) author: [@chenhq](https://github.com/chenhaiq)
-
-
-## 1. 功能简介
 在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，VERL 提供了 **Trace** 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看。
 
 目前仅支持 `wandb weave`。
 
 
-## 3. 参数配置
+## 参数配置
+
 在 `config.yaml` 或命令行中添加以下参数即可开启 Trace：
 
 ```yaml
 trainer:
   rollout_trace:
-    backend: weave       # 目前仅支持weave
+    backend: weave       # 目前仅支持 weave
     token2text: true     # 是否在 Trace 中展示解码后的文本
 ```
 
 或者在`bash`中追加：
+
 ```bash
 +trainer.rollout_trace.backend=weave \
 +trainer.rollout_trace.token2text=True
 ```
 
+注意，这里一定要使用 `+` 号。
 
 还需要以下配置作为前置条件:
 
 | 场景 | 必要参数 | 备注 |
 | ---- | -------- | ---- |
 | 使用 Weave 并记录日志到 wandb | `trainer.logger=["console","wandb"]` | 建议同时开启 wandb 日志，实现一处查看所有信息 |
-| 启用async rollout | `actor_rollout_ref.rollout.mode=async`<br>`actor_rollout_ref.rollout.multi_turn.enable=true` | Trace 现在只在`agent_loop`启用，sglang本身不需要设置`mode=async`开启异步，但是需要此设置使 Trace 生效  |
+| 启用async rollout | `actor_rollout_ref.rollout.mode=async` 且 `actor_rollout_ref.rollout.multi_turn.enable=true` | Trace 现在只在 `agent_loop` 启用，sglang本身不需要设置 `mode=async` 开启异步，但是需要此设置使 Trace 生效  |
 
----
 
 ## 环境
+
 1. 设置环境变量 `WANDB_API_KEY`
 
-
+```bash
+export WANDB_API_KEY=your_wandb_api_key
+```
 
 ## 数据集要求
-数据集需新增一列 `agent_name`，在`map_fn`中补充即可。[example](https://github.com/volcengine/verl/blob/main/recipe/retool/retool.py#L96)
+
+数据集需新增一列 `agent_name`，在 `map_fn` 中补充即可:
+
+[example](https://github.com/volcengine/verl/blob/ada82bb719e4d15ed4974f118bc86ec4d78c871d/recipe/retool/retool.py#L96)
+
 ```python
 # python
 data = {
@@ -49,8 +54,8 @@ data = {
     "agent_name": "tool_agent",  # 新增列
 }
 ```
-## 如何使用
 
+## 如何使用
 
 ### 创建新的 docker
 
@@ -58,10 +63,9 @@ data = {
 
 ```bash
 # 如果你的系统没有配置过 HF_TOKEN 和 WANDB_API_KEY，请先配置好
-# 这里的 cache 映射路径是在 atlas 集群上，如果需要使用自己的路径，请自行修改
 docker run -it --name h100_verl_{your_name} --gpus all \
     --shm-size 32g \
-    -v /.cache:/root/.cache \
+    -v {your_cache_path}:/root/.cache \
     --env "HF_TOKEN=$HF_TOKEN" \
     --env "WANDB_API_KEY=$WANDB_API_KEY" \
     --ipc=host \
@@ -108,21 +112,24 @@ python3 -m uv pip install -e ".[sglang,geo]"
 python3 -m uv pip install -r ./requirements.txt
 ```
 
-> 如果遇到这个报错：
-```
+会遇到这个报错：
+
+```bash
 ModuleNotFoundError: No module named 'torch'
 
 hint: This error likely indicates that `flash-attn@2.7.4.post1` depends on `torch`, but doesn't declare it as a build dependency. If
 `flash-attn` is a first-party package, consider adding `torch` to its `build-system.requires`. Otherwise, `uv pip install torch` into the
 environment and re-run with `--no-build-isolation`.
 ```
-> 按照下面的步骤 fix
-```
+
+按照下面的步骤 fix。
+
+```bash
 python3 -m uv pip install wheel
 python3 -m uv pip install -r ./requirements.txt --no-build-isolation
 ```
 
-后安装 SGLang，为了对齐 torch 版本。
+然后安装 SGLang upstream：
 
 ```bash
 cd ~
@@ -131,16 +138,19 @@ cd sglang
 python3 -m uv pip install --upgrade pip
 python3 -m uv pip install -e "python[all]" --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python
 ```
-额外安装`qwen-vl`依赖：
-```
-uv pip install qwen_vl_utils
+
+额外安装 `qwen-vl` 依赖：
+
+```bash
+python3 -m uv pip install qwen_vl_utils
 ```
 
 ### 修改并运行
 
-我们可以通过对现有脚本进行简单修改，在运行脚本中启用multi_turn和async rollout,在数据集处理脚本中的`def make_map_fn(split)`增加一列`agent_name`。
+我们可以通过对现有脚本进行简单修改，在运行脚本中启用 `multi_turn` 和 `async rollout`，在数据集处理脚本中的 `def make_map_fn(split)` 增加一列 `agent_name`。
 
-打开你 docker 里面的 `~/verl/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh` 文件，去掉 examples/grpo_trainer/run_qwen2_5_vl-7b.sh 结尾的 `$@`，并追加：
+打开你 docker 里面的 `~/verl/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh` 文件，去掉 `examples/grpo_trainer/run_qwen2_5_vl-7b.sh` 结尾的 `$@`，并追加：
+
 ``` bash
     +trainer.rollout_trace.backend=weave \
     +trainer.rollout_trace.token2text=True \
@@ -148,9 +158,9 @@ uv pip install qwen_vl_utils
     actor_rollout_ref.rollout.multi_turn.enable=true
 ```
 
-在 `~/verk/examples/tareprocess/gsm8k_multiturn_w_tool.py` 中追加 `"agent_name": "tool_agent"`
+在 `~/verl/examples/data_preprocess/gsm8k_multiturn_w_tool.py` 中追加 `"agent_name": "tool_agent"`
 
-```bash
+```python
 def make_map_fn(split):
         def process_fn(example, idx):
             question_raw = example.pop("question")
@@ -161,43 +171,37 @@ def make_map_fn(split):
             solution = extract_solution(answer_raw)
             data = {
                 "data_source": data_source,
+                # new column for weave trace
+                "agent_name": "tool_agent",
                 "prompt": [
                     {
                         #...
                     }
-                # new column for weave
-                "agent_name": "tool_agent",
+                ]
             }
             return data
 
         return process_fn
-
 ```
 
-接下来就可以运行了
+接下来测试即可：
 
 ```bash
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # 拉取并预处理 gsm8k 数据集
-python xamples\data_preprocess\gsm8k_multiturn_w_tool.py
+python examples/data_preprocess/gsm8k_multiturn_w_tool.py
 ```
 
-启动 8 卡训练即可
+启动 8 卡训练即可。
 
 ```bash
-bash examples/tareprocess/gsm8k_multiturn_w_tool.py
+bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```
 
 ## 查看 Trace
 
-登录 `$WANDB_API_KWY` 对应的账号，在project里找到 `gsm8k_async_rl`，侧边栏选择`Trace`，即可看到多轮对话和工具调用的信息。
+登录 `$WANDB_API_KEY` 对应的账号，在 project 里找到 `gsm8k_async_rl`，侧边栏选择 `Trace`，即可看到多轮对话和工具调用的信息。
 
-![Weave Trace](../imgs/Weave%20Trace.jpg)
-
-
-
-## TO BE CONTINUE
-
-由于`wandb`免费额度不够用，`verl` 后续计划加入 `mlflow` 本地 Trace。
+![Weave Trace](../imgs/Weave_Trace.jpg)
