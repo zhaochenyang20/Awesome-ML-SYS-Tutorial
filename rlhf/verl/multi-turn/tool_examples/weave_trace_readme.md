@@ -1,7 +1,8 @@
 # verl 中的 Wandb Weave 功能
 
-在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，verl 提供了 Trace 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看,目前支持 `wandb weave`。
+在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，verl 提供了 Trace 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看，目前支持 `wandb weave`。我们在这篇文档中解析如何使用 weave。
 
+感谢 chengxi li @CMU 和 Chenyang Zhao @Amazon 的贡献。
 
 ## Quick Start
 
@@ -256,3 +257,5 @@ PPO_RAY_RUNTIME_ENV = {
 登录 `$WANDB_API_KEY` 对应的账号，在 project 里找到 `gsm8k_async_rl`，侧边栏选择 `Trace`，即可看到多轮对话和工具调用的信息。
 
 ![Weave Trace](../imgs/Weave_Trace.jpg)
+
+
