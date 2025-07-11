@@ -1,6 +1,6 @@
 # VERL 中的 Wandb Weave 功能
 
-在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，VERL 提供了 **Trace** 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看。
+在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，VERL 提供了 Trace 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看。
 
 目前仅支持 `wandb weave`。
 
@@ -56,6 +56,8 @@ data = {
 ```
 
 ## 如何使用
+
+请严格按照以下步骤，否则会非常痛苦。
 
 ### 创建新的 docker
 
@@ -139,10 +141,11 @@ python3 -m uv pip install --upgrade pip
 python3 -m uv pip install -e "python[all]" --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python
 ```
 
-额外安装 `qwen-vl` 依赖：
+额外安装 vllm 和 weave 的依赖：
 
 ```bash
-python3 -m uv pip install qwen_vl_utils
+python3 -m uv pip install vllm==0.9.1
+python3 -m uv pip install weave
 ```
 
 ### 修改并运行
