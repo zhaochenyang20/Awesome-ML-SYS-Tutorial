@@ -1,157 +1,157 @@
-# Wandba Weave Trace in VERL
+# VERL 中的 Wandb Weave / MLflow Trace 功能使用说明
+
+PR: [feat: trace rollout generation and tool calls using weave](https://github.com/volcengine/verl/pull/2345) author: [@chenhq](https://github.com/chenhaiq)
+
+
+## 1. 功能简介
+在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，VERL 提供了 **Trace** 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看。
+
+目前仅支持 `wandb weave`。
+
+
+## 3. 参数配置
+在 `config.yaml` 或命令行中添加以下参数即可开启 Trace：
+
+```yaml
+trainer:
+  rollout_trace:
+    backend: weave       # 目前仅支持weave
+    token2text: true     # 是否在 Trace 中展示解码后的文本
+```
+
+或者在`bash`中追加：
+```bash
++trainer.rollout_trace.backend=weave \
++trainer.rollout_trace.token2text=True
+```
+
+
+还需要以下配置作为前置条件:
+
+| 场景 | 必要参数 | 备注 |
+| ---- | -------- | ---- |
+| 使用 Weave 并记录日志到 wandb | `trainer.logger=["console","wandb"]` | 建议同时开启 wandb 日志，实现一处查看所有信息 |
+| 启用async rollout | `actor_rollout_ref.rollout.mode=async`<br>`actor_rollout_ref.rollout.multi_turn.enable=true` | Trace 现在只在`agent_loop`启用，sglang本身不需要设置`mode=async`开启异步，但是需要此设置使 Trace 生效  |
+
+---
 
 ## 环境
+1. 设置环境变量 `WANDB_API_KEY`
 
-```bash
-$WANDB_API_KEY
-```
 
-## bash
 
-当前版本，获得trace需要配置的参数有：
-``` cmd
-+trainer.rollout_trace.backend=weave: only wandb weave is support in this PR. Leave the reset of trace tool to the community.
-+trainer.rollout_trace.token2text=True: whether append decoded text in result of run method.
-```
-对于SGLang，仅在async rollout，multi-turn enabled时生效：
-``` cmd
-actor_rollout_ref.rollout.mode=async \
-actor_rollout_ref.rollout.multi_turn.enable=true
-```
-## 数据集
-数据集需增加一列agent_name，可以再
+## 数据集要求
+数据集需新增一列 `agent_name`，在`map_fn`中补充即可。[example](https://github.com/volcengine/verl/blob/main/recipe/retool/retool.py#L96)
 ```python
-def make_map_fn(split):
-        def process_fn(example, idx):
-            #...
-            solution = extract_solution(answer_raw)
-            data = {
-                "data_source": data_source,
-                # 增加一列
-                "agent_name": "tool_agent",
-            }
-            return data
-
-        return process_fn
+# python
+data = {
+    ...,
+    "agent_name": "tool_agent",  # 新增列
+}
 ```
+## 如何使用
 
-## 复现脚本
+
+### 创建新的 docker
+
+使用前需要配置好 `WANDB_API_KEY`，参考[这个过程](https://community.wandb.ai/t/where-can-i-find-the-api-token-for-my-project/7914)。
 
 ```bash
-# run on 8xH100
-# make sure your current working directory is the root of the project
+# 如果你的系统没有配置过 HF_TOKEN 和 WANDB_API_KEY，请先配置好
+# 这里的 cache 映射路径是在 atlas 集群上，如果需要使用自己的路径，请自行修改
+docker run -it --name h100_verl_{your_name} --gpus all \
+    --shm-size 32g \
+    -v /.cache:/root/.cache \
+    --env "HF_TOKEN=$HF_TOKEN" \
+    --env "WANDB_API_KEY=$WANDB_API_KEY" \
+    --ipc=host \
+    lmsysorg/sglang:latest \
+    /bin/bash
+```
 
-set -x
+进入 docker 后，可以查看被映射的环境变量：
 
-ulimit -n 65535
+```bash
+echo $HF_TOKEN
+echo $WANDB_API_KEY
+```
 
-PROJECT_DIR="$(pwd)"
-CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
+以后每次从 docker 里面 exit 出来，再用这个指令可以重启：
 
-python3 -m verl.trainer.main_ppo \
-    --config-path="$CONFIG_PATH" \
-    --config-name='gsm8k_multiturn_grpo' \
-    algorithm.adv_estimator=grpo \
-    data.train_batch_size=256 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=1024 \
-    data.filter_overlong_prompts=True \
-    data.truncation='error' \
-    data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=0.001 \
-    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.entropy_coeff=0 \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-    actor_rollout_ref.rollout.name=sglang \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
-    actor_rollout_ref.rollout.n=16 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    algorithm.use_kl_in_reward=False \
-    trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
-    trainer.project_name='gsm8k_async_rl' \
-    trainer.experiment_name='qwen2.5-3b_function_rm-gsm8k-sgl-multi-w-tool-verify-n16' \
-    trainer.n_gpus_per_node=8 \
-    trainer.nnodes=1 \
-    trainer.save_freq=-1 \
-    trainer.test_freq=20 \
-    data.train_files=$HOME/data/gsm8k/train.parquet \
-    data.val_files=$HOME/data/gsm8k/test.parquet \
-    actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml" \
-    trainer.total_epochs=15 \
+```bash
+docker start -i h100_verl_{your_name}
+```
+
+### 基于源码安装 SGLang
+
+配置 python 环境
+
+```bash
+mkdir -p /tmp
+chmod 1777 /tmp
+apt update
+apt install -y python3.10 python3.10-venv
+python3 -m ensurepip --upgrade
+python3 -m venv ~/.python/verl-sglang
+source ~/.python/verl-sglang/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install --upgrade uv
+```
+
+先安装 veRL，再安装 SGLang。
+
+```bash
+cd ~
+git clone https://github.com/volcengine/verl.git
+cd verl
+python3 -m uv pip install -e ".[sglang,geo]"
+python3 -m uv pip install -r ./requirements.txt
+```
+
+> 如果遇到这个报错：
+```
+ModuleNotFoundError: No module named 'torch'
+
+hint: This error likely indicates that `flash-attn@2.7.4.post1` depends on `torch`, but doesn't declare it as a build dependency. If
+`flash-attn` is a first-party package, consider adding `torch` to its `build-system.requires`. Otherwise, `uv pip install torch` into the
+environment and re-run with `--no-build-isolation`.
+```
+> 按照下面的步骤 fix
+```
+python3 -m uv pip install wheel
+python3 -m uv pip install -r ./requirements.txt --no-build-isolation
+```
+
+后安装 SGLang，为了对齐 torch 版本。
+
+```bash
+cd ~
+git clone https://github.com/sgl-project/sglang.git
+cd sglang
+python3 -m uv pip install --upgrade pip
+python3 -m uv pip install -e "python[all]" --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python
+```
+额外安装`qwen-vl`依赖：
+```
+uv pip install qwen_vl_utils
+```
+
+### 修改并运行
+
+我们可以通过对现有脚本进行简单修改，在运行脚本中启用multi_turn和async rollout,在数据集处理脚本中的`def make_map_fn(split)`增加一列`agent_name`。
+
+打开你 docker 里面的 `~/verl/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh` 文件，去掉 examples/grpo_trainer/run_qwen2_5_vl-7b.sh 结尾的 `$@`，并追加：
+``` bash
     +trainer.rollout_trace.backend=weave \
     +trainer.rollout_trace.token2text=True \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.multi_turn.enable=true
-
 ```
-数据集处理
 
-```bash=
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright 2023-2024 SGLang Team
-# Copyright 2025 ModelBest Inc. and/or its affiliates
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Preprocess the GSM8k dataset to parquet format
-"""
+在 `~/verk/examples/tareprocess/gsm8k_multiturn_w_tool.py` 中追加 `"agent_name": "tool_agent"`
 
-import argparse
-import os
-import re
-
-import datasets
-
-from verl.utils.hdfs_io import copy, makedirs
-
-
-def extract_solution(solution_str):
-    solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
-    assert solution is not None
-    final_solution = solution.group(0)
-    final_solution = final_solution.split("#### ")[1].replace(",", "")
-    return final_solution
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="~/data/gsm8k")
-    parser.add_argument("--hdfs_dir", default=None)
-
-    args = parser.parse_args()
-
-    data_source = "openai/gsm8k"
-    dataset = datasets.load_dataset(data_source, "main")
-
-    train_dataset = dataset["train"]
-    test_dataset = dataset["test"]
-
-    instruction_following = "Let's think step by step and output the final answer after `####`."
-
-    # add a row to each data item that represents a unique id
-    def make_map_fn(split):
+```bash
+def make_map_fn(split):
         def process_fn(example, idx):
             question_raw = example.pop("question")
 
@@ -163,41 +163,8 @@ if __name__ == "__main__":
                 "data_source": data_source,
                 "prompt": [
                     {
-                        "role": "system",
-                        "content": (
-                            "You are a math expert. You are given a question and you need to solve it step by step. "
-                            "Reasoning step by step before any tool call. "
-                            "You should use the `calc_gsm8k_reward` tool after step by step solving the question, "
-                            "before generate final answer at least once and refine your answer if necessary. "
-                            "Put your final answer in the format of `#### <answer>`."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": question,
-                    },
-                ],
-                "ability": "math",
-                "reward_model": {"style": "rule", "ground_truth": solution},
-                "extra_info": {
-                    "split": split,
-                    "index": idx,
-                    "answer": answer_raw,
-                    "question": question_raw,
-                    "need_tools_kwargs": True,
-                    "tools_kwargs": {
-                        "calc_gsm8k_reward": {
-                            "create_kwargs": {"ground_truth": solution},
-                            # "execute_kwargs": {},
-                            # "calc_reward_kwargs": {},
-                            # "release_kwargs": {},
-                        },
-                    },
-                    "interaction_kwargs": {
-                        "query": question,
-                        "ground_truth": solution,
-                    },
-                },
+                        #...
+                    }
                 # new column for weave
                 "agent_name": "tool_agent",
             }
@@ -205,18 +172,32 @@ if __name__ == "__main__":
 
         return process_fn
 
-    train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
-    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
-
-    local_dir = args.local_dir
-    hdfs_dir = args.hdfs_dir
-
-    train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
-    test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
-
-    if hdfs_dir is not None:
-        makedirs(hdfs_dir)
-        copy(src=local_dir, dst=hdfs_dir)
-
-
 ```
+
+接下来就可以运行了
+
+```bash
+cd ~/verl
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+# 拉取并预处理 gsm8k 数据集
+python xamples\data_preprocess\gsm8k_multiturn_w_tool.py
+```
+
+启动 8 卡训练即可
+
+```bash
+bash examples/tareprocess/gsm8k_multiturn_w_tool.py
+```
+
+## 查看 Trace
+
+登录 `$WANDB_API_KWY` 对应的账号，在project里找到 `gsm8k_async_rl`，侧边栏选择`Trace`，即可看到多轮对话和工具调用的信息。
+
+![Weave Trace](../imgs/Weave%20Trace.jpg)
+
+
+
+## TO BE CONTINUE
+
+由于`wandb`免费额度不够用，`verl` 后续计划加入 `mlflow` 本地 Trace。
