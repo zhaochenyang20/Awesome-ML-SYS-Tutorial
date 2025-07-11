@@ -189,6 +189,7 @@ def make_map_fn(split):
 
 ```bash
 cd ~/verl
+python3 -m uv pip install .
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # 拉取并预处理 gsm8k 数据集
