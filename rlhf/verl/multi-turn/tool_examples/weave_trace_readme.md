@@ -115,14 +115,13 @@ python3 -m uv pip install -r ./requirements.txt
 会遇到这个报错：
 
 ```bash
-ModuleNotFoundError: No module named 'torch'
-
-hint: This error likely indicates that `flash-attn@2.7.4.post1` depends on `torch`, but doesn't declare it as a build dependency. If
-`flash-attn` is a first-party package, consider adding `torch` to its `build-system.requires`. Otherwise, `uv pip install torch` into the
-environment and re-run with `--no-build-isolation`.
+Resolved 130 packages in 1.96s
+  × Failed to build `flash-attn==2.8.1`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit status: 1)
 ```
 
-按照下面的步骤 fix。
+按照下面的步骤 fix：
 
 ```bash
 python3 -m uv pip install wheel
