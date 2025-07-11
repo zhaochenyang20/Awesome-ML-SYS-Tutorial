@@ -93,13 +93,13 @@ docker start -i h100_verl_{your_name}
 ```bash
 mkdir -p /tmp
 chmod 1777 /tmp
-apt update
-apt install -y python3.10 python3.10-venv
-python3 -m ensurepip --upgrade
-python3 -m venv ~/.python/verl-sglang
+sudo apt update
+sudo apt install -y python3.10 python3.10-venv
+sudo python3 -m ensurepip --upgrade
+sudo python3 -m venv ~/.python/verl-sglang
 source ~/.python/verl-sglang/bin/activate
-python3 -m pip install --upgrade pip
-python3 -m pip install --upgrade uv
+sudo python3 -m pip install --upgrade pip
+sudo python3 -m pip install --upgrade uv
 ```
 
 先安装 veRL，再安装 SGLang。
@@ -149,9 +149,11 @@ python3 -m uv pip install qwen_vl_utils
 
 我们可以通过对现有脚本进行简单修改，在运行脚本中启用 `multi_turn` 和 `async rollout`，在数据集处理脚本中的 `def make_map_fn(split)` 增加一列 `agent_name`。
 
-打开你 docker 里面的 `~/verl/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh` 文件，去掉 `examples/grpo_trainer/run_qwen2_5_vl-7b.sh` 结尾的 `$@`，并追加：
+打开你 docker 里面的 `~/verl/examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh` 文件，去掉结尾一行的 `$@`，更改如下参数：
 
 ``` bash
+    # 注意去掉原本 total_epochs 这行结尾的 $@
+    trainer.total_epochs=15 \
     +trainer.rollout_trace.backend=weave \
     +trainer.rollout_trace.token2text=True \
     actor_rollout_ref.rollout.mode=async \
