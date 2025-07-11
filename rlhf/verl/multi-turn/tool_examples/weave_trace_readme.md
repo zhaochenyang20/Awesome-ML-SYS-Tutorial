@@ -251,12 +251,6 @@ PPO_RAY_RUNTIME_ENV = {
 }
 ```
 
-我几乎要完全成功了，但是我发现在公司的系统内会出现 405 error：
-
-```bash
-
-```
-
 ## 查看 Trace
 
 登录 `$WANDB_API_KEY` 对应的账号，在 project 里找到 `gsm8k_async_rl`，侧边栏选择 `Trace`，即可看到多轮对话和工具调用的信息。
