@@ -1,6 +1,6 @@
 # VERL 中的 Wandb Weave 功能
 
-在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，VERL 提供了 Trace 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看。
+在 Agentic RL 中，为了帮助我们更好的分析 trajectory 中的的多轮对话和工具调用对优化训练过程，verl 提供了 Trace 功能，可记录指定函数的输入、输出及时间戳，并支持在可视化界面中查看。
 
 目前仅支持 `wandb weave`。
 
@@ -16,7 +16,7 @@ trainer:
     token2text: true     # 是否在 Trace 中展示解码后的文本
 ```
 
-或者在`bash`中追加：
+或者在 bash 中追加：
 
 ```bash
 +trainer.rollout_trace.backend=weave \
