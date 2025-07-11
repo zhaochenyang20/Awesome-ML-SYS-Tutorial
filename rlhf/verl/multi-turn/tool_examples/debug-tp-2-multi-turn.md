@@ -59,3 +59,16 @@ bash profile-sglang-multi-turn.sh 1
 
 # The final 1 is the number of SGLang TP size.
 ```
+
+
+
+for prompt in prompts:
+    async result = engine.generate(prompt)
+    await result.call_tool()
+
+results = engine.generate(prompts)
+
+# 等到最长的回来才能一起处理
+
+for result in results:
+    async result.call_tool()
