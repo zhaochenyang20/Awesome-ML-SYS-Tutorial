@@ -1,4 +1,4 @@
-# Wandb Weave Functionality in verl
+# Wandb Weave in verl
 
 In Agentic RL, to help us better analyze the multi-turn conversations and tool calls within a trajectory for optimizing the training process, verl provides a Trace function, which records the input, output, and timestamps of specified functions and supports viewing them in a visualization interface. Currently, it supports `wandb weave`.
 
