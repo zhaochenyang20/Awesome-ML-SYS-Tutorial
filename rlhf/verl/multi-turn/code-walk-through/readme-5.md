@@ -1,10 +1,10 @@
 # verl 参数速览
 
-我们 SGLang RL 小组联合 Amazon AGI SF Lab 整理了一份 verl 参数速览。由于参数众多，我们很难保证每个参数的理解都是绝对正确的，但是都是经过我们反复检查。我们将这份参数速览分享给社区，希望对大家有所帮助。整个手册的参与者有：
+感谢 verl 团队的辛勤开发，新 feature 上的都来不及学习 😂 由于参数众多，我们很难保证每个参数的理解都是绝对正确的，但是都是经过我们反复检查。我们将这份参数速览分享给社区，希望对大家有所帮助。整个手册的参与者有：
 
 Ji Li（蚂蚁），Zhuoran Yin（CMU），Changyi Yang（CMU），Chengxi Li（CMU），Xinpeng Wei（Amazon），Chenyang Zhao（Amazon）
 
-也感谢 verl 团队的答疑 😂
+也感谢 verl 团队的答疑。
 
 ## Batch Size
 
