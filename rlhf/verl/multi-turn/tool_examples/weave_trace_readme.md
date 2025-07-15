@@ -9,20 +9,20 @@
 在 `config.yaml` 或命令行中添加以下参数即可开启 Trace：
 
 ```yaml
-trainer:
-  rollout_trace:
-    backend: weave       # 目前仅支持 weave
-    token2text: true     # 是否在 Trace 中展示解码后的文本
+actor_rollout_ref:
+  rollout:
+    trace:
+      backend: weave       # 目前仅支持 weave
+      token2text: true     # 是否在 Trace 中展示解码后的文本
 ```
 
 或者在 bash 中追加：
 
 ```bash
-+trainer.rollout_trace.backend=weave \
-+trainer.rollout_trace.token2text=True
+actor_rollout_ref.rollout.trace.backend=weave \
+actor_rollout_ref.rollout.trace.token2text=True \
 ```
 
-注意，这里一定要使用 `+` 号。
 
 还需要以下配置作为前置条件:
 
@@ -157,8 +157,8 @@ python3 -m uv pip install weave
     # 注意去掉原本 total_epochs 这行结尾的 $@
     # 不要把这些两行注释也写进去，否则会报错
     trainer.total_epochs=15 \
-    +trainer.rollout_trace.backend=weave \
-    +trainer.rollout_trace.token2text=True \
+    actor_rollout_ref.rollout.trace.backend=weave \
+    actor_rollout_ref.rollout.trace.token2text=True \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.multi_turn.enable=true
 ```
