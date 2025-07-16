@@ -28,7 +28,7 @@ python3 -m pip install uv
 
 ```bash
 cd ~
-git clone -b fsdp_tp_2_sgl https://github.com/volcengine/verl.git
+git clone -b multiturn_profile_log https://github.com/PrinsYin/verl.git
 cd verl
 
 python3 -m uv pip install -e ".[sglang]"
@@ -59,16 +59,3 @@ bash profile-sglang-multi-turn.sh 1
 
 # The final 1 is the number of SGLang TP size.
 ```
-
-
-
-for prompt in prompts:
-    async result = engine.generate(prompt)
-    await result.call_tool()
-
-results = engine.generate(prompts)
-
-# 等到最长的回来才能一起处理
-
-for result in results:
-    async result.call_tool()
