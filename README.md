@@ -17,6 +17,7 @@ $$
 
 ## RLHF System 开发笔记
 
+- [RL 系统深思：FSDP 训练后端](./rlhf/sys-design/readme-2.md)：讨论 FSDP 的原理和实现，以及分析 verl 的 FSDP 使用。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1929115059113693341)和[英文版本](./rlhf/sys-design/readme-2-en.md)。
 - [RL 系统深思：深入理解权重更新机制](./rlhf/sys-design/readme-1.md)：半年工作的总结，深入理解权重更新机制，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925210722704531547)和[英文版本](./rlhf/sys-design/readme-1-EN.md)。
 - [verl 参数速览](./rlhf/verl/multi-turn/code-walk-through/readme-5.md)：verl 参数速览，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925041836998783250)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-5-EN.md)。
 - [深入浅出理解 verl 源码（Rollout）](./rlhf/verl/multi-turn/code-walk-through/readme-2.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1923349757566388159)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-2-EN.md)。
