@@ -61,7 +61,7 @@ async def update_weights(self, params):
 
 
 <div style="text-align: center;">
-  <img src="./update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
+  <img src="./pics/update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
 </div>
 
 ### 权重导出
