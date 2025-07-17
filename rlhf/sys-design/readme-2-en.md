@@ -65,16 +65,18 @@ Let's examine the limitations of FSDP1 with an example: assume a Layer containin
 
 In FSDP1, each module is represented as a single `FlatParameter`. This `FlatParameter` is a massive one-dimensional tensor containing a flattened representation of all parameters in that module, and then this flattened tensor is sharded across different ranks.
 
+
 <div style="text-align: center;">
-  <img src="./pics/fsdp1.png" alt="fsdp1" style="width:30%;">
+  <img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/accelerate/fsdp1.png" alt="fsdp1" style="width:30%;">
 </div>
+
 
 This design leads to a significant problem: when all parameters are merged into one huge `FlatParameter`, some metadata cannot be managed effectively. Since `FlatParameter` is a single, homogeneous object, retaining independent metadata for each original parameter requires complex and cumbersome methods. To optimize this situation, compared to FSDP1, FSDP2 introduces `DTensor` (Distributed Tensor) for parameter management. `DTensor` is a distributed version of `torch.Tensor` that supports sharding along specified dimensions across multiple ranks and natively carries all metadata about the original tensor, such as its `dtype`, `requires_grad`, specific sharding method, and `placement types`.
 
 As shown below, in FSDP2, the parameters of each `Linear` layer are individually represented as a `DTensor` and sharded across two GPUs along dimension 0:
 
 <div style="text-align: center;">
-  <img src="./pics/fsdp2.png" alt="fsdp2" style="width:30%;">
+  <img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/accelerate/fsdp2.png" alt="fsdp2" style="width:30%;">
 </div>
 
 This **per-parameter sharding** approach is more intuitive and efficient. It avoids the cumbersome process in FSDP1 where parameters are first flattened, concatenated into a large tensor, then globally sharded, and finally require inferring which fragments each process holds and how to reconstruct the original structure.
