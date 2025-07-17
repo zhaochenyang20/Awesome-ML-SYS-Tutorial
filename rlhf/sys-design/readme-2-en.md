@@ -1,6 +1,6 @@
 # RL System Deep Dive: FSDP Training Backend
 
-Readers familiar with this series will know that most of our articles focus on the RL system's rollout engine, with less discussion on the training backend. This article will provide a brief analysis of the popular DeepSpeed AutoTP, FSDP, and Megatron-LM training backends. While torchtitan was also a highly anticipated training backend, I've heard that its author has left and it's no longer maintained, so I won't discuss it here. This article will focus solely on the principles and implementation of FSDP, as well as an analysis of Verl's FSDP usage.
+Readers familiar with this series will know that most of our articles focus on the RL system's rollout engine, with less discussion on the training backend. This article will provide a brief analysis of the popular DeepSpeed AutoTP, FSDP, and Megatron-LM training backends. While torchtitan was also a highly anticipated training backend, I've heard that its author has left and it's no longer maintained, so I won't discuss it here. This article will focus solely on the principles and implementation of FSDP, as well as an analysis of verl's FSDP usage.
 
 **Acknowledge:**
 
@@ -115,9 +115,9 @@ The above strategies might fail when there are dependencies between different FS
 1.  **Initialize unsharded model directly on a single GPU:** Although the model might not be trainable on a single card, it might be possible to initialize it on a single card. Therefore, the model can be initialized on a single card before sharding.
 2.  **Initialize unsharded model on the CPU:** Because CPU memory is often much larger than GPU memory. Afterward, each unit is transferred to a single GPU unit by unit, and then sharding is performed. However, initializing the model can become very time-consuming.
 
-## FSDP in Verl
+## FSDP in verl
 
-Verl uses FSDP1 by default and supports FSDP2 very smoothly, requiring only the following settings:
+verl uses FSDP1 by default and supports FSDP2 very smoothly, requiring only the following settings:
 
 ```bash
 actor_rollout_ref.ref.strategy=fsdp2
@@ -128,7 +128,7 @@ reward_model.strategy=fsdp2
 
 Additionally, FSDP2's CPU offloading is compatible with gradient accumulation. It can be enabled by setting `actor_rollout_ref.actor.fsdp_config.offload_policy=True`.
 
-Here's a specific implementation example from Verl, the code can be found in [fsdp\_workers.py](https://github.com/volcengine/verl/blob/ab11fff33dcaa2409e388ce2f19aff440a5b703f/verl/workers/fsdp_workers.py#L377):
+Here's a specific implementation example from verl, the code can be found in [fsdp\_workers.py](https://github.com/volcengine/verl/blob/ab11fff33dcaa2409e388ce2f19aff440a5b703f/verl/workers/fsdp_workers.py#L377):
 
 For FSDP1, it directly calls `torch.distributed.fsdp.FullyShardedDataParallel` to wrap the `actor_module` (a loaded Hugging Face model), returning a new FSDP object to manage distributed training. It also supports fine-grained configuration of FSDP1, such as `cpu_offload`, `auto_wrap_policy`, `sharding_strategy` (defaults to Zero3), `mixed_precision`, and `forward_prefetch`. Furthermore, for the reference policy, CPU offload is forced to save memory; however, for the actor, offload is forced off as enabling it can lead to incorrect gradient accumulation results and timing issues with the synchronization mechanism.
 
