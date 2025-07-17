@@ -60,7 +60,7 @@ Parameters are gathered and updated one by one. After one parameter is updated, 
 Through this process, on any given TP rank, only a temporary `[1024, 1024]` tensor is created. After the original handler is replaced, the unused half of this `[1024, 1024]` tensor is released. The old tensor pointed to by the original SGLang engine handler is also freed, preventing any memory leaks.
 
 <div style="text-align: center;">
-<img src="./update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
+<img src="./pics/update_weights.jpg" alt="Update Weights Diagram" style="width:50%;">
 </div>
 
 ### Weight Export
