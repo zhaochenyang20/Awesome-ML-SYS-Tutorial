@@ -115,7 +115,7 @@ The above strategies might fail when there are dependencies between different FS
 1.  **Initialize unsharded model directly on a single GPU:** Although the model might not be trainable on a single card, it might be possible to initialize it on a single card. Therefore, the model can be initialized on a single card before sharding.
 2.  **Initialize unsharded model on the CPU:** Because CPU memory is often much larger than GPU memory. Afterward, each unit is transferred to a single GPU unit by unit, and then sharding is performed. However, initializing the model can become very time-consuming.
 
-## FSDP in Verl
+## FSDP in verl
 
 Verl uses FSDP1 by default and supports FSDP2 very smoothly, requiring only the following settings:
 
