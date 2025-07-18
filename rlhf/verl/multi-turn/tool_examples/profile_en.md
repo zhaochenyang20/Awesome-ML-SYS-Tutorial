@@ -179,11 +179,11 @@ Next, we'll share the visualization results we obtained from profiling [GSM8K mu
 ### Long-Tail Effect
 
 <div style="display: flex; align-items: center;">
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/cdf_per_step.png?raw=true" style="width: 49%;"/>
-  <img src="./pics/wandb.png" style="width: 50%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/cdf_per_step.png?raw=true" style="width: 40%;"/>
+  <img src="./pics/wandb.png" style="width: 40%;"/>
 </div>
 
-1.  We first set the `max response length` for rollout to 1000 and created a CDF graph of the relative times of requests for all DP workers in a specific step (top right image). We observed that the long-tail effect of rollout is very significant; in the rollout process of a step's requests, 80% of requests complete in the first 50% of the time, with the rest solving the remaining long-tail problems.
+1.  We first set the `max response length` for rollout to 1000 and created a CDF graph of the relative times of requests for all DP workers in a specific step (top right image). We observed that the long-tail effect of rollout is very significant; in the rollout process of a step's requests, 80% of requests complete in the first 40% of the time, with the rest solving the remaining long-tail problems.
 2.  We then combined this with WandB's visualization (red line in the top left image) and found that during the stable increase of reward, the mean response length does not change significantly, or even decreases, remaining around 500. However, in any given step, we found that the maximum response length of the model directly reached our set `max rollout length`.
 
 Based on the observation from the top right image, we initially planned to implement an oversampling strategy, for example, oversampling 20% of requests in each round. After a specified number of requests were collected into the data buffer, the oversampled and unfinished rollout data would be directly discarded. This differs from partial rollout, where these oversampled but unfinished requests would be saved and continued in the next step based on the previous step.
@@ -193,7 +193,7 @@ However, after further observing the red curve in the left image, we chose a mor
 Fortunately, we achieved considerable results, as shown by the green line in the top left image, with equally good convergence. Furthermore, when we observed the throughput and the time consumed per step, we found that a `max length` of 600 was consistently faster than 1000.
 
 <div align="center">
-<img src="./pics/wandb_600.png" style="width: 49%;"/>
+<img src="./pics/wandb_600.png" style="width: 40%;"/>
 </div>
 
 1.  **Response length min** was not affected.
@@ -211,8 +211,8 @@ CDF is just the basic use of our analysis tool. We can further analyze the time 
 Further examining each rollout worker in step 67, we found:
 
 <div style="display: flex; align-items: center;">
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_0.png?raw=true" style="width: 50%;"/>
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_1.png?raw=true" style="width: 50%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_0.png?raw=true" style="width: 40%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_1.png?raw=true" style="width: 40%;"/>
 </div>
 
 Worker 0's rollout took a very long time, and the other 7 workers were barraged here, waiting for worker 0 to finish. Looking further at the requests in worker 0, we noticed that worker 0 had a total of 512 requests (note that we enabled the [repetitive sampling](https://github.com/volcengine/verl/pull/2258) feature):
@@ -225,8 +225,8 @@ actor_rollout_ref.rollout.n=16
 We further obtained the CDF graphs for worker 0 and other workers:
 
 <div style="display: flex; align-items: center;">
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf1.png?raw=true" style="width: 50%;"/>
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf2.png?raw=true" style="width: 50%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf1.png?raw=true" style="width: 40%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf2.png?raw=true" style="width: 40%;"/>
 </div>
 
 We found that the request CDF for worker 0 was very strange: about 400 requests returned in the first 25 seconds, followed by 150 seconds where no requests returned; then the remaining requests returned. Additionally, the slopes at 175s and 15s were consistent, which suggests that the GPU was idle during the middle blank period. We observed this peak once and then conducted 6 repeated experiments, but the same situation never occurred again.
@@ -234,8 +234,8 @@ We found that the request CDF for worker 0 was very strange: about 400 requests 
 We then looked into those 100 abnormal requests and found two typical ones:
 
 <div style="display: flex; align-items: center;">
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_1.png?raw=true" style="width: 50%;"/>
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_2.png?raw=true" style="width: 50%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_1.png?raw=true" style="width: 40%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_2.png?raw=true" style="width: 40%;"/>
 </div>
 
 Both are very abnormal: the **reward calculation** on the left is very slow; the **engine generation** on the right is very slow. We further analyze:
@@ -273,7 +273,7 @@ Next, we'll demonstrate what insights we can gain through the profiling tool. We
 We further analyzed the curve of the average percentage of each event in each step. We found that as the response length increased, the proportion of preprocessing also decreased. We believe that the time consumption of preprocessing is almost constant and has little relation to the response length. Furthermore, preprocessing is independent of the step status and can be done during dataset construction. Additionally, the agent loop feature further optimized the time consumption of preprocessing. We will analyze this in a future article.
 
 <div style="display: flex; align-items: center;">
-<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/event_percentage_step.png?raw=true" style="width: 50%;"/>
+<img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/event_percentage_step.png?raw=true" style="width: 40%;"/>
 </div>
 
 ### Turn Analysis

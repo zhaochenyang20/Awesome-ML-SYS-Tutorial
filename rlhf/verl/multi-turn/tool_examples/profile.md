@@ -180,11 +180,11 @@ log_path = os.path.join(
 ### 长尾效应
 
 <div style="display: flex; align-items: center;">
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/cdf_per_step.png?raw=true" style="width: 49%;"/>
-  <img src="./pics/wandb.png" style="width: 50%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/cdf_per_step.png?raw=true" style="width: 40%;"/>
+  <img src="./pics/wandb.png" style="width: 40%;"/>
 </div>
 
-1. 我们首先设置 rollout 的 max response length 为 1000，对所有 DP worker 在某个具体的 step 做出 reqs 的相对时间的 CDF 图（上方右图），观察到rollout 的长尾效应非常明显；在一个 step 的 reqs 的 rollout 过程中，80% 的 reqs 会在前 50% 的时间完成，剩下的都是在解决余下的长尾问题。
+1. 我们首先设置 rollout 的 max response length 为 1000，对所有 DP worker 在某个具体的 step 做出 reqs 的相对时间的 CDF 图（上方右图），观察到rollout 的长尾效应非常明显；在一个 step 的 reqs 的 rollout 过程中，80% 的 reqs 会在前 40% 的时间完成，剩下的都是在解决余下的长尾问题。
 2. 我们接着结合 wandb 的可视化发现（上方左图的红色线），在 reward 稳定上升阶段，mean response length 不会发生显著变化，甚至会变低，一直维持在 500 上下。但是，任何一个 step 我们都发现 model 的 response length 最大值都是直接到了我们设置的 max rollout length。
 
 基于对上方右图的观察，我们本来是打算做一个过采样策略，比如每一轮过采样 20% 的 reqs，指定数目的 reqs 收集进入 data buffer 后，过采样的且还没有完成 rollout 的数据直接就丢弃不管了。这个和 partial rollout 有些区别，partial rollout 是会把这些过采样但是没有完成的 reqs 存下来，下一 step 在上一 step 的基础上继续 rollout。
@@ -194,7 +194,7 @@ log_path = os.path.join(
 很好的是，我们拿到了可观的结果，也就是上方左图的绿色线，一样好的收敛效果。并且，我们去观察 throughput 和具体每一 step 消耗的时间，发现 max length 为 600 稳定地比起 1000 更快。
 
 <div align="center">
-  <img src="./pics/wandb_600.png" style="width: 49%;" />
+  <img src="./pics/wandb_600.png" style="width: 40%;" />
 </div>
 
 1. Response length min 没有受到影响；
@@ -214,8 +214,8 @@ CDF 只是我们分析工具的基础用途，我们还可以进一步分析每�
 进一步查看 step 67 的每个 rollout worker，我们发觉：
 
 <div style="display: flex; align-items: center;">
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_0.png?raw=true" style="width: 50%;"/>
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_1.png?raw=true" style="width: 50%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_0.png?raw=true" style="width: 40%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/worker_1.png?raw=true" style="width: 40%;"/>
 </div>
 
 worker 0 的 rollout 花了非常久，而其他 7 个 worker 都被 barrier 到这里，等待 worker 0 结束。进一步看 worker 0 中的 reqs，注意到 worker 0 一共有 512 个 reqs（注意到我们启用了 [repeative sampling](https://github.com/volcengine/verl/pull/2258) 的 feature）：
@@ -228,8 +228,8 @@ actor_rollout_ref.rollout.n=16
 我们进一步得到 worker 0 和其他 worker 的 CDF 图：
 
 <div style="display: flex; align-items: center;">
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf1.png?raw=true" style="width: 50%;"/>
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf2.png?raw=true" style="width: 50%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf1.png?raw=true" style="width: 40%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/request_analysis_and_cdf2.png?raw=true" style="width: 40%;"/>
 </div>
 
 我们发觉 worker 0 的 reqs CDF 非常奇怪，大概 400 条 reqs 在前 25s 返回，接着 150s 没有任何一条返回；然后剩下的 reqs 才返回。此外，175s 和 15s 的斜率是一致的，让人觉得中间的空白期 GPU 一直没有工作。我们观察到这样一次 peak 后接着进行了 6 次重复实验，但是再也没有出现过一样的情况。
@@ -237,8 +237,8 @@ actor_rollout_ref.rollout.n=16
 我们接着从那 100 条异常的 reqs 里面去查找，有两个比较典型的 req：
 
 <div style="display: flex; align-items: center;">
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_1.png?raw=true" style="width: 50%;"/>
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_2.png?raw=true" style="width: 50%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_1.png?raw=true" style="width: 40%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/outlier_req_2.png?raw=true" style="width: 40%;"/>
 </div>
 
 这两个都很异常：左图的 reward calculate 很慢；右图的 engine generate 很慢。我们进一步分析：
@@ -278,7 +278,7 @@ actor_rollout_ref.rollout.n=16
 我们进一步分析了每个 event 在每个 step 的平均占比的曲线。我们发现，在 response length 增长的情况下 preprocess 的占比也下降。我们认为，preprocess 的耗时近乎常数，和 reponse length 关系不大。而且，preprocess 是和 step 状态无关的，可以在 dataset 构造的时候就做好。此外，agent loop 功能进一步优化了 preprocess 的耗时。我们会在之后的文章分析。
 
 <div style="display: flex; align-items: center;">
-  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/event_percentage_step.png?raw=true" style="width: 50%;"/>
+  <img src="https://github.com/PrinsYin/verl/blob/multiturn_profile_log/profile-multiturn-scripts/script-examples/event_percentage_step.png?raw=true" style="width: 40%;"/>
 </div>
 
 
