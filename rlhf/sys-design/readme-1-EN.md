@@ -203,7 +203,7 @@ if self.device_mesh["infer_tp"].get_local_rank() == 0:
 The code then moves to the SGLang side. Let's look at the source code for [ModelRunner.update\_weights\_from\_tensor](https://github.com/sgl-project/sglang/blob/392e441ad17c78b68638f2d959fcf592d19b4834/python/sglang/srt/model_executor/model_runner.py#L774). Note that for SGLang, `ModelRunner` is a very low-level class; above it is the `TpModelManager`. This means that `update_weights_from_tensor` is actually called by each TP rank of SGLang. You can refer to this diagram for the specific SGLang architecture:
 
 <div style="text-align: center;">
-<img src="../../../../sglang/code-walk-through/sglang-architecture.svg" alt="SGLang Architecture" style="width:50%;">
+<img src="https://raw.githubusercontent.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/main/sglang/code-walk-through/sglang-architecture.svg" alt="SGLang Architecture" style="width:50%;">
 </div>
 
 Let's get back to the main track and examine the `update_weights_from_tensor` interface executed on each TP rank at the SGLang low level:

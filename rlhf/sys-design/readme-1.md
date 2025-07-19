@@ -204,7 +204,7 @@ if self.device_mesh["infer_tp"].get_local_rank() == 0:
 接着，代码来到 SGLang 一侧，我们查看 [ModelRunner.update_weights_from_tensor](https://github.com/sgl-project/sglang/blob/392e441ad17c78b68638f2d959fcf592d19b4834/python/sglang/srt/model_executor/model_runner.py#L774) 的源码。注意到，对于 SGLang 而言，`ModelRunner` 是一个非常底层的类了，再往上是有 TpModelManger 的。也就是说，这个 `update_weights_from_tensor` 实际上是 SGLang 的每个 TP rank 都会调用。具体的 SGLang 架构可以参考此图：
 
 <div style="text-align: center;">
-  <img src="../../../../sglang/code-walk-through/sglang-architecture.svg" alt="SGLang Architecture" style="width:50%;">
+  <img src="https://raw.githubusercontent.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/main/sglang/code-walk-through/sglang-architecture.svg" alt="SGLang Architecture" style="width:50%;">
 </div>
 
 我们还是回到主线上，研究下 SGLang 底层在每个 TP rank 上执行的 `update_weights_from_tensor` 接口：
