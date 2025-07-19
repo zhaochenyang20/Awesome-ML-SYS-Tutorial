@@ -1,6 +1,6 @@
 # Systemic Profiling of Time Consumption in verl Multi-Turn Training
 
-Multi-turn training systems are inherently complex and resource-intensive. While this document won't directly propose solutions to optimize multi-turn training, the first step in problem-solving is always to identify the problem at the finest granularity. Simply observing an anomaly in a certain step's rollout might be far from the root cause. This document aims to find the true issues at a more granular level.
+Multi-turn training systems are inherently complex and resource-intensive, left large space for optimization. This document won't directly propose solutions to optimize multi-turn training. But the first step in problem-solving is always to identify the problem at the finest granularity.
 
 We are sharing a set of systematic analysis methods here; WandB can only show the time consumed by each training step, but our analysis granularity goes far beyond that. Based on our analysis method, we can specifically observe the **time consumed by each event in each turn of each request of each rollout DP worker in the rollout phase of each step.**
 

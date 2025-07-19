@@ -1,6 +1,6 @@
 # 系统性分析 verl multi-turn training 的时间消耗
 
-multi-turn training 系统本身极度复杂且资源消耗巨大。尽管本文不会直接提出优化 multi-turn training 的方案，但解决问题的第一步永远是最细粒度的找到问题本身。仅仅看到某个 step 的 rollout 出现了异常可能距离真正的问题还有一段距离，本文就旨在更细粒度找到真正的问题。
+multi-turn training 系统本身极度复杂且资源消耗巨大。如何加速 multi-turn training 始终是 RL sys 研究和核心。本文不会直接提出优化 multi-turn training 的方案，但解决问题的第一步永远是最细粒度找到问题本身。
 
 我们在此分享一套系统性的分析方法；wandb 只能够看到每个 training step 所消耗的时间，而我们的分析粒度远远超出这一层。基于我们的分析方式，能够具体观察到**每个 step 在 rollout 阶段的每个 rollout DP worker 的每个 req 的每个 turn 的每个 event 所消耗的时间。**
 
