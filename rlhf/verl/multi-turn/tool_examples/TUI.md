@@ -11,6 +11,11 @@ pip install typer==0.16.0
 pip install ujson==5.10.0
 pip install textual==0.52.1
 ```
+## 配置
+需要在配置中设置 rollout data 存储目录。
+```
+trainer.rollout_data_dir=$HOME/data/gsm8k/rollout_data
+```
 
 ## 运行方式
 ```bash
@@ -31,4 +36,4 @@ python rollout_viewer.py  ./data/rollouts
 
 ## Example
 
-![image-20250716225610015](./TUI.assets/TUI example.png)
+![image-20250716225610015](../imgs/TUI example.png)
