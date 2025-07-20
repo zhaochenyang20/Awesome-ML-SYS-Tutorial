@@ -99,11 +99,21 @@ Megatron-Core 提供基于模块化构建的 `GPTModel`、`TransformerConfig` �
 
 这里推荐一篇已经把 TP 讲解相当清楚的[文章](https://zhuanlan.zhihu.com/p/622212228)。这里只做一些摘录：
 
-【TODO：TP 里面的聚合和 FSDP 里面的聚合有什么区别？】
+【TP 里面的聚合和 FSDP 里面的聚合有什么区别？】
+
+TP是分片计算+聚合结果，而FSDP是聚合参数+计算
+
+
+TP的聚合是对中间计算结果的聚合。各GPU持有不同的参数分片（如W1_part1, W1_part2），独立计算各自的部分结果（如Y_part1, Y_part2），然后通过AllReduce聚合这些部分结果得到完整的层输出或梯度。这种聚合发生在每层的前向和反向传播过程中，目的是将分布式计算的部分结果组装成完整的activation或梯度继续传播。参数本身始终保持分片状态，各GPU只需维护和更新自己负责的参数片段。
+FSDP本质上还是DP，FSDP的聚合是对分片参数的聚合。各GPU平时只存储模型参数的一个分片，在计算时临时通过AllGather重构完整的参数矩阵进行计算，计算完毕后立即释放完整参数以节省内存。这种聚合的目的是获得完整参数进行标准的神经网络计算，聚合频率更高（每层计算前都需要），通信的是参数本身而非计算结果。
 
 1. 在一个 TP group 里，为了保证数据一致性，只有一个进程会从磁盘加载模型参数，其余进程通过广播操作获取相同的数据，从而确保组内参数一致性。
 
 【这是真的么？大家都加载不会快些么？】
+
+是真的 可以看看https://github.com/volcengine/verl/blob/fcb1e191b758cadd3f45bb9d3ee815d979f4a1ec/verl/models/mcore/loader.py#L85
+rank0: 加载完整参数 -> 按TP策略切分 -> 广播分片，猜测是因为这样的分发效率可能比并发读要高
+
 
 2. TP 在执行期间涉及频繁的数据通信。为了提升计算效率，实际部署时应尽可能将同一个 TP group 的进程安排在同一台机器内，利用 NVLink 降低通信延迟。
 3. 由于参数被分块计算，每个进程仅生成输出的一部分状态。当这些中间结果需要作为后续层的输入或输出时，需要进行通讯并合并结果。
@@ -129,16 +139,12 @@ class ColumnParallelLinear(torch.nn.Module):
 
     ):
         super(ColumnParallelLinear, self).__init__()
-        ...
-        # 获取张量组大小
         world_size = get_tensor_model_parallel_world_size()
-        # 当前进程在，张量组中的位置
         rank = get_tensor_model_parallel_rank()
-        # 从列维度进行分片大小
         self.output_size_per_partition = divide(output_size, world_size)
 
-        # Note: torch.nn.functional.linear performs XA^T + b and as a result
-        # 构建参数， 这里nn.liner 矩阵乘法 XA^T + b， 所以对参数进行转置 
+        # 1. 参数分片
+        # 原本权重是 [input_size, output_size]，现在每个GPU只存储 [input_size, output_size/N]
         self.weight = Parameter(
                     torch.empty(
                         self.output_size_per_partition, # 输出特征分片，减少单卡参数
@@ -148,8 +154,6 @@ class ColumnParallelLinear(torch.nn.Module):
                     )
                 )
 
-        ... 
-
         
     def forward(
         self,
@@ -157,11 +161,9 @@ class ColumnParallelLinear(torch.nn.Module):
         weight: Optional[torch.Tensor] = None,
         runtime_gather_output: Optional[bool] = None,
     ):
-        ...
-        # 反向过程中，梯度需要进行求和 all_reduce, 函数定义重写 torch.autograd.Function 类 backward 函数
+        # Step1: 复制输入到所有GPU
         input_parallel = copy_to_tensor_model_parallel_region(input_)
-        ...
-        # 重写前向和反向函数， 
+        # Step2: 各GPU独立计算部分结果
         output_parallel = self._forward_impl(
             input=input_parallel,
             weight=weight,
@@ -169,18 +171,22 @@ class ColumnParallelLinear(torch.nn.Module):
             ...
             ),
         )
-        # 判断是否需要进行拼接 gather 操作 
+        # Step3: 根据需要决定是否聚合结果
         if gather_output:
             assert not self.sequence_parallel
             output = gather_from_tensor_model_parallel_region(output_parallel)
         else:
             output = output_parallel
-        ... 
-        return output, output_bias
 ```
 </details>
 
-【TODO：卧槽，这段代码在讲啥】
+【卧槽，这段代码在讲啥】
+
+上面一段TP中列切分线性层，把一个大的权重矩阵"竖着切开"分给多个GPU。
+
+下面一段是多头注意力的TP切分，把不同的注意力头分配到不同的GPU上并行计算。其实这两段算是对mengyuan老师文化最那个的一点代码补充
+
+> 对三个参数矩阵Q，K，V，按照“列切割”，每个头放到一块GPU上，做并行计算。对线性层B，按照“行切割”。切割的方式和MLP层基本一致，其forward与backward原理也一致。
 
 <details>
 <summary>
@@ -257,6 +263,8 @@ PP 的数据通信量相对较少，只有 PP Group 内相邻的进程间进行�
 
 【没懂，为什么“在前向传播阶段，反向传播阶段的 GPU 会处于空闲状态”。】
 
+这里我理解的是所有micro batch前向传播完，才会开始反向传播，所以前向传播结束的GPU会较长时间处于空闲状态。可以与下面的1F1B对比一下。
+
 **1F1B**
 
 为了解决 FThenB 的问题，引入了 1F1B 调度策略。1F1B 的全称是 1 Forward 1 Backward，即一边前向传播，一边反向传播
@@ -275,9 +283,24 @@ PP 的数据通信量相对较少，只有 PP Group 内相邻的进程间进行�
 
 ### SP
 
-序列并行是 Megatron-LM 中一项重要的优化技术，旨在进一步减少训练长序列模型时的显存占用，特别是激活值的显存。它与 TP 协同工作，通常在 TP Group组内部署。
+还是建议看[这篇文章](https://zhuanlan.zhihu.com/p/4083427292)
 
-在 Transformer 的训练中，有许多操作在序列维度上是独立的。比如 Layer Normalization，对每个 token 的 embedding 独立进行归一化，以及 Dropout，独立地对每个元素应用 dropout。
+序列并行是 Megatron-LM 中一项重要的优化技术，旨在进一步减少训练长序列模型时的显存占用，特别是激活值的显存。它与 TP 协同工作，通常在 TP Group组内部署。
+megatron sp的核心思想是借鉴tp把模型权重切分到多卡上的方式，把激活值也切分到各张卡上。
+
+我们先来看仅有tp的情况 
+
+<div style="text-align: center;">
+  <img src="./pics/tp.png" alt="fsdp-arch" style="width:80%;">
+</div>
+
+相比于tp，tp+sp保持了原始tp并行模块不变，只是针对Attn和MLP的输入/输出部分做了sp（序列并行处理）。
+
+<div style="text-align: center;">
+  <img src="./pics/tp+sp.png" alt="fsdp-arch" style="width:80%;">
+</div>
+
+对于已经有tp的部分，激活值天生就是切开保存的，所以我们需要通过SP优化的是图中layernorm和dropout部分。这些操作在序列维度上是独立的。比如 Layer Normalization，对每个 token 的 embedding 独立进行归一化，以及 Dropout，独立地对每个元素应用 dropout。
 
 对于这些操作，我们不需要在每个 GPU 上都拥有完整的序列数据。序列并行利用了这一点，将输入张量的序列维度 (sequence length) 切分到张量并行组内的各个 GPU 上。
 
@@ -289,11 +312,14 @@ PP 的数据通信量相对较少，只有 PP Group 内相邻的进程间进行�
 
 在前向传播中，这通常是一个简单的切片 (slice) 操作，每个 GPU 取出属于自己的那部分序列。 在反向传播中，对应的操作通常是 Reduce-Scatter。梯度的计算会先在完整序列上进行，然后通过 Reduce-Scatter 将梯度分发并累加到各个 GPU 对应的序列片段上。
 
-【SP 和 CP 只有训练才会使用？】
+【SP 和 CP 只有训练才会使用？]
+根据我对sp cp原理的理解在推理时也是能用的 但是我对megatron推理调研不多，实际应用上是否支持还不太确定
 
 ### CP
 
-megatron 还支持了 context parallelism。CP 和 SP 很接近，然而 SP 只针对 Layernorm 和 Dropout 在 sequence 维度上进行切分，CP 则是对所有的input 输入在 sequence 维度上进行切分，可以看成是增强版的 SP。开启 CP 就会覆盖 SP 的效果。除了 Attention 模块以外，Layernorm、Dropout 在 CP 时和 SP 一样处理。
+https://www.zhihu.com/question/637961859/answer/25207834171
+
+megatron 还支持了 context parallelism。CP 和 SP 很接近，然而 SP 只针对 Layernorm 和 Dropout 在 sequence 维度上进行切分，CP 则是对所有的input 输入在 sequence 维度上进行切分，可以看成是增强版 SP, 在原来的基础上进行局部优化。开启 CP 就会覆盖 SP 的效果。除了 Attention 模块以外，Layernorm、Dropout 在 CP 时和 SP 一样处理。
 
 Attention 计算过程中每个 token 的 Q 要跟同一个 sequence 中其他 token 的 K 和 V 一同计算。所以启动 CP 后，在计算 Attention 前要通过all-gather 拿到所有 token 的 K 和 V，在反向计算时对应需要通过 reduce_scatter 分发 gradient 梯度。
 
@@ -301,11 +327,13 @@ Attention 计算过程中每个 token 的 Q 要跟同一个 sequence 中其他 t
 
 【这里的 KV 并不是 KV cache，而只是前向传播计算出的 KV？可能也是留存的 KV，但是目的不是在其他 sequence 的计算中复用？】
 
+
 通过 CP 可以更好解决 long context 训练的 OOM 问题，每个 GPU 只用处理一部分的 sequence, 同时减少 CP 倍的通信和计算，但保持 TP 不变，同时 activation 也会减少 CP 倍。CP 优化的性能参考如下图，在 Megatron 中通过指定 `--context-parallel-size` 可以进行使用 `world_size = CP * PP * DP * TP`。
 
 ![image](https://hackmd.io/_uploads/Hk-R5SDSxg.png)
 
-【CP 可以减少通讯量么？】
+【CP 可以减少通讯量么？】TODO
+
 
 ### EP
 
@@ -323,18 +351,22 @@ Megatron-LM 提出了 PTD-P，利用跨多 GPU 服务器的流水线并行、多
 
 ### 通信方式总结
 
-- TP：每层前向使用 all-gather 拼接输出，反向使用 reduce-scatter 合并梯度；通信频繁，推荐同机组网（NVLink）。
+- TP：forward使用一次all-reduce，反向传播再使用一次all-reduce；
 - PP：前后阶段通过 Send/Recv 传递激活和梯度；通信量小但频繁，通常跨节点部署（Infiniband）。
 - DDP：每层反向后通过 all-reduce 同步梯度；适合横向扩展增加吞吐。
 - FSDP：前向和反向使用 all-gather 聚合参数，然后 reduce-scatter 聚合 gradient。
+- SP：前向和反向各使用一次 all-gather + reduce-scatter，与单纯使用TP的通讯量一致。                  
 
-【检查正确性 + SP + CP + EP】
+【TODO  CP + EP】
+
+在考虑如何设置并行group时，我们采用的顺序是tp-cp-ep-dp-pp，我们认为越靠前的并行组，通讯量越大，所以尽量安排在一台机器内。tp-cp-ep-dp-pp是megatron代码默认的顺序，我们当然可以根据实际情况做修改，但前提就是要考虑通讯量。
+
 
 ## Megatron 源码阅读
 
 [megatron code walk through](https://space.keter.top/docs/high_performance/Megatron%E6%BA%90%E7%A0%81%E9%98%85%E8%AF%BB/pretrain_process)
 
-【速速概括此文】
+【速速概括此文 TODO】
 
 ## RL 框架中对 Megatron 的使用
 
@@ -359,6 +391,9 @@ verl 目前选用了 Megatron-Core。
 个人认为，在如下情况下理应选择 Megatron：模型数量少，长期只维护少数闭源 LLM，可投入时间写 LayerSpec 和权重映射；追求极限的性能，需要 3D 并行（TP × PP × ZeRO-DP）、Flash-Attn、FP8 等最高硬件利用率；距大规模的模型和集群 GPU； 有专业 AI Infra engineer 维护。与之相对，选择其他框架的场景：模型多或者频繁魔改结构，重写 Megatron 适配成本太高；训练规模较小，可以用 PyTorch FSDP 直接包装模型；跨节点带宽有限 Lacking NVLink，TP 效益降低。
 
 【zero 和 TP 的通讯应该是一个量级？甚至 zero 更高？】
+
+ZeRO通信量更高，尤其是对于参数量较大的模型，Zero每层都需要all-gather参数 + reduce-scatter梯度，TP通信量相对固定，只在特定操作点进行运算结果的all-reduce通信。
+
 
 ## verl 中的 Megatron 实现
 
