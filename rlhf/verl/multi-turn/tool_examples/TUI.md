@@ -10,12 +10,15 @@
 pip install typer==0.16.0
 pip install ujson==5.10.0
 pip install textual==0.52.1
+pip install aiofiles==24.1.0
 ```
 ## 配置
 需要在配置中设置 rollout data 存储目录。
 ```
 trainer.rollout_data_dir=$HOME/data/gsm8k/rollout_data
 ```
+
+> 在开启 actor_rollout_ref.rollout.mode=async 时，会走Agent Loop，request id会打不出来。SGLang不需要开启这个配置实现async。
 
 ## 运行方式
 ```bash
@@ -36,4 +39,4 @@ python rollout_viewer.py  ./data/rollouts
 
 ## Example
 
-![image-20250716225610015](rlhf/verl/multi-turn/imgs/TUI example.png)
+![TUI example](../imgs/TUI_example.png)
