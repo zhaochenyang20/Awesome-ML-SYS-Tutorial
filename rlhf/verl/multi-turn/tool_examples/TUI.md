@@ -36,4 +36,4 @@ python rollout_viewer.py  ./data/rollouts
 
 ## Example
 
-![image-20250716225610015](../imgs/TUI example.png)
+![image-20250716225610015](rlhf/verl/multi-turn/imgs/TUI example.png)
