@@ -36,9 +36,11 @@
 
 8. FastAPI Server 最后封装完成的响应并将其返回给用户。
 
+> **💡 多模态请求处理**：对于包含图像、视频等多模态内容的请求详细处理流程，请参考 [SGLang 多模态请求生命周期：以 Qwen2.5-VL 为例的架构级深度解析](multimodal_request_lifecycle.md)。
+
 ## 致谢与许可
 
-本文基于 [SGLang v0.4.0](https://github.com/sgl-project/sglang/tree/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751) 版本的代码编写。特别感谢 [Chenyang Zhao](https://zhaochenyang20.github.io/Chayenne/)、[Wenxuan Tan](https://github.com/Edenzzzz)、[Simon Veitner](https://simveit.github.io/)、[Shuai Shi](https://shuaills.github.io/)、[Shizhe Diao](https://shizhediao.github.io/)、[Shending Hu](https://shengdinghu.github.io/)、[Xiaoyu Zhang](https://github.com/BBuf)、[agiping](https://github.com/agiping)、[Zhizhou Sha](https://jamessand.github.io/) 对本文档的贡献。
+本文基于 [SGLang v0.4.0](https://github.com/sgl-project/sglang/tree/f8b0326934bacb7a7d4eba68fb6eddebaa6ff751) 版本的代码编写。特别感谢 [Chenyang Zhao](https://zhaochenyang20.github.io/Chayenne/)、[Wenxuan Tan](https://github.com/Edenzzzz)、[Simon Veitner](https://simveit.github.io/)、[Shuai Shi](https://shuaills.github.io/)、[Shizhe Diao](https://shizhediao.github.io/)、[Shending Hu](https://shengdinghu.github.io/)、[Xiaoyu Zhang](https://github.com/BBuf)、[agiping](https://github.com/agiping)、[Zhizhou Sha](https://jamessand.github.io/)、[Xinyuan Tong](https://github.com/JustinTong0323) 对本文档的贡献。
 
 **注意：本文档仍在编写中，以下部分将在后续加入：**
 
