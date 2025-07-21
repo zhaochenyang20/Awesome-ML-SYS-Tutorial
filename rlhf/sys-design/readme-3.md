@@ -317,7 +317,7 @@ megatron sp的核心思想是借鉴tp把模型权重切分到多卡上的方式�
 
 ### CP
 
-https://www.zhihu.com/question/637961859/answer/25207834171
+https://zhuanlan.zhihu.com/p/5502876106
 
 megatron 还支持了 context parallelism。CP 和 SP 很接近，然而 SP 只针对 Layernorm 和 Dropout 在 sequence 维度上进行切分，CP 则是对所有的input 输入在 sequence 维度上进行切分，可以看成是增强版 SP, 在原来的基础上进行局部优化。开启 CP 就会覆盖 SP 的效果。除了 Attention 模块以外，Layernorm、Dropout 在 CP 时和 SP 一样处理。
 
@@ -337,9 +337,29 @@ Attention 计算过程中每个 token 的 Q 要跟同一个 sequence 中其他 t
 
 ### EP
 
-在并行化方面，Megatron-Core 还支持专家并行。对于超大规模 MoE 模型，它能够灵活地将专家并行与其他并行策略有机结合。
+在并行化方面，Megatron-Core 还支持专家并行。
 
-在 token 分发机制上，Megatron-Core MoE 采用了 dropless MoE 操作，即不丢弃任何 token。在路由和负载均衡优化层面，它支持多种路由策略，如通用的top-k，并在负载均衡算法上支持 z-loss 以及 load balancing loss 等多种方案。此外，为解决多个专家接收变长输入问题，Megatron-Core MoE 引入了 GroupedGEMM 技术，并优化效率较低的操作，将其替换为优化的CUDA kernel。最后，在模型迁移与适配上，Megatron-Core MoE 提供了丰富的模型 checkpoint 转换功能，允许用户导入 HuggingFace 模型，自由调整 TP、PP 和 EP，随后利用 Megatron-Core 高效启动模型训练任务。
+Expert Parallelism 的逻辑如下图所示，每个 EP rank 上只包含一部分 expert，而每个 EP rank 上的 token（即 token 对应的 hidden state） 会根据 gating 结果分发到其他 EP rank 上的 expert。这个过程通过 all-to-all 通信完成。
+
+<div style="text-align: center;">
+  <img src="./pics/ep.png" alt="ep" style="width:80%;">
+</div>
+
+以 4 个 expert、2 个 EP rank 和 topk=2 为例 ，下图中每个 EP rank 上有 3 个 token：
+
+<div style="text-align: center;">
+  <img src="./pics/epall2all.png" alt="epall2all" style="width:80%;">
+</div>
+
+
+EP rank 0 的 token 分配如下：
+Token 1 → Expert 1 和 Expert 2
+Token 2 → Expert 1 和 Expert 2
+Token 3 → Expert 0 和 Expert 3
+在 all-to-all 通信前，需要对 local token 按照 gating 结果进行 permute/group，将发往同一 expert 的 token 分组。随后，这些 token 通过 all-to-all 通信发送到对应的 expert rank。
+
+在 local experts 上计算结束后需要发送原本的 ep rank，是一个 all-to-all 的逆过程，对应上图中的 all-to-all combine，通信量和 all-to-all dispatch 一致。
+
 
 ### 组合
 
@@ -352,12 +372,13 @@ Megatron-LM 提出了 PTD-P，利用跨多 GPU 服务器的流水线并行、多
 ### 通信方式总结
 
 - TP：forward使用一次all-reduce，反向传播再使用一次all-reduce；
-- PP：前后阶段通过 Send/Recv 传递激活和梯度；通信量小但频繁，通常跨节点部署（Infiniband）。
+- PP：前后阶段通过 Send/Recv 传递激活和梯度；通信量小，通常跨节点部署（Infiniband）。
 - DDP：每层反向后通过 all-reduce 同步梯度；适合横向扩展增加吞吐。
 - FSDP：前向和反向使用 all-gather 聚合参数，然后 reduce-scatter 聚合 gradient。
-- SP：前向和反向各使用一次 all-gather + reduce-scatter，与单纯使用TP的通讯量一致。                  
+- SP：前向和反向各使用一次 all-gather + reduce-scatter，与单纯使用TP的通讯量一致。
+- EP：前向和反向使用 all-to-all dispatch 将tokens根据路由结果分发到对应expert所在的GPU，all-to-all combine 将expert计算结果收集回原GPU。
 
-【TODO  CP + EP】
+【TODO  CP 】
 
 在考虑如何设置并行group时，我们采用的顺序是tp-cp-ep-dp-pp，我们认为越靠前的并行组，通讯量越大，所以尽量安排在一台机器内。tp-cp-ep-dp-pp是megatron代码默认的顺序，我们当然可以根据实际情况做修改，但前提就是要考虑通讯量。
 
