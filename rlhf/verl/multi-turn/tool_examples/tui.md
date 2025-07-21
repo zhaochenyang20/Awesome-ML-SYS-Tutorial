@@ -1,6 +1,6 @@
-# Rollout Viewer TUI
+# TUI: A Rollout Viewer for Multi-turn RL
 
-感谢小红书的朋友们的贡献，我们开发了一套名为 TUI 的可视化工具。具体来说，我们实现了 `rollout_viewer.py`，它是一个基于 [Textual](https://textual.textualize.io/) 的交互式 JSONL 数据浏览工具，可以将 Rollout log 文件，在终端中以富文本形式展示，并支持分页、搜索、字段过滤等操作。
+感谢小红书的朋友们的贡献，我们开发了一套名为 TUI 的可视化工具。具体来说，我们实现了 [`rollout_viewer.py`](https://github.com/volcengine/verl/blob/main/scripts/rollout_viewer.py)，它是一个基于 [Textual](https://textual.textualize.io/) 的交互式 JSONL 数据浏览工具，可以将 Rollout log 文件，在终端中以富文本形式展示，并支持分页、搜索、字段过滤等操作。
 
 acknowledge：rui yang（小红书），chengxi li（CMU），Huapeng Zhou（UW），Chenyang Zhao（Amazon）
 
@@ -26,12 +26,8 @@ trainer.rollout_data_dir=$HOME/data/gsm8k/rollout_data
 ## 运行方式
 
 ```bash
-python rollout_viewer.py  <JSONL目录路径>
-```
-示例：
-
-```bash
-python rollout_viewer.py  ./data/rollouts
+# python scripts/rollout_viewer.py <JSONL_directory_path>
+python scripts/rollout_viewer.py ./data/rollouts
 ```
 
 程序会异步加载该目录下所有后缀为 `.jsonl` 的文件。
