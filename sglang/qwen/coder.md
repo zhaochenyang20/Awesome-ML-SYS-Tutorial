@@ -5,7 +5,7 @@ SGLang has supported Qwen3-coder (480B) since [v0.4.6](https://github.com/sgl-pr
 
 Ongoing optimizations are tracked in Roadmap. 
 
-# Launch Qwen3-Coder 4 with SGLang
+# Launch Qwen3-Coder with SGLang
 
 To serve Qwen3 model on H200 GPUs:
 
