@@ -21,11 +21,6 @@ For FP8 model
 python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 --tp 8 --tool-call-parser qwen3 --enable-ep-moe
 ```
 
-or
-
-```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-FP8 --tp 8 --enable-ep-moe --tool-call-parser qwen3 --enable-ep-moe
-```
 
 ## Configuration Tips
 * **FP8 models** : With `--tp` Loading failure is expected; switch to expert-parallel mode using ```--enable-ep-moe```.
