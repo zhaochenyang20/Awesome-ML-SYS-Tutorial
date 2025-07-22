@@ -1,5 +1,5 @@
 # Qwen3-Coder Usage
-[Qwen3-coder](https://github.com/QwenLM/Qwen3) is the largest language model developed by Qwen team, Alibaba Cloud.
+[Qwen3-coder]([https://github.com/QwenLM/Qwen3](https://github.com/QwenLM/Qwen3-Coder)) is the SOTA LLM developed by the Qwen team, Alibaba Cloud.
 
 SGLang has supported Qwen3-coder already. The `tool-parser` shall be used with SGLang >= 0.4.9.post3.
 
