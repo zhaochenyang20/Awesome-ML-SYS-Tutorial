@@ -10,21 +10,25 @@ Ongoing optimizations are tracked in the Roadmap.
 To serve Qwen3 model on H200 GPUs:
 
 For BF16 model
+
 ```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B --tp 8 --tool-call-parser qwen3
+python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B --tp 8 --tool-call-parser qwen3 --enable-ep-moe
 ```
 
 For FP8 model
+
 ```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-FP8 --tp 4 --tool-call-parser qwen3
+python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 --tp 8 --tool-call-parser qwen3 --enable-ep-moe
 ```
+
 or
+
 ```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-FP8 --tp 8 --enable-ep-moe --tool-call-parser qwen3
+python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-FP8 --tp 8 --enable-ep-moe --tool-call-parser qwen3 --enable-ep-moe
 ```
 
 ## Configuration Tips
-* **FP8 models** : With --tp 8 Loading failure is expected; switch to expert-parallel mode using ```--enable-ep-moe```.
+* **FP8 models** : With `--tp` Loading failure is expected; switch to expert-parallel mode using ```--enable-ep-moe```.
 * **Tool call**: Add ```--tool-call-parser qwen3``` for tool call parser. 
 
 ## Roadmap
