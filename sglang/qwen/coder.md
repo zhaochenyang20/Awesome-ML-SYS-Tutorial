@@ -10,7 +10,7 @@ To serve Qwen3 model on 4/8xH100/200 GPUs:
 
 For BF16 model
 ```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B --tp8 --tool-call-parser qwen3
+python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B --tp 8 --tool-call-parser qwen3
 ```
 
 For FP8 model
