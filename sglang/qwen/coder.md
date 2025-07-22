@@ -1,9 +1,9 @@
 # Qwen3-Coder Usage
-[Qwen3-coder](https://github.com/QwenLM/Qwen3) is the large language model developed by Qwen team, Alibaba Cloud.
+[Qwen3-coder](https://github.com/QwenLM/Qwen3) is the largest language model developed by Qwen team, Alibaba Cloud.
 
-SGLang has supported Qwen3-coder (480B) since [v0.4.6](https://github.com/sgl-project/sglang/releases/tag/v0.4.6).
+SGLang has supported Qwen3-coder already. The `tool-parser` shall be used in latest main branch of SGLang. 
 
-Ongoing optimizations are tracked in Roadmap. 
+Ongoing optimizations are tracked in the Roadmap. 
 
 # Launch Qwen3-Coder with SGLang
 
