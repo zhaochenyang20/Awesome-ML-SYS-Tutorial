@@ -18,13 +18,13 @@ To serve Qwen3 model on H200 GPUs:
 For BF16 model
 
 ```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-Instruct --tp 8 --tool-call-parser qwen3 --enable-ep-moe
+python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-Instruct --tp 8 --tool-call-parser qwen3 --enable-ep-moe --mem-fraction-static 0.85
 ```
 
 For FP8 model
 
 ```
-python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 --tp 8 --tool-call-parser qwen3 --enable-ep-moe
+python3 -m sglang.launch_server --model-path Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 --tp 8 --tool-call-parser qwen3 --enable-ep-moe --mem-fraction-static 0.85
 ```
 
 
