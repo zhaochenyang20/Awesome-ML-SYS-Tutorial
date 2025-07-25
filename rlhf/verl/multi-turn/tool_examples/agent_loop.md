@@ -163,7 +163,7 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 
 ### Debug
 
-如果你在启动 bash 后发现了这个错误：
+- 如果你在启动 bash 后发现了这个错误：
 
 ```bash
 raise ValueError(f"Feature type '{_type}' not found. Available feature types: {list(_FEATURE_TYPES.keys())}")
@@ -206,6 +206,13 @@ PPO_RAY_RUNTIME_ENV = {
     "python": python_executable,
 }
 ```
-
+- 如果你遇到了下面这个错误:
+```bash
+File "/root/.python/verl-sglang/lib/python3.12/site-packages/triton/runtime/driver.py", line 8, in _create _driverraise RuntimeError(f"flen(actives)) active drivers ( factives,). There should only be one."RuntimeError: 0 active drivers ([]). There should only be one(MorkerDict pid-319609) MARMING 07-25 04:31:15 [en override.py:17) WCCL CUMEM EMABLE is set to 0, skipping override. This may increase menory overhead with cudagraph+allreduce: https://github.con/WVIDIA/nccl/issues/1234 [repeated 5x across cluster)
+```
+请降级 triton 版本([参考链接](https://github.com/triton-inference-server/server/issues/8007)):
+```bash
+uv pip install triton==3.1.0
+```
 ## Code-Walk-Through
 
