@@ -14,9 +14,9 @@ Specifically, requests flow through the following process to get responses:
 
 1. The user launches the Server, initializing the FastAPI app, TokenizerManager, DetokenizerManager, and Scheduler, each running with its infinite event loop.
 
-2. The user sends `/v1/chat/completions` requests to the FastAPI Server, which routes them to TokenizerManager via the `v1_chat_completions` endpoint.
+2. The user sends `/v1/chat/completions` requests to the FastAPI Server, which routes them to TokenizerManager via the `openai_v1_chat_completions` endpoint.
 
-3. The `v1_chat_completions` function converts the incoming requests into a `ChatCompletionRequest`,transforms them into a `GenerateReqInput` and calls TokenizerManager's `generate_request` method.
+3. The `openai_v1_chat_completions` function with `OpenAIServingChat` request handler converts the incoming requests into a `ChatCompletionRequest`, transforms them into a `GenerateReqInput` and calls TokenizerManager's `generate_request` method.
 
 4. TokenizerManager tokenizes the requests and forwards them to the Scheduler as Python objects (`pyobj`) while calling TokenizerManager‘s `_wait_one_response`.
 
