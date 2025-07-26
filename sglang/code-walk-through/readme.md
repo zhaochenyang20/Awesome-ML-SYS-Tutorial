@@ -18,7 +18,7 @@ Specifically, requests flow through the following process to get responses:
 
 3. The `openai_v1_chat_completions` function with `OpenAIServingChat` request handler converts the incoming requests into a `ChatCompletionRequest`, transforms them into a `GenerateReqInput` and calls TokenizerManager's `generate_request` method.
 
-4. TokenizerManager tokenizes the requests and forwards them to the Scheduler as Python objects (`pyobj`) while calling TokenizerManager‘s `_wait_one_response`.
+4. TokenizerManager tokenizes the requests and forwards them to the Scheduler as Python objects (`pyobj`) while calling TokenizerManager‘s `_send_one_request` and `_wait_one_response`.
 
 5. The Scheduler loops its infinite `event_loop_normal` to handle the requests:
     - The Scheduler receives the requests via `recv_requests`, processes them through `process_input_requests`, handles the generation logic with `handle_generate_request`, and adds them to the `waiting_queue`.
