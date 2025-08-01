@@ -6,7 +6,7 @@
 
 ## Author
 
-Changyi Yang(CMU),  Chenyang Zhao(Amazon), Huapeng Zhou(UW)
+Changyi Yang(CMU), Huapeng Zhou(UW), Chenyang Zhao(Amazon) 
 
 ## Related Resources 
 
@@ -40,7 +40,7 @@ main_ppo.py -> RayPPOTrainer(fit)-> AgentLoopManager(async) -> AgentLoopWorker -
 - `AgentLoopWorker`收集所有`AgentLoop`的返回值，上交给`AgentLoopManager`，等待下一次调用。
 - `AgentLoopManager`收集所有`AgentLoopWorker`的返回值，返回。
 
-![image-20250731154859113](./assets/image-20250731154859113.png)
+![image-20250731154859113](./assets/agentLoop.png)
 
 ## AgentLoopManager
 

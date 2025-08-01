@@ -10,7 +10,7 @@ As for `AgentLoopManager`, `AgentLoopWorker`, and `AgentLoop`, I believe `AgentL
 
 ## Author
 
-Changyi Yang(CMU),  Chenyang Zhao(Amazon), Huapeng Zhou(UW)
+Changyi Yang(CMU), Huapeng Zhou(UW), Chenyang Zhao(Amazon)
 
 ## Related Resources
 
@@ -37,7 +37,7 @@ main_ppo.py -> RayPPOTrainer(fit)-> AgentLoopManager(async) -> AgentLoopWorker -
 - `AgentLoopWorker` collects results from all `AgentLoop` instances and passes them to `AgentLoopManager`, awaiting the next round of requests.
 - `AgentLoopManager` gathers all responses from its `AgentLoopWorker` instances and returns them.
 
-![image-20250731154859113](./assets/image-20250731154859113.png)
+![image-20250731154859113](./assets/agentLoop.png)
 
 ## AgentLoopManager
 
