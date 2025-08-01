@@ -26,6 +26,11 @@ My learning notes/codes for ML SYS.  English version is under development and on
 
 - **Intro to Alignment Algorithms and NeMo-Aligner Framework**  
   [[中文版](https://zhuanlan.zhihu.com/p/5220718268)] 
+  
+- **AgentLoopCodeWalkThrough:** 
+
+  [[English](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/agent-loop/agentLoop_EN.md)]
+
 
 ---
 
