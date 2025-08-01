@@ -46,7 +46,7 @@ main_ppo.py -> RayPPOTrainer(fit)-> AgentLoopManager(async) -> AgentLoopWorker -
 
 AgentLoop 的最顶层管理者，负责管理 AgentLoopWorker 以及 LLM servers 的生命周期。核心方法是`generate_sequences`：向下层层调用，得到 policy model 在给定的 agent loop 环境下的 trajectories。
 
-### 核心API
+### 核心 API
 
 在 `RayPPOTrainer` 中被初始化：
 
@@ -88,19 +88,19 @@ if self.config.actor_rollout_ref.rollout.mode == "async":
 
 **`_initialize_llm_servers`**
 
-- 计算dp size：`self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size`
+- 计算 dp size：`self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size`
 - 通过`async_server_class(rollout_backend=self.config.actor_rollout_ref.rollout.name)`获取服务器类，如 `Async``SGLang``Server`，作为和下层的 `sgl.Engine` 通信的转接层。
-- 用ray 初始化 dp size 个 server，为每个 dp rank 创建 server 实例。
+- 用 ray 初始化 dp size 个 server，为每个 dp rank 创建 server 实例。
 - 通过`ray.get(server.get_server_address.remote())`获取并记录每个服务器的地址
 - 调用`ray.get([server.init_engine.remote() for server in self.async_llm_servers])`；server 从 ray 通过前缀查询，在已经初始化好的 ray actor 中拿到自己对应的所有 SGLang engine。
 
 ```Python
 def _initialize_llm_servers(self):
-    # 计算dp size
+    # 计算 dp size
     self.rollout_tp_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
     self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
 
-    # 获取worker信息用于节点亲和性调度
+    # 获取 worker 信息用于节点亲和性调度
     register_center = ray.get_actor(f"{self.worker_group.name_prefix}_register_center")
     workers_info = ray.get(register_center.get_worker_info.remote())
     assert len(workers_info) == self.worker_group.world_size
@@ -108,7 +108,7 @@ def _initialize_llm_servers(self):
     self.async_llm_servers = [None] * self.rollout_dp_size
     self.server_addresses = [None] * self.rollout_dp_size
 
-    # 根据config拿到对应的server, e.g., AsyncSGLangServer
+    # 根据 config 拿到对应的 server, e.g., AsyncSGLangServer
     if self.config.actor_rollout_ref.rollout.agent.custom_async_server:
         server_class = async_server_class(
             rollout_backend=self.config.actor_rollout_ref.rollout.name,
@@ -118,12 +118,12 @@ def _initialize_llm_servers(self):
     else:
         server_class = async_server_class(rollout_backend=self.config.actor_rollout_ref.rollout.name)
 
-    # 用ray初始化dp rank个AsyncServer
+    # 用 ray 初始化 dp rank 个 AsyncServer
     unready_dp_ranks = set(range(self.rollout_dp_size))
     while len(unready_dp_ranks) > 0:
         servers = {
             rollout_dp_rank: server_class.options(
-                # 确保AsyncServer与对应的工作器在同一节点
+                # 确保 AsyncServer 与对应的工作器在同一节点
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
                     soft=False,
@@ -133,7 +133,7 @@ def _initialize_llm_servers(self):
             for rollout_dp_rank in unready_dp_ranks
         }
 
-        # 记录server地址
+        # 记录 server 地址
         for rollout_dp_rank, server in servers.items():
             try:
                 address = ray.get(server.get_server_address.remote())
@@ -144,7 +144,7 @@ def _initialize_llm_servers(self):
                 ray.kill(server)
                 print(f"rollout server {rollout_dp_rank} failed, maybe address already in use, restarting...")
 
-        # 初始化server，这个初始化是server从ray中拿到自己dp对应的所有worker
+        # 初始化 server，这个初始化是 server 从 ray 中拿到自己 dp 对应的所有 worker
         ray.get([server.init_engine.remote() for server in self.async_llm_servers])
 ```
 
@@ -167,7 +167,7 @@ def _init_agent_loop_workers(self):
 
 - 如果配置了`free_cache_engine`，先调用`self.wake_up()`
 - `chunkes = prompts.chunk(len(self.agent_loop_workers))` 将输入批次按 AgentLoopWorker 数量分块。
-- 每个agentLoopWorker 处理自身的 chunk，通过`ray.get([worker.generate_sequences.remote(chunk) for ...])`并行执行并得到结果；
+- 每个 agentLoopWorker 处理自身的 chunk，通过`ray.get([worker.generate_sequences.remote(chunk) for ...])`并行执行并得到结果；
 - 处理完成后调用`self.sleep()`让 server 进入睡眠状态以释放显存
 - 计算生成序列和工具调用的性能指标
 - 合并所有 `A``gentLoopWorker` 的输出并返回
@@ -177,15 +177,15 @@ Code link [[here](https://github.com/volcengine/verl/blob/c5b189a1af496d0bc68320
 ```Python
 def generate_sequences(self, prompts: DataProto) -> DataProto:
     if self.config.actor_rollout_ref.rollout.free_cache_engine:
-        self.wake_up()  # 唤醒所有LLM服务器
+        self.wake_up()  # 唤醒所有 LLM 服务器
 
-    chunkes = prompts.chunk(len(self.agent_loop_workers))  # 按worker数量分块
+    chunkes = prompts.chunk(len(self.agent_loop_workers))  # 按 worker 数量分块
 
     outputs = ray.get(
         [worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)]
-    )  # 并行分发到各个AgentLoopWorker
+    )  # 并行分发到各个 AgentLoopWorker
 
-    output = DataProto.concat(outputs)  # 聚合所有worker的输出
+    output = DataProto.concat(outputs)  # 聚合所有 worker 的输出
 
     if self.config.actor_rollout_ref.rollout.free_cache_engine:
         self.sleep()  # 让服务器进入睡眠状态，释放显存
@@ -200,9 +200,9 @@ def generate_sequences(self, prompts: DataProto) -> DataProto:
 
 ## AsyncSGLangServer
 
-基于SGLang的异步服务器实现，继承自`AsyncServerBase`。作为 Ray 远程 actor 运行，负责将收到的请求转发给下层的 SGLang Engine。出于 SGLang 的设计，调用 `generate` 的时候只需要对 master worker（verl 的 inference tp 0）调用即可。
+基于 SGLang 的异步服务器实现，继承自`AsyncServerBase`。作为 Ray 远程 actor 运行，负责将收到的请求转发给下层的 SGLang Engine。出于 SGLang 的设计，调用 `generate` 的时候只需要对 master worker（verl 的 inference tp 0）调用即可。
 
-### 核心API
+### 核心 API
 
 **`init_engine`**
 
@@ -272,7 +272,7 @@ async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any],
 
 ## AsyncLLMServerManager
 
-管理多个 OpenAI 兼容的 LLM 服务器 (例如 `Async``SGLang``Server`)，提供负载均衡和会话粘性功能。支持最少请求负载均衡算法，确保多轮对话发送到同一服务器以实现自动前缀缓存。可以认为就是简单的 router/load balancer层。
+管理多个 OpenAI 兼容的 LLM 服务器 (例如 `Async``SGLang``Server`)，提供负载均衡和会话粘性功能。支持最少请求负载均衡算法，确保多轮对话发送到同一服务器以实现自动前缀缓存。可以认为就是简单的 router/load balancer 层。
 
 **初始化**
 
@@ -341,7 +341,7 @@ async def generate(self, request_id, *, prompt_ids: List[int], sampling_params: 
 
 `AgentLoopWorker` 负责接收数据，向下发给具体的 `AgentLoop`。虽然名字是 worker，但是
 
-1. 从ray 的角度来说，`AgentLoopWorker` 是有状态的，是 ray actor，而不是 ray worker
+1. 从 ray 的角度来说，`AgentLoopWorker` 是有状态的，是 ray actor，而不是 ray worker
 2. 核心函数 `generate` 是层层套壳，调用其他类；例如 `single_turn_agent_loop` 和 `tool_agent_loop` 来 `generate`（当然这两个类的 `generate` 也是向下调用，下面会讲到）
 
 #### `__init__`

@@ -17,6 +17,7 @@ $$
 
 ## RLHF System 开发笔记
 
+- [AgentLoop 源码探究](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/agent-loop/agentLoop_CN.md): 对 verl 中的 agentLoop 模块进行了分析
 - [系统性分析 verl multi-turn training 的时间消耗](./rlhf/verl/multi-turn/tool_examples/profile.md)：verl 多轮交互与工具调用 profile 分析，还有[英文版本](./rlhf/verl/multi-turn/tool_examples/profile_en.md)和[知乎](https://zhuanlan.zhihu.com/p/1929748460212552414)。
 - [RL 系统深思：FSDP 训练后端](./rlhf/sys-design/readme-2.md)：讨论 FSDP 的原理和实现，以及分析 verl 的 FSDP 使用。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1929115059113693341)和[英文版本](./rlhf/sys-design/readme-2-en.md)。
 - [RL 系统深思：深入理解权重更新机制](./rlhf/sys-design/readme-1.md)：半年工作的总结，深入理解权重更新机制，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925210722704531547)和[英文版本](./rlhf/sys-design/readme-1-EN.md)。
@@ -36,7 +37,6 @@ $$
 - [图解大模型RLHF系列之：人人都能看懂的PPO原理与源码解读](https://zhuanlan.zhihu.com/p/677607581)以及[图解OpenRLHF中基于Ray的分布式训练流程](https://zhuanlan.zhihu.com/p/12871616401)：猛猿小姐姐的非常好的 RLHF 入门资料，看了之后会对 RLHF 的计算流以及 OpenRLHF PPO 的框架有很好的理解，我自己也补充了写自己的理解在 [RLHF 的计算流](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/OpenRLHF#rlhf-%E7%9A%84%E8%AE%A1%E7%AE%97%E6%B5%81)。
 - [Latency optimization for weight updates](./sglang/latency-accelerte-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
 - [浅析主流 Alignment 算法与 NeMo-Aligner 框架](https://zhuanlan.zhihu.com/p/5220718268)
-- [AgentLoop源码探究](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/agent-loop/agentLoop_CN.md): 对verl中的agentLoop模块进行了分析
 
 
 ## SGLang 学习笔记
