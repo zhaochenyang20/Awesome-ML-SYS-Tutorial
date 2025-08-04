@@ -53,8 +53,9 @@ python3 -m pip install --upgrade uv
 cd ~
 git clone https://github.com/volcengine/verl.git
 cd verl
-python3 -m uv pip install -e ".[sglang]"
-python3 -m uv pip install -r ./requirements.txt
+
+python3 -m uv pip install -e ".[sglang]" --prerelease=allow
+python3 -m uv pip install -r ./requirements.txt --no-build-isolation
 ```
 
 4. 测试 gsm8k：
