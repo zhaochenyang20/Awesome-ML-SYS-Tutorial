@@ -58,7 +58,34 @@ python3 -m uv pip install -e ".[sglang]" --prerelease=allow
 python3 -m uv pip install -r ./requirements.txt --no-build-isolation
 ```
 
-4. 测试 gsm8k：
+4. 下载数据 (DAPO & AIME24)
+   
+```bash
+huggingface-cli download \
+    BytedTsinghua-SIA/DAPO-Math-17k \
+    --repo-type dataset \
+    --local-dir dataset/BytedTsinghua-SIA/DAPO-Math-17k \
+    --local-dir-use-symlinks False
+
+
+huggingface-cli download \
+    Maxwell-Jia/AIME_2024 \
+    --repo-type dataset \
+    --local-dir dataset/Maxwell-Jia/AIME_2024 \
+    --local-dir-use-symlinks False
+```
+
+6. 测试 DAPO:
+[TBD] 我目前用的template基于/verl/recipe/retool/run_qwen2_7b_dapo.sh
+其中对于数据集的处理主要在于：
+```
+ data.custom_cls.path=recipe/retool/retool.py \
+    data.custom_cls.name=CustomRLHFDataset \
+    custom_reward_function.path=recipe/retool/retool.py \
+    custom_reward_function.name=compute_score \
+```
+
+6. 测试 gsm8k：
 
 ```bash
 cd ~/verl
