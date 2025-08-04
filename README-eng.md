@@ -5,6 +5,10 @@ My learning notes/codes for ML SYS.  English version is under development and on
 
 ## RLHF System Development Notes
 
+- **AgentLoop Code Walk-Through:** 
+  
+  [[English](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/agent-loop/agentLoop_EN.md)]
+  
 - **Intro to HybridFlow/veRL**  
   [English TODO] | [[中文版](./rlhf/verl/readme.md)]：SGLang's hybrid RLHF engine design and implementation.
 

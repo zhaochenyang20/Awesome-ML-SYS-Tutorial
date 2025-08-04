@@ -1,6 +1,7 @@
 # 启用 verl 的 agent loop feature
 
-在我们最早发布的 [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md) 中，我们的 tool call 状态管理是在 SGLang rollout 内部管理的。尽管取得了大量社区用户的认可，但是由于 rollout 和 tool call 管理糅合在一起，长期来看不完全便于维护。此外，在我们最初的设计中，multi-turn 的每个 step 都会调用一次 [`_preprocess_prompt_to_async_rollout_requests`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme-2.md#_preprocess_prompt_to_async_rollout_requests)来做预处理，而这一部分预处理其实和 step 是无关的。agent loop feature 将 tool call 的管理从 rollout engine 内抽离出来，rollout engine 只是向上提供 token in token out 的接口即可。具体的代码解析将在本文的后半部分；前半部分将介绍如何启用 agent loop 功能。
+<!-- 在我们最早发布的 [multi-turn RL](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md) 中，我们的 tool call 状态管理是在 SGLang rollout 内部管理的。尽管取得了大量社区用户的认可，但是由于 rollout 和 tool call 管理糅合在一起，长期来看不完全便于维护。此外，在我们最初的设计中，multi-turn 的每个 step 都会调用一次 [`_preprocess_prompt_to_async_rollout_requests`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme-2.md#_preprocess_prompt_to_async_rollout_requests)来做预处理，而这一部分预处理其实和 step 是无关的。agent loop feature 将 tool call 的管理从 rollout engine 内抽离出来，rollout engine 只是向上提供 token in token out 的接口即可。具体的代码解析将在本文的后半部分；前半部分将介绍如何启用 agent loop 功能。 -->
+
 
 ## Quick Start
 
@@ -162,7 +163,7 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 
 ### Debug
 
-如果你在启动 bash 后发现了这个错误：
+- 如果你在启动 bash 后发现了这个错误：
 
 ```bash
 raise ValueError(f"Feature type '{_type}' not found. Available feature types: {list(_FEATURE_TYPES.keys())}")
@@ -205,6 +206,13 @@ PPO_RAY_RUNTIME_ENV = {
     "python": python_executable,
 }
 ```
-
+- 如果你遇到了下面这个错误:
+```bash
+File "/root/.python/verl-sglang/lib/python3.12/site-packages/triton/runtime/driver.py", line 8, in _create _driverraise RuntimeError(f"flen(actives)) active drivers ( factives,). There should only be one."RuntimeError: 0 active drivers ([]). There should only be one(MorkerDict pid-319609) MARMING 07-25 04:31:15 [en override.py:17) WCCL CUMEM EMABLE is set to 0, skipping override. This may increase menory overhead with cudagraph+allreduce: https://github.con/WVIDIA/nccl/issues/1234 [repeated 5x across cluster)
+```
+请降级 triton 版本([参考链接](https://github.com/triton-inference-server/server/issues/8007)):
+```bash
+uv pip install triton==3.1.0
+```
 ## Code-Walk-Through
 
