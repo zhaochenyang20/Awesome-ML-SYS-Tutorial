@@ -56,6 +56,7 @@ cd verl
 
 python3 -m uv pip install -e ".[sglang]" --prerelease=allow
 python3 -m uv pip install -r ./requirements.txt --no-build-isolation
+python3 -m uv pip install torch_memory_saver
 ```
 
 4. 测试 gsm8k：
