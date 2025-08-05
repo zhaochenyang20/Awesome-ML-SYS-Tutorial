@@ -59,17 +59,6 @@ python3 -m uv pip install -r ./requirements.txt --no-build-isolation
 python3 -m uv pip install torch_memory_saver
 ```
 
-安装最新的 sglang 来支持 engine 的 abort 特性：
-
-```bash
-cd ~
-git clone -b support_engine_abort git@github.com:sgl-project/sglang.git
-cd sglang
-
-pip install --upgrade pip
-pip install -e "python[all]"
-```
-
 4. 测试 gsm8k：
 
 ```bash
@@ -85,7 +74,7 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 
 ## 设计思路和具体实现
 
-基于这个 commit：[1b8bfa9f31e5c6f22603b5e72007073729579997](https://github.com/zhaochenyang20/verl/commit/1b8bfa9f31e5c6f22603b5e72007073729579997)
+基于这个 commit：[36abd78db7753eca766a5d5925df087c9ea44def](https://github.com/zhaochenyang20/verl/tree/36abd78db7753eca766a5d5925df087c9ea44def)
 
 设计思路已经讨论了非常多次了，为了解决 long tail 问题，采用 over sample 是非常常见的策略。相比于 partial rollout，此处设计的策略更粗暴。没有完成的 reqs 将会直接被丢弃。
 
@@ -241,13 +230,11 @@ async def run_with_cancellation():
 
 这里列几个我觉得必须要检查的地方：
 
-1. 直接打成 padding 的实现是否正确，至少一定不能有 loss。我理想的设计中，这个 reqs 就是被丢弃了，让 GRPO 的 group size 减小了，这个请求就是不存在，而且还会省下一些训练时间。这里得仔细检查，是否除开 loss 设为 0 之外还有别的要修改的地方。此外，假如我们实现了完美丢弃，这样不同的 GRPO group 的 requests 数量不一致，按理来说这会影响 GRPO group 的 variance，可能会让训练更加不稳定。能否刻画这一影响？
+1. 直接打成 padding 的实现是否正确，至少一定不能有 loss。我理想的设计中，这个 reqs 就是被丢弃了，让 GRPO 的 group size 减小了，这个请求就是不存在，而且还会省下一些训练时间。这里得仔细检查，是否除开 response_loss_mask 设为 0 之外还有别的要修改的地方。我一开始修改了 `agg_loss` 函数，但是后来问了 claude，可能并不需要，需要额外确认。此外，reward 函数是否需要更改，我也并不确定，对于 FSDP 来说，是这个函数 `def _expand_to_token_level`。最后，假如我们实现了完美丢弃，这样不同的 GRPO group 的 requests 数量不一致，按理来说这会影响 GRPO group 的 variance，可能会让训练更加不稳定。能否刻画这一影响？
 2. 在异步的部分，我提到了这个问题：
 
 > 坦诚说这里是因为我对异步语法并不熟悉，而且我也不理解为什么 `resume_memory_occupation` 和 `abort_request` 在 tokenizer_manager 中，前者是异步的，后者是同步的。此外，如果我们要在一个异步函数中只写一行 await 某个异步函数，这就意味着其实在等待内部的异步函数执行完成么？这么写有什么意义呢？ 具体来说：
 
-3. 整个实现能否更清晰一些，能够让 verl team 同意这个简单的 feature。
+3. 整个实现能否更清晰一些，能够让 verl team 同意这个简单的 feature。目前我需要更改 sglang_rollout.py 和 metric_utils.py 的 compute_data_metrics 函数。前者已经讲述很多了，后者其实很 tricky。我目前将那些被 abort 掉的请求在每次 reward 算均值的时候排除在分母之外。有几个问题：先是我们需要确认，在 validation 的时候，没有 abort 掉的请求，理论上 validation step 不会受到 `aborted_mask = (response_length == 0).bool() ` 的影响，这个得做实验验证下，validation step 就不会有 aborted reqs。此外，如果把这些被 abort 的请求记录在 metric 中，这一部分的 reward 全是 0，所以相比不做 over sample 的 baseline，over sample 的 reward 会低很多。如果又不考虑这些被 abort 的请求，实际上这些被 abort 的请求往往是更多 turn 更难的 example，这部分 reward 相比那些没有被 abort 的请求更低。所以无视这部分的 reward 会导致 reward 虚高。目前我没有办法避免这种虚高，但是我认为 validation step 的 reward 是准确的，目前并无大碍。
 
-最后，目前的效果在 gsm8k 上有些难评价，但是 reward 是在上涨的。我在简单做一些重复实验，来跑一下 over sample rate 从 0.1 到 1.0 的效果。目前我只跑了 0.8,0.9 和 1.0 的效果。
-
-0.8 是我之前的心理预期，我发现 rollout time 有了明显改善，但是 reward 显著比起 0.9 和 1.0 要低。虽然也在涨，但是目测从 step 0 开始，reward 就会低出无法忍受的一节。而 0.9 相比 1.0 rollout time 其实没有省下多少，reward 一开始在掉，之后看上去能收敛到一个水平。gsm8k 的长尾效应可能不严重，所以效果不明显。我之后换了 DAPO 和我在亚麻的实际业务来试试看。
+整体上表现符合预期，training step 的 reward 虚高，validation step 的 reward 能够和 baseline align 上，而 rollout time 有明显改善。
