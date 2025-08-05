@@ -54,6 +54,7 @@ cd ~
 git clone -b over_sample https://github.com/zhaochenyang20/verl.git
 cd verl
 
+python -m uv pip install wheel setuptools
 python3 -m uv pip install -e ".[sglang]" --prerelease=allow
 python3 -m uv pip install -r ./requirements.txt --no-build-isolation
 python3 -m uv pip install torch_memory_saver
