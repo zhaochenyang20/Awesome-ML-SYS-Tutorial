@@ -51,7 +51,7 @@ python3 -m pip install --upgrade uv
 
 ```bash
 cd ~
-git clone -b over_sample_sgl https://github.com/zhaochenyang20/verl.git
+git clone -b over_sample https://github.com/zhaochenyang20/verl.git
 cd verl
 
 python3 -m uv pip install -e ".[sglang]" --prerelease=allow
@@ -69,7 +69,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 python examples/data_preprocess/gsm8k_multiturn_w_tool.py
 
 # 启动 8 卡训练
-bash over_sample.sh 0.7 0.8 0.9 1.0
+bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```
 
 ## 设计思路和具体实现
