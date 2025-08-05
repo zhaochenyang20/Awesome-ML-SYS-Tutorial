@@ -69,12 +69,12 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 python examples/data_preprocess/gsm8k_multiturn_w_tool.py
 
 # 启动 8 卡训练
-bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
+bash over_sample.sh 0.7 0.8 0.9 1.0
 ```
 
 ## 设计思路和具体实现
 
-基于这个 commit：[36abd78db7753eca766a5d5925df087c9ea44def](https://github.com/zhaochenyang20/verl/tree/36abd78db7753eca766a5d5925df087c9ea44def)
+基于这个 commit：[b979a73e358313afafab5db512cd5ae0009ccac0](https://github.com/zhaochenyang20/verl/tree/b979a73e358313afafab5db512cd5ae0009ccac0)
 
 设计思路已经讨论了非常多次了，为了解决 long tail 问题，采用 over sample 是非常常见的策略。相比于 partial rollout，此处设计的策略更粗暴。没有完成的 reqs 将会直接被丢弃。
 
