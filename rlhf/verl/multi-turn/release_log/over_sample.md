@@ -1,7 +1,5 @@
 # verl sglang multi-turn over sample
 
-## 设计思路
-
 ## 快速复现
 
 1. 创建新的 docker（如果熟悉这套安装，可以跳过）：
@@ -85,50 +83,171 @@ python examples/data_preprocess/gsm8k_multiturn_w_tool.py
 bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```
 
-## Debug
+## 设计思路和具体实现
 
-如果你在启动 bash 后发现了这个错误：
+基于这个 commit：[1b8bfa9f31e5c6f22603b5e72007073729579997](https://github.com/zhaochenyang20/verl/commit/1b8bfa9f31e5c6f22603b5e72007073729579997)
 
-```bash
-raise ValueError(f"Feature type '{_type}' not found. Available feature types: {list(_FEATURE_TYPES.keys())}")
-ValueError: Feature type 'List' not found. Available feature types: ['Value', 'ClassLabel', 'Translation', 'TranslationVariableLanguages', 'LargeList', 'Sequence', 'Array2D', 'Array3D', 'Array4D', 'Array5D', 'Audio', 'Image', 'Video', 'Pdf']
-```
+设计思路已经讨论了非常多次了，为了解决 long tail 问题，采用 over sample 是非常常见的策略。相比于 partial rollout，此处设计的策略更粗暴。没有完成的 reqs 将会直接被丢弃。
 
-其实这不是实际的报错，这个报错让我费解了非常非常久，我仔细看了 log 才发现问题，其实可以向上看几行报错。在报错栈最开始的地方，报错的 python 环境是 `/root/.python/verl-sglang/lib/python3.10`，结果到了栈底部成了 `/usr/local/lib/python3.10`。毫无疑问，是 python 环境错位了；
+具体通过 `monitor_and_cancel`，`process_request_with_monitoring` 和 `run_with_cancellation` 三个函数来实现。`monitor_and_cancel` 负责监控完成数量，一旦达到目标立即行动，取消剩余任务，并向 engine 发送 abort 信号。`process_request_with_monitoring` 负责处理单个请求，并根据完成情况返回真实结果或 padding 数据。`run_with_cancellation` 同时启动 `monitor_and_cancel` 和 `process_request_with_monitoring`。
 
-1. 主进程使用虚拟环境：`/root/.python/verl-sglang/lib/python3.10/site-packages/`
-2. Ray worker 进程使用系统 Python：`/usr/local/lib/python3.10/dist-packages/`
-
-最后对这个问题的解决方式是修改 `verl/trainer/constants_ppo.py` 文件，直接改为：
+- `process_request_with_monitoring`
 
 ```python
-import os
-import sys
+async def process_request_with_monitoring(req):
+    nonlocal completed_count
+    try:
+        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
 
-# 获取当前Python解释器路径和虚拟环境路径
-python_executable = sys.executable
-virtual_env = os.environ.get("VIRTUAL_ENV", "")
-python_path = os.environ.get("PYTHONPATH", "")
+        async with completion_lock:
+            if completed_count < target_completion:
+                completed_count += 1
+                print(f"✅ Request {req.request_id} completed ({completed_count}/{total_requests})")
+                return result  # 返回真实结果
+            else:
+                # 超过目标，返回padding
+                logger.info(f"Request {req.request_id} finished after target met, creating padding")
+                return self._create_padding_request(req)
+```
 
-# 如果当前在虚拟环境中，确保包含虚拟环境的site-packages
-if virtual_env:
-    site_packages = os.path.join(virtual_env, "lib", "python3.10", "site-packages")
-    if site_packages not in python_path:
-        python_path = f"{site_packages}:{python_path}" if python_path else site_packages
+1. 每个 request 会独立启动自身的 `process_request_with_monitoring` 中，通过 `await` 阻塞式执行 `_async_rollout_a_request`。
+2. 对于那些较早完成的 request，result 得到了真实结果，对 `completed_count` 计数器递增。注意这里 `completed_count` 是全局变量，需要使用 `completion_lock` 确保计数操作的原子性，读写不会冲突。
+3. 对于那些较晚完成的 request，`monitor_and_cancel` 检测到 `completed_count` 达到 `target_completion`，会取消这些任务，并向 sglang engine 发送 `abort_requests` 请求。
 
-PPO_RAY_RUNTIME_ENV = {
-    "env_vars": {
-        "TOKENIZERS_PARALLELISM": "true",
-        "NCCL_DEBUG": "WARN",
-        "VLLM_LOGGING_LEVEL": "WARN",
-        "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
-        # 添加Python环境配置
-        "PYTHONPATH": python_path,
-        "VIRTUAL_ENV": virtual_env,
-    },
-    # 指定Python解释器
-    "python": python_executable,
-}
+- `monitor_and_cancel`
+
+```python
+async def monitor_and_cancel():
+    nonlocal completed_count
+    while completed_count < target_completion:
+        await asyncio.sleep(0.1)  # 每0.1秒检查一次
+
+    print(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
+    print("🚫 Cancelling remaining requests and sending abort to engine...")
+
+    # 取消剩余的任务
+    cancelled_count = 0
+    for task in all_tasks:
+        if not task.done():
+            task.cancel()
+            cancelled_count += 1
+
+    # 向engine发送abort信号
+    try:
+        abort_result = await self._engine.abort_request(abort_all=True)
+        print(f"✅ Abort signal sent to engine: {abort_result}")
+    except Exception as e:
+        print(f"❌ Failed to send abort signal to engine: {e}")
+```
+
+持续监控完成数量，一旦达到目标立即行动，取消剩余任务，并向 sglang engine 发送 `abort_requests` 信号。注意这里的 engine abort 实际上写法在 `sglang_rollout.py` 里面的 `AsyncEngine` 类：
+
+```python
+    async def abort_request(self, rid: str = "", abort_all: bool = False):
+        """Abort a specific request or all requests.
+
+        Args:
+            rid: The request ID to abort. If empty and abort_all is False, no action is taken.
+            abort_all: If True, abort all running requests regardless of rid.
+        """
+        try:
+            result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
+            print(f"🔍 Abort result: {result}")
+            return result if result is not None else {"status": "aborted"}
+        except Exception as e:
+            logger.error(f"Failed to abort requests: {e}")
+            raise
+```
+
+这里有两点值得玩味：
+
+1. 其实 verl 的 `AsyncEngine` 继承并且重写了 sglang Engine 的很多方法，比如 `update_weights_from_tensor` 和 `resume_memory_occupation`。按理说其实 sglang Engine 不实现这些方法也不影响 verl，当然影响其他框架。一开始我以为必须要现在 sglang 中实现对 Engine 的 `abort_request`，因为起初只有 server 有而 engine 没有。但是考虑到 `AsyncEngine` 重写了 `abort_request`，所以其实 sglang Engine 不需要实现这一功能，我们也无需为此发版。毕竟，在 verl 上更新 SGLang 版本确实太痛苦了。
+2. 和 `update_weights_from_tensor` 不一样，`abort_request` 内部是不能通过 await 去调用 `self.tokenizer_manager.abort_request`，得直接调用。感谢 jiajun 和 yuzhen 的提醒。这里得去查 sglang tokenizer_manager 内部的实现。如果某个函数在 tokenizer_manager 中是异步实现的，那么外部调用才可以有 await 的语法。坦诚说这里是因为我对异步语法并不熟悉，而且我也不理解为什么 `resume_memory_occupation` 和 `abort_request` 在 tokenizer_manager 中，前者是异步的，后者是同步的。此外，如果我们要在一个异步函数中只写一行 await 某个异步函数，这就意味着其实在等待内部的异步函数执行完成么？这么写有什么意义呢？ 具体来说：
+
+```python
+# sglang_rollout.py
+
+    async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
+        """Resume GPU occupation."""
+        # because __init__ is a sync method, it can not call the async release_memory_occupation
+        # have to move release_memory_occupation from __init__ to here
+        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
+        if self._need_reload:
+            await self.release_memory_occupation()
+            self._need_reload = False
+
+        if tags is None:
+            obj = ResumeMemoryOccupationReqInput()
+        else:
+            obj = ResumeMemoryOccupationReqInput(tags=tags)
+        return await self.tokenizer_manager.resume_memory_occupation(obj, None)
+```
+
+内层的 `self.tokenizer_manager.resume_memory_occupation` 是一个异步函数，所以在外层的 `resume_memory_occupation` 函数在等待内层的完成。如果这样，为什么外层的 `resume_memory_occupation` 函数不能是同步的呢？目前外层的函数是异步的，所以调用外层函数并等待也得 await。比如说：
+
+```python
+# fsdp_sglang.py
+
+async def release_memory(self):
+    if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.multi_stage_wake_up:
+            await self.inference_engine.release_memory_occupation(tags=["kv_cache", "weights"])
+        else:
+            await self.inference_engine.release_memory_occupation()
+        log_gpu_memory_usage("After release memory occupation in sharding manager", logger=logger)
 ```
 
 
+- `run_with_cancellation`
+
+
+```python
+async def run_with_cancellation():
+    nonlocal all_tasks
+
+    # 创建所有任务
+    all_tasks = [asyncio.create_task(process_request_with_monitoring(req)) for req in req_list]
+
+    # 启动监控任务
+    monitor_task = asyncio.create_task(monitor_and_cancel())
+
+    try:
+        # 等待所有任务完成（包括被取消的）
+        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+        # 处理结果，将异常转换为padding
+        output_req_list = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                # 异常转换为padding
+                logger.warning(f"Task {i} resulted in exception: {result}")
+                output_req_list.append(self._create_padding_request(req_list[i]))
+            else:
+                output_req_list.append(result)
+
+        return output_req_list
+    finally:
+        # 清理监控任务
+        monitor_task.cancel()
+        try:
+            await monitor_task
+        except asyncio.CancelledError:
+            pass
+```
+
+有了对前两者的理解，最后 `run_with_cancellation` 就非常清晰了。注意，`all_tasks` 和读写锁 `completion_lock` 是这三个函数的全局变量。这里同时启动所有 reqs 的 `process_request_with_monitoring` 并且创造 `monitor_task` 来监视。注意，虽然每个 req 的 `_async_rollout_a_request` 未必会完成，但是这个函数上层的 `process_request_with_monitoring` 是一定会结束的，所以 `results = await asyncio.gather(*all_tasks, return_exceptions=True)` 一定会返回，然后逐个处理 `results`，这时候里面存在三种情况：`COMPLETED`，`Exception` 和 `PADDING`。将 `Exception` 转换为 `PADDING` 后，返回 `output_req_list`。
+
+整体读完，我觉得设计的还算清晰，实现可能未必好，还要大改。
+
+这里列几个我觉得必须要检查的地方：
+
+1. 直接打成 padding 的实现是否正确，至少一定不能有 loss。我理想的设计中，这个 reqs 就是被丢弃了，让 GRPO 的 group size 减小了，这个请求就是不存在，而且还会省下一些训练时间。这里得仔细检查，是否除开 loss 设为 0 之外还有别的要修改的地方。此外，假如我们实现了完美丢弃，这样不同的 GRPO group 的 requests 数量不一致，按理来说这会影响 GRPO group 的 variance，可能会让训练更加不稳定。能否刻画这一影响？
+2. 在异步的部分，我提到了这个问题：
+
+> 坦诚说这里是因为我对异步语法并不熟悉，而且我也不理解为什么 `resume_memory_occupation` 和 `abort_request` 在 tokenizer_manager 中，前者是异步的，后者是同步的。此外，如果我们要在一个异步函数中只写一行 await 某个异步函数，这就意味着其实在等待内部的异步函数执行完成么？这么写有什么意义呢？ 具体来说：
+
+3. 整个实现能否更清晰一些，能够让 verl team 同意这个简单的 feature。
+
+最后，目前的效果在 gsm8k 上有些难评价，但是 reward 是在上涨的。我在简单做一些重复实验，来跑一下 over sample rate 从 0.1 到 1.0 的效果。目前我只跑了 0.8,0.9 和 1.0 的效果。
+
+0.8 是我之前的心理预期，我发现 rollout time 有了明显改善，但是 reward 显著比起 0.9 和 1.0 要低。虽然也在涨，但是目测从 step 0 开始，reward 就会低出无法忍受的一节。而 0.9 相比 1.0 rollout time 其实没有省下多少，reward 一开始在掉，之后看上去能收敛到一个水平。gsm8k 的长尾效应可能不严重，所以效果不明显。我之后换了 DAPO 和我在亚麻的实际业务来试试看。
