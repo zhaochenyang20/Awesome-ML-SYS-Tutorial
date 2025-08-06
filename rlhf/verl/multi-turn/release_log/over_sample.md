@@ -151,10 +151,11 @@ async def monitor_and_cancel():
             raise
 ```
 
-这里有两点值得玩味：
+这里有几点值得玩味：
 
 1. 其实 verl 的 `AsyncEngine` 继承并且重写了 sglang Engine 的很多方法，比如 `update_weights_from_tensor` 和 `resume_memory_occupation`。按理说其实 sglang Engine 不实现这些方法也不影响 verl，当然影响其他框架。一开始我以为必须要现在 sglang 中实现对 Engine 的 `abort_request`，因为起初只有 server 有而 engine 没有。但是考虑到 `AsyncEngine` 重写了 `abort_request`，所以其实 sglang Engine 不需要实现这一功能，我们也无需为此发版。毕竟，在 verl 上更新 SGLang 版本确实太痛苦了。
-2. 【和 `update_weights_from_tensor` 不一样，`abort_request` 内部是不能通过 await 去调用 `self.tokenizer_manager.abort_request`，得直接调用。感谢 jiajun 和 yuzhen 的提醒。这里得去查 sglang tokenizer_manager 内部的实现。如果某个函数在 tokenizer_manager 中是异步实现的，那么外部调用才可以有 await 的语法。坦诚说这里是因为我对异步语法并不熟悉，而且我也不理解为什么 `resume_memory_occupation` 和 `abort_request` 在 tokenizer_manager 中，前者是异步的，后者是同步的。此外，如果我们要在一个异步函数中只写一行 await 某个异步函数，这就意味着其实在等待内部的异步函数执行完成么？这么写有什么意义呢？ 具体来说：】
+2. 【现在我们只是 abort 了 engine，tool 是否 abort 影响如何？】
+3. 【和 `update_weights_from_tensor` 不一样，`abort_request` 内部是不能通过 await 去调用 `self.tokenizer_manager.abort_request`，得直接调用。感谢 jiajun 和 yuzhen 的提醒。这里得去查 sglang tokenizer_manager 内部的实现。如果某个函数在 tokenizer_manager 中是异步实现的，那么外部调用才可以有 await 的语法。坦诚说这里是因为我对异步语法并不熟悉，而且我也不理解为什么 `resume_memory_occupation` 和 `abort_request` 在 tokenizer_manager 中，前者是异步的，后者是同步的。此外，如果我们要在一个异步函数中只写一行 await 某个异步函数，这就意味着其实在等待内部的异步函数执行完成么？这么写有什么意义呢？ 具体来说：】
 
 ```python
 # sglang_rollout.py
