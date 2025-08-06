@@ -65,14 +65,14 @@ python3 -m uv pip install torch_memory_saver
 huggingface-cli download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
-    --local-dir dataset/BytedTsinghua-SIA/DAPO-Math-17k \
+    --local-dir ～/data/BytedTsinghua-SIA/DAPO-Math-17k \
     --local-dir-use-symlinks False
 
 
 huggingface-cli download \
     Maxwell-Jia/AIME_2024 \
     --repo-type dataset \
-    --local-dir dataset/Maxwell-Jia/AIME_2024 \
+    --local-dir ～/datas/Maxwell-Jia/AIME_2024 \
     --local-dir-use-symlinks False
 ```
 
