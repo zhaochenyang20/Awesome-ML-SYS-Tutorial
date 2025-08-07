@@ -65,14 +65,12 @@ python3 -m uv pip install torch_memory_saver
 hf download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
-    --local-dir ~/data/BytedTsinghua-SIA/DAPO-Math-17k \
-    --local-dir-use-symlinks False
+    --local-dir ~/data/BytedTsinghua-SIA/DAPO-Math-17k
 
 hf download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
-    --local-dir ~/data/BytedTsinghua-SIA/DAPO-Math-17k \
-    --local-dir-use-symlinks False
+    --local-dir ~/data/BytedTsinghua-SIA/DAPO-Math-17k
 ```
 
 6. 测试 DAPO:
