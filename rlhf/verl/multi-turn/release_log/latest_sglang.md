@@ -62,13 +62,13 @@ python3 -m uv pip install torch_memory_saver
 4. 下载数据 (DAPO & AIME24)
    
 ```bash
-huggingface-cli download \
+hf download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
     --local-dir ~/data/BytedTsinghua-SIA/DAPO-Math-17k \
     --local-dir-use-symlinks False
 
-huggingface-cli download \
+hf download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
     --local-dir ~/data/BytedTsinghua-SIA/DAPO-Math-17k \
