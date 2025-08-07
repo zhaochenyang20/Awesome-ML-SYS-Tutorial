@@ -18,6 +18,13 @@ Acknowledgements: Zhuoran Yinn (CMU), Changyi Yang (CMU), Chengxi Li (CMU), Huap
 
 在您的 `sglang_rollout.py` 中，定义 [`SGLangLogManager`](https://github.com/PrinsYin/verl/blob/f1c6ee60ae701789875b00616e45bd0ae5cb171c/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L93)，用法非常简单。
 
+在上方导入必要的pakage:
+```python
+import atexit
+from datetime import datetime
+import json
+```
+
 <details>
 <summary>SGLangLogManager</summary>
 
