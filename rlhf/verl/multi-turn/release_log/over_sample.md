@@ -79,7 +79,7 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-bash examples/sglang_multiturn/run_qwen2_3b_dapo_multiturn.sh
+bash examples/sglang_multiturn/run_qwen3_4b_dapo_multiturn.sh
 ```
 
 ## 设计思路和具体实现

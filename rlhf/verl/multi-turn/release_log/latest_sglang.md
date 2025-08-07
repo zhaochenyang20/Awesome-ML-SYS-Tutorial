@@ -65,7 +65,7 @@ python3 -m uv pip install torch_memory_saver
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-bash examples/sglang_multiturn/run_qwen2_3b_dapo_multiturn.sh
+bash examples/sglang_multiturn/run_qwen3_4b_dapo_multiturn.sh
 ```
 
 5. 测试 gsm8k：
