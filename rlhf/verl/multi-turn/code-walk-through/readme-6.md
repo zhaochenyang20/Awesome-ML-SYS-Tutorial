@@ -1,4 +1,4 @@
-# AgentLoop 源码探究
+# AgentLoop 源码浅析
 
 最近 RL sys 圈子的吴锡斌老师在 verl 上设计了将 rollout 与 tool 调用解耦的 AgentLoop，实现了自由灵活的 mutli-turn RL。在每个 AgentLoop 内部，rollout engine 只对外提供一个 token-in-token-out 的接口，而 tool 调用则通过 `ToolAgentLoop` 来实现。我个人比较喜欢这样解耦的设计，同时，AgentLoop 的代码结构也比较清晰。我个人学习了一次整个代码后，觉着 AgentLoop 的设计甚是不错，但是 `ActorRolloutRefWorker` 的历史包袱还是很重。
 
