@@ -384,20 +384,25 @@ async def process_request_with_monitoring(req):
 
 可以观察到，padding 花费的时间非常短，而被 abort 的请求花费的时间非常一致，符合预期。
 
-## 其他
-### 查看 SGLang Engine Throughput
-配置方法
-要监控 SGLang engine 的 throughput 性能指标，需要在 sglang_rollout 的 _init_inference_engine 方法中启用 INFO 级别日志：
+## 查看 SGLang Engine Throughput
+
+在我公司的业务里，我有时候会遇到 rollout engine 在 60s 没无法完成某个 request 的 generation 的情况，让我怀疑是不是 verl 的参数没有调整正确，导致我们得到的 token/s 特别慢。为了监控 SGLang engine 的 throughput 性能指标，只需要在 `sglang_rollout` 的 `_init_inference_engine` 方法中启用 INFO 级别日志：
+
 ```python
-# log_level="INFO" -> log_level="INFO"
+log_level="INFO"
 ```
-启用后，运行时将显示详细的性能指标： 如下:
+
+只需要打开这一行，运行时将显示详细的性能指标：
+
 ```bash
 Decode batch. #running-req: 1, #token: 910, token usage: 0.00, cuda graph: True, gen throughput (token/s): 485.10, #queue-req: 0
 ```
-不建议 同时启用以下选项
+
+如果想要进一步得到每个 req 的 input/output token，可以启用以下选项：
+
 ```bash
-# log_requests=True,
-# log_requests_level=2
+log_requests=True,
+log_requests_level=2
 ```
-启用这些选项会导致日志输出过于冗余，影响关键性能指标的可读性。
+
+但是启动后，日志输出过于冗余，可读取性堪忧。
