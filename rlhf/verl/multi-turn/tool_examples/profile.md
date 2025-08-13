@@ -302,3 +302,45 @@ actor_rollout_ref.rollout.n=16
 从左到右，分别是前 80 步的每个 step 中不同 turn 的平均 engine generation 耗时；拥有不同 turn 的 reqs 的平均耗时；以及每一步不同 turn 的 reqs 的平均占比。
 
 直观感受其实真正在 engine generation 上的耗时都不多，而且绝大多数 reqs 都只有 1 个或者两个 turn。
+
+## Over-sample Profiling 示例
+### 相关 PR
+[PR #2929 – Over-sample Feature](https://github.com/volcengine/verl/pull/2929)  
+
+### Profile 分支
+代码分支：[over_sample_profile](https://github.com/zhaochenyang20/verl/tree/over_sample_profile)  
+
+在事件开始计时的地方
+ ```python
+self.log_path = os.path.join(self.log_dir, f"step_{self.step}", f"worker_{self._rank}.jsonl")
+torch.cuda.synchronize()
+async_rollout_with_monitoring_start_time = time.time()
+loop = asyncio.get_event_loop()
+output_req_list = loop.run_until_complete(run_with_cancellation())
+ ```
+
+在这个事件结束计时的地方
+注意这个事件的开始时间在这个函数外面, 需要指定这个nonlocal 变量: `nonlocal async_rollout_with_monitoring_start_time`
+```python
+nonlocal async_rollout_with_monitoring_start_time
+...
+torch.cuda.synchronize()
+aborted_end_time = time.time()
+self.log_manager.log(
+    self.log_path,
+    event="aborted_request",
+    event="aborted_request_with_exception",
+    duration=aborted_end_time - async_rollout_with_monitoring_start_time,
+    workid=self._rank,
+    step=self.step,
+    extra={"request_id": req_list[i].request_id},
+)
+```
+
+然后我们就可以得到这样的log 分析 over_sample 这个逻辑:
+```json
+{"timestamp": "2025-08-11T23:19:45.001830", "event": "aborted_request_with_cancelled_error_padding", "duration_sec": 0.002585887908935547, "extra": {"request_id": "661a96a0-35e6-4662-9fff-bf9194bd3d49"}, "workid": 2, "step": 4}
+{"timestamp": "2025-08-11T23:19:45.001989", "event": "aborted_request_with_cancelled_error", "duration_sec": 84.5104877948761, "extra": {"request_id": "45bb6a77-b6b2-4ed5-afde-97ccf622cdb0"}, "workid": 2, "step": 4}
+{"timestamp": "2025-08-11T23:19:45.004511", "event": "aborted_request_with_cancelled_error_padding", "duration_sec": 0.0025205612182617188, "extra": {"request_id": "45bb6a77-b6b2-4ed5-afde-97ccf622cdb0"}, "workid": 2, "step": 4}
+{"timestamp": "2025-08-11T23:19:45.005685", "event": "async_rollout_with_monitoring_duration", "duration_sec": 84.51417350769043, "extra": {"total_requests": 1024, "target_completion": 921, "completed_count": 921}, "workid": 2, "step": 4}
+```
