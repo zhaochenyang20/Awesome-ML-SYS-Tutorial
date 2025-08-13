@@ -303,39 +303,76 @@ actor_rollout_ref.rollout.n=16
 
 直观感受其实真正在 engine generation 上的耗时都不多，而且绝大多数 reqs 都只有 1 个或者两个 turn。
 
-## Over-sample Profiling 示例
-### 相关 PR
-[PR #2929 – Over-sample Feature](https://github.com/volcengine/verl/pull/2929)  
+## Profile Over-Long Sampling
 
-### Profile 分支
+正如我们前文分析过的长尾问题（80% 的 reqs 会在前 50% 的时间完成），我们在[PR #2929 – Over-sample Feature](https://github.com/volcengine/verl/pull/2929) 中添加了 over-long sampling 的 feature。简单来说，我们会在 rollout 阶段的每个 rollout worker 上，对那些返回时间在后 `over_sample_rate` 的 reqs 直接丢弃，替换为 padding 请求。实现这一 feature 后，我们需要对 profiling 代码进行一些简单的更改。
+
 代码分支：[over_sample_profile](https://github.com/zhaochenyang20/verl/tree/over_sample_profile)  
 
-在事件开始计时的地方
+这里有几个需要额外注意的点：
+
+1. 在定义了 `process_request_with_monitoring, run_with_cancellation` 函数后，实际上启动异步 rollout 的逻辑在这两个函数之后：
+
  ```python
+# run async tasks
 self.log_path = os.path.join(self.log_dir, f"step_{self.step}", f"worker_{self._rank}.jsonl")
 torch.cuda.synchronize()
 async_rollout_with_monitoring_start_time = time.time()
 loop = asyncio.get_event_loop()
 output_req_list = loop.run_until_complete(run_with_cancellation())
- ```
-
-在这个事件结束计时的地方
-注意这个事件的开始时间在这个函数外面, 需要指定这个nonlocal 变量: `nonlocal async_rollout_with_monitoring_start_time`
-```python
-nonlocal async_rollout_with_monitoring_start_time
-...
 torch.cuda.synchronize()
-aborted_end_time = time.time()
+async_rollout_with_monitoring_end_time = time.time()
 self.log_manager.log(
     self.log_path,
-    event="aborted_request",
-    event="aborted_request_with_exception",
-    duration=aborted_end_time - async_rollout_with_monitoring_start_time,
+    event="async_rollout_with_monitoring_duration",
+    duration=async_rollout_with_monitoring_end_time - async_rollout_with_monitoring_start_time,
     workid=self._rank,
     step=self.step,
-    extra={"request_id": req_list[i].request_id},
+    extra={
+        "total_requests": total_requests,
+        "target_completion": target_completion,
+        "completed_count": completed_count,
+    },
 )
+ ```
+
+因此，`async_rollout_with_monitoring_start_time`和 `async_rollout_with_monitoring_end_time` 之间的时间就是所有 reqs 在这个 worker 上 rollout 的耗时。而具体到每个 reqs 内部的耗时，需要将 `async_rollout_with_monitoring_start_time` 申明为 `nonlocal` 变量。
+
+```python
+async def process_request_with_monitoring(req):
+    nonlocal completed_count
+    nonlocal async_rollout_with_monitoring_start_time
+    try:
+        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+
+        async with completion_lock:
+            if completed_count < target_completion:
+                completed_count += 1
+            return result
+    except asyncio.CancelledError:
+        # request is cancelled, return padding
+        logger.info(f"Request {req.request_id} was cancelled, creating padding")
+        aborted_requests.append(req.request_id)
+        torch.cuda.synchronize()
+        req_aborted_time = time.time()
+        self.log_manager.log(
+            self.log_path,
+            event="aborted_request_with_cancelled_error",
+            duration=req_aborted_time - async_rollout_with_monitoring_start_time,
+            workid=self._rank,
+            step=self.step,
+            extra={"request_id": req.request_id},
+        )
+        self._create_padding_request(req)
+
+        return
+    except Exception as e:
+        logger.error(f"Uncaught exception in process_request_with_monitoring: {e}")
+        logger.error("This shall not happen, please check the code")
+        raise e
 ```
+
+这样 `async_rollout_with_monitoring_start_time` 成了全局的启动时间，而 `req_aborted_time - async_rollout_with_monitoring_start_time` 是被 abort 的请求包括 abort 在内总共花费的时间。
 
 然后我们就可以得到这样的log 分析 over_sample 这个逻辑:
 ```json
@@ -344,3 +381,5 @@ self.log_manager.log(
 {"timestamp": "2025-08-11T23:19:45.004511", "event": "aborted_request_with_cancelled_error_padding", "duration_sec": 0.0025205612182617188, "extra": {"request_id": "45bb6a77-b6b2-4ed5-afde-97ccf622cdb0"}, "workid": 2, "step": 4}
 {"timestamp": "2025-08-11T23:19:45.005685", "event": "async_rollout_with_monitoring_duration", "duration_sec": 84.51417350769043, "extra": {"total_requests": 1024, "target_completion": 921, "completed_count": 921}, "workid": 2, "step": 4}
 ```
+
+可以观察到，padding 花费的时间非常短，而被 abort 的请求花费的时间非常一致，符合预期。
