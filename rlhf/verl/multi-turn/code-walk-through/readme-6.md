@@ -1,20 +1,14 @@
-# AgentLoop 源码探究
+# AgentLoop 源码浅析
 
-最近 RL sys 圈子的 xibin wu 老师在 verl 上设计了将 rollout 与 tool 调用解耦的 agent loop 方法来实现 mutli-turn RL。每个 AgentLoop 内部，rollout engine 只对外提供一个 token-in-token-out 的接口，而 tool 调用则通过 AgentLoop 的 `ToolAgentLoop` 来实现。我个人比较喜欢这样解耦的设计，同时
+最近 RL sys 圈子的吴锡斌老师在 verl 上设计了将 rollout 与 tool 调用解耦的 AgentLoop，实现了自由灵活的 mutli-turn RL。在每个 AgentLoop 内部，rollout engine 只对外提供一个 token-in-token-out 的接口，而 tool 调用则通过 `ToolAgentLoop` 来实现。我个人比较喜欢这样解耦的设计，同时，AgentLoop 的代码结构也比较清晰。我个人学习了一次整个代码后，觉着 AgentLoop 的设计甚是不错，但是 `ActorRolloutRefWorker` 的历史包袱还是很重。
 
-我通读完了整个文档后，觉得 AgentLoop 的设计是不错的，主要是 `ActorRolloutRefWorker` 的历史包袱太重了。如果我们把整个 `ActorRolloutRefWorker` 当做一个 `sgl.Engine` 的话，其实 AgentLoop 里面包装的两层 `AsyncSGLangServer` 和 `AsyncLLMServerManager`。`AsyncSGLangServer` 相当于在 `sgl.Engine` 上包装了 `fastapi` 成了 server，而 `AsyncLLMServerManager` 是在 server 上包了一层 router 做 load balance，相当于 sglang 的 router。这两层设计都是合理的，主要麻烦的是 `ActorRolloutRefWorker`，这个包装的太麻烦了。
+本文简单分析了 agent loop 的源码，并给出了一些自己的看法。
 
-
-
-
-
-
-
-然后，`AgentLoopManager`，`AgentLoopWorker` 和 `AgentLoop` 这三层，我觉得 `AgentLoopWorker` 是未必有必要的，其他两层挺合理的。
+如果我们把整个 `ActorRolloutRefWorker` 当做一个 `sgl.Engine` 的话，AgentLoop 里面包装的两层 `AsyncSGLangServer` 和 `AsyncLLMServerManager`。`AsyncSGLangServer` 相当于在 `sgl.Engine` 上包装了 `fastapi` 成了 server，而 `AsyncLLMServerManager` 是在 server 上包了一层 router 做 load balance，相当于 sglang 的 router。这两层设计都是合理的，主要麻烦的是 `ActorRolloutRefWorker`，层层调用，最后一共经过 7 个 class 才调到 `sgl.Engine`，最近 verl 团队也在致力于对这块 worker class 的重构，敬请期待。最后，`AgentLoopManager`，`AgentLoopWorker` 和 `AgentLoop` 这三层，我觉得 `AgentLoopWorker` 可能未必有必要，其他两层挺合理的。
 
 ## Author
 
-Changyi Yang(CMU), Huapeng Zhou(UW), Chenyang Zhao(Amazon) 
+Changyi Yang(CMU), Huapeng Zhou(UW), Chenyang Zhao(LMSYS) 
 
 ## Related Resources 
 
@@ -22,11 +16,11 @@ Changyi Yang(CMU), Huapeng Zhou(UW), Chenyang Zhao(Amazon)
 
 https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/tool_examples/agent_loop.md
 
-**Related  Pr**
+**Related  PR**
 
 https://github.com/volcengine/verl/pull/2124
 
-**Design doc**
+**Design Docs**
 
 https://github.com/volcengine/verl/pull/2563
 
@@ -36,9 +30,62 @@ https://github.com/volcengine/verl/pull/A2598
 
 https://github.com/volcengine/verl/tree/c5b189a1af496d0bc68320cd1d5bd7a1f1e3638a
 
+## 使用 AgentLoop
+
+安装 verl-sglang 的最新版本：
+
+```bash
+cd ~
+git clone https://github.com/volcengine/verl.git
+cd verl
+
+python -m uv pip install wheel setuptools
+python3 -m uv pip install -e ".[sglang]" --prerelease=allow
+python3 -m uv pip install -r ./requirements.txt --no-build-isolation
+python3 -m uv pip install torch_memory_saver
+```
+
+具体实现自己的 agent loop（见下文分析），然后配置 config 文件：
+
+```yaml
+    actor_rollout_ref.rollout.mode=async \
+    actor_rollout_ref.rollout.multi_turn.enable=true \
+    actor_rollout_ref.rollout.name=sglang \
+```
+
+注意，不使用 `actor_rollout_ref.rollout.mode=async` 的话，会启用 SGLangRollout 本身管理的 mutli-turn 功能，在效果上和 AgentLoop 完全一致。
+
+最后，在数据集构建过程中添加一个新的 `agent_name` 字段，比如我们在 `~/verl/examples/data_preprocess/gsm8k_multiturn_w_tool.py` 中追加 `"agent_name": "tool_agent"`：
+
+```python
+def make_map_fn(split):
+        def process_fn(example, idx):
+            question_raw = example.pop("question")
+
+            question = question_raw + " " + instruction_following
+
+            answer_raw = example.pop("answer")
+            solution = extract_solution(answer_raw)
+            data = {
+                "data_source": data_source,
+                # new column for agent loop
+                "agent_name": "tool_agent",
+                "prompt": [
+                    {
+                        #...
+                    }
+                ]
+            }
+            return data
+
+        return process_fn
+
+```
+
 ## 调用总览
 
-main_ppo.py -> RayPPOTrainer(fit)-> AgentLoopManager(async) -> AgentLoopWorker -> AsyncLLMServerManager -> AsyncSGLangServer -> AsyncActorRolloutRefWorker -> SGLangRollout -> AsyncEngine -> sgl.Engine
+
+`main_ppo.py -> RayPPOTrainer(fit)-> AgentLoopManager(async) -> AgentLoopWorker -> AsyncLLMServerManager -> AsyncSGLangServer -> AsyncActorRolloutRefWorker -> SGLangRollout -> AsyncEngine -> sgl.Engine`
 
 - `TaskRunner` 启动训练，调用 `RayPPOTrainer.fit()`。
 - `RayPPOTrainer` 管理训练流程，调用 `AgentLoopManager.generate_sequences()` 开始层层向下调用，同时初始化 `AsyncActorRolloutRefWorker`。
@@ -48,7 +95,7 @@ main_ppo.py -> RayPPOTrainer(fit)-> AgentLoopManager(async) -> AgentLoopWorker -
 - `AgentLoopWorker`收集所有`AgentLoop`的返回值，上交给`AgentLoopManager`，等待下一次调用。
 - `AgentLoopManager`收集所有`AgentLoopWorker`的返回值，返回。
 
-![image-20250731154859113](./assets/agentLoop.png)
+![](../imgs/agentLoop.png)
 
 ## AgentLoopManager
 
@@ -352,7 +399,7 @@ async def generate(self, request_id, *, prompt_ids: List[int], sampling_params: 
 1. 从 ray 的角度来说，`AgentLoopWorker` 是有状态的，是 ray actor，而不是 ray worker
 2. 核心函数 `generate` 是层层套壳，调用其他类；例如 `single_turn_agent_loop` 和 `tool_agent_loop` 来 `generate`（当然这两个类的 `generate` 也是向下调用，下面会讲到）
 
-#### `__init__`
+**`__init__`**
 
 ```Python
 @ray.remote
@@ -387,7 +434,7 @@ class AgentLoopWorker:
 - 根据 `config` 的 `config`**`.`**`actor_rollout_ref`**`.`**`model`**`.`**`path` 设置 `model_path, local_path, tokenizer`
 - 配置 `RolloutTraceConfig` 用于追踪 trajectories
 
-#### `generate_sequences`
+**`generate_sequences`**
 
 ```Python
 async def generate_sequences(self, batch: DataProto) -> DataProto:
@@ -597,7 +644,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
 终于到了最核心的地方。`ToolAgentLoop` 支持多轮对话和工具调用。目前 `ToolAgentLoop` 可以完全覆盖 `SGLangRollout` 中基于 `_async_rollout_a_request` 实现的 [tool call 管理](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme-2.md#_async_rollout_a_request)。但状态数量和转移关系更加简单。也就是说， 先前的 multi-turn RL 的 tool 状态管理是在 `SGLangRollout` 内实现的，而 `AgentLoop` 提前将这层管理抽象了出来。
 
-#### `init_class`
+**`init_class`**
 
 下面只介绍一些关键参数的作用:
 
@@ -657,7 +704,7 @@ def init_class(cls, config, tokenizer):
     cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 ```
 
-#### `run` 
+**`run`**
 
 - 和 `single_turn_agent_loop` 一样，对 prompts `apply_chat_template`；
 - 初始化 `user_turns, assistant_turns`，进入 multi-turn 的 loop 循环，直到退出:
@@ -747,7 +794,7 @@ async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, A
     return output
 ```
 
-#### `call_tool`
+**`call_tool`**
 
 基于 tool list 内的 tool 来调用工具，例如前面 config 中配置的 `calc_gsm8k_reward`，从 tool parser 得到 arguments 就可以代入运算得到相应的`tool_response`。如果 tool 调用成功，则会释放 tool 占用的资源,，最后`tool_response`根据 `tool_response_truncate_side` 来做相应的截断。
 

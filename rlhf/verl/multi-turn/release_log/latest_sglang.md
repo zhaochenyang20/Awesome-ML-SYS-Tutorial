@@ -57,18 +57,11 @@ cd verl
 python3 -m uv pip install -e ".[sglang]" --prerelease=allow
 python3 -m uv pip install -r ./requirements.txt --no-build-isolation
 python3 -m uv pip install torch_memory_saver
+# to avoid vllm registration error with transformers 4.54.0, install it manually
+python3 -m uv pip install vllm==0.10.0 --no-build-isolation
 ```
 
-4. 测试 DAPO:
-
-```bash
-cd ~/verl
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-
-bash examples/sglang_multiturn/run_qwen3_4b_dapo_multiturn.sh
-```
-
-5. 测试 gsm8k：
+4. 测试 gsm8k：
 
 ```bash
 cd ~/verl
