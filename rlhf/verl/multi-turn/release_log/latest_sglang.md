@@ -74,6 +74,20 @@ python examples/data_preprocess/gsm8k_multiturn_w_tool.py
 bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```
 
+5. 测试 geo3k：
+
+```bash
+cd ~/verl
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+# 拉取并预处理 geo3k 数据集
+python examples/data_preprocess/geo3k.py --local_dir ~/data/geo3k
+
+# 启动 8 卡训练
+bash examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh
+```
+
+
 ## Debug
 
 如果你在启动 bash 后发现了这个错误：

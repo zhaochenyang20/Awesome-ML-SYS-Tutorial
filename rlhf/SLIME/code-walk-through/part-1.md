@@ -1,9 +1,4 @@
-# A Brief Code Walkthrough of SLIME
-
-
-## 1. 简介
-
-**SLIME** (Scalable LLM Infrastructure for Massive Efficiency) 是专为强化学习大规模训练设计的 LLM 后训练框架。
+# 浅析 SLIME 框架源码
 
 ### 1.1 核心能力
 
