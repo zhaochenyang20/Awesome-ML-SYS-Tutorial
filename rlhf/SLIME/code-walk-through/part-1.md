@@ -1,4 +1,11 @@
-# 浅析 SLIME 框架源码
+# A Brief Code Walkthrough of SLIME
+
+
+## 1. 简介
+
+**SLIME** 是专为强化学习大规模训练设计的 LLM 后训练框架。
+
+
 
 ### 1.1 核心能力
 
@@ -24,6 +31,12 @@ SLIME 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
   
 - **Data Buffer**: 桥梁模块，管理数据流和自定义生成逻辑
   - *代码位置*: [`slime/ray/buffer.py`](https://github.com/THUDM/slime/tree/main/slime/ray/buffer.py)
+
+### 2.1 整体工作流程
+
+![SLIME整体工作流程](overall_workflow.jpg)
+
+上图展示了SLIME的核心工作流程，包括训练循环、RolloutController、RolloutDataSourceWithBuffer以及SGLang分布式推理系统的完整交互过程。
 
 ## 3. 关键特性
 
