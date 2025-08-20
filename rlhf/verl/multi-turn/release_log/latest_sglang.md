@@ -75,7 +75,7 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```
 
 5. 测试 geo3k：
-> 我们已经有了 qwen vl baseline i.e. examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
+> 我们已经有了 qwen vl baseline i.e. bash examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh
 
 ```bash
 cd ~/verl
