@@ -24,7 +24,7 @@
 SLIME 采用分离式架构，将 RLHF 训练流程分解为三个独立协作的模块：
 
 - **Training (Megatron)**: 负责主训练流程，支持多种并行策略
-  - *代码位置*: [`slime/backends/megatron_utils/`](https://github.com/THUDM/slime/tree/main/slime/slime/backends/megatron_utils/)
+  - *代码位置*: [`slime/backends/megatron_utils/`](https://github.com/THUDM/slime/tree/main/slime/backends/megatron_utils/)
   
 - **Rollout (SGLang)**: 生成新数据（含 reward/verifier），基于 SGLang 优化推理
   - *代码位置*: [`slime/ray/rollout.py`](https://github.com/THUDM/slime/tree/main/slime/ray/rollout.py)
@@ -53,8 +53,8 @@ SLIME 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
 
 SLIME 提供两种训练模式：
 
-- **同步训练** ([`train.py`](https://github.com/THUDM/slime/tree/main/slime/train.py)): 传统的顺序执行模式
-- **异步训练** ([`train_async.py`](https://github.com/THUDM/slime/tree/main/slime/train_async.py))，在dis-agg情况下，使用```rollout_manager.async_generate```和 ```actor_model.async_train```来分布进行训练，且rollout永远早于train一个step？ （这样是否可以理解为one-step-off-policy）
+- **同步训练** ([`train.py`](https://github.com/THUDM/slime/tree/main/train.py)): 传统的顺序执行模式
+- **异步训练** ([`train_async.py`](https://github.com/THUDM/slime/tree/main/train_async.py))，在dis-agg情况下，使用```rollout_manager.async_generate```和 ```actor_model.async_train```来分布进行训练，且rollout永远早于train一个step 的off-policy
 
 ### 3.3 灵活的数据生成
 
@@ -72,10 +72,10 @@ SLIME 提供两种训练模式：
 ### 4.1 支持的模型类型
 
 - **Dense 模型**: GLM-4-9B, Qwen3-4B 等
-  - *配置示例*: [`slime/scripts/run-qwen3-4B.sh`](https://github.com/THUDM/slime/tree/main/slime/scripts/run-qwen3-4B.sh)
+  - *配置示例*: [`slime/scripts/run-qwen3-4B.sh`](https://github.com/THUDM/slime/tree/main/scripts/run-qwen3-4B.sh)
   
 - **MoE 模型**: Qwen3-30B-A3B, DeepSeek-R1 等  
-  - *配置示例*: [`slime/scripts/run-deepseek-r1.sh`](https://github.com/THUDM/slime/tree/main/slime/scripts/run-deepseek-r1.sh)
+  - *配置示例*: [`slime/scripts/run-deepseek-r1.sh`](https://github.com/THUDM/slime/tree/main/scripts/run-deepseek-r1.sh)
 
 ### 4.2 训练任务类型
 
