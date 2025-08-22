@@ -102,11 +102,14 @@ class GenerateState(metaclass=SingletonMeta):
 `generate_rollout_async` 这是异步样本生成的主函数。
 workflow:
 * Step1. 定义相关的filters，e.g. dynamic_filter&over_sampling_filter
+* 定义 target_data_size=
+  1. 如果over_sampling_filter未开启，则target_data_size=rollout_batch_size
+  2. 如果over_sampling_filter开启，则target_data_size=over_sampling_batch_size
 * Step2. 确定data size，从dataset中取出over_sampling_batch_size的samples
 * Step3. 等到Step2的batch中第一个group结束，对完成的部分进行采样 (同时进行dynmaic filter)
-* Step4. 如果整体采样数量不够，重复Step2&3
+* Step4. 如果整体采样数量不够 (已经获得的有效group数量+剩余正在rollout的group数量<target_data_size)，重复Step2&3
 * Step5. Abort还在pending的job，如果是partial rollout则回收至buffer
-* Step6.如果使用了over_sampling_filter，则进行filter
+* Step6. 如果使用了over_sampling_filter，则进行filter
 
 
 
@@ -303,6 +306,17 @@ async def abort(args, rollout_id: int):
 4. **动态过滤**: 应用动态采样过滤器
 5. **过采样过滤**: 应用过采样过滤器选择最终样本
 6. **清理**: 中断未完成的任务并收集结果
+
+#### filter逻辑
+系统架构图中，rollout部分画的是没有开启filter的逻辑，如果enable了filter，具体的rollout flow为：
+
+* 系统首先启动 over_sampling_batch_size=6 个并发的 generate_and_rm_group 任务。target_data_size=over_sampling_batch_size=6
+* 当某个group完成时，会通过Dynamic filter检查奖励标准差（Std=0 的组被丢弃）。
+* 由于需要 target_data_size=6 个有效group，在检测到已经获得的有效group数量+正在rollout的group数量<target_data_size时，会提交一个新的batch来获得足够的样本。
+* 最终收集够 target_data_size=6 个有效group后，通过 finish & abort 操作中断未完成的任务，然后应用Over Sampling filter从 6 个完成的样本组中按奖励标准差排序，选出质量最高的 4 个作为最终的 Completed Samples。
+
+如下：
+![slime sampling flow](sampling_flow.jpg)
 
 ### 2. SFT Rollout (`sft_rollout.py`)
 
@@ -540,8 +554,7 @@ SGLang Router → SGLang Servers → TP Ranks
     ↓
 completed_samples → 训练循环
 ```
-如果enable了所有的filter，具体的sampling flow如下：
-![slime sampling flow](sampling_flow.jpg)
+
 
 ### 2. 训练循环详细流程
 
