@@ -61,7 +61,7 @@ python3 -m uv pip install torch_memory_saver
 python3 -m uv pip install vllm==0.10.0 --no-build-isolation
 ```
 
-4. 测试 gsm8k：
+#### 测试 gsm8k：
 
 ```bash
 cd ~/verl
@@ -74,7 +74,7 @@ python examples/data_preprocess/gsm8k_multiturn_w_tool.py
 bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```
 
-5. 测试 geo3k：
+#### 测试 geo3k：
 
 ```bash
 cd ~/verl
@@ -86,6 +86,130 @@ python examples/data_preprocess/geo3k.py --local_dir ~/data/geo3k
 # 启动 8 卡训练
 bash examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh
 ```
+
+#### 测试dapo
+
+对dapo的测试需要我们进行sft训练，然后进行rlhf训练。
+我们有一个基于Qwen-3-4B-Instruct-2507 SFT训练好的模型位于font-info/qwen3-4b-sft https://huggingface.co/font-info/qwen3-4b-sft/tree/main ，可以直接跳过sft步骤，直接使用这个模型进行rlhf。如果要进行sft，可以参考以下步骤：
+
+
+1. 进行sft训练：
+
+```bash
+#download sft data
+huggingface-cli download JoeYing/ReTool-SFT --repo-type dataset --local-dir ./ReTool-SFT
+
+#data preprocessing
+python3 recipe/retool/retool_sft_preprocess.py
+
+#sft training
+bash recipe/retool/run_qwen2-32b_sft.sh
+```
+
+2. 启动sandbox fusion 修改dapo的tool config：
+
+```bash
+#启动sandbox fusion （dapo tool call requirement）
+docker run -it -p 8080:8080 volcengine/sandbox-fusion:server-20250609
+
+#修改dapo的tool config
+#修改https://github.com/volcengine/verl/blob/main/recipe/retool/sandbox_fusion_tool_config.yaml：
+sandbox_fusion_url: "http://localhost:8080/run_code"
+
+```
+3. rlhf
+
+需要注意的是，retool中的reward[函数](https://github.com/volcengine/verl/blob/main/recipe/retool/retool.py)为：
+回答正确，则reward为1，否则为min(0, -1+ (num_turns - 2) / 2 * 0.1)
+
+可以看到，随着轮数的增多，回答错误的reward也会增多，直到达到0。如果不修改reward函数，则模型可能会出现假收敛，即模型只学会了不断调用tool增大max_turns数来提高reward，看似收敛了但是模型没有真的回答对问题。
+可以通过修改reward函数来解决这个问题，比如回答错误，则reward直接为-1，或者设置回答错误的情况下，reward最大为-0.5.
+
+参照以下脚本进行训练.
+
+```bash
+
+set -x
+
+ulimit -n 65535
+
+PROJECT_DIR="$(pwd)"
+CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
+
+pip install --upgrade "huggingface-hub>=0.34.0"
+hf download \
+    BytedTsinghua-SIA/DAPO-Math-17k \
+    --repo-type dataset \
+    --local-dir $HOME/data/BytedTsinghua-SIA/DAPO-Math-17k
+
+
+hf download \
+    Maxwell-Jia/AIME_2024 \
+    --repo-type dataset \
+    --local-dir $HOME/data/Maxwell-Jia/AIME_2024
+
+
+python3 -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=grpo \
+    algorithm.use_kl_in_reward=False \
+    algorithm.kl_ctrl.kl_coef=0.0 \
+    data.train_files=$HOME/data/BytedTsinghua-SIA/DAPO-Math-17k \
+    data.val_files=$HOME/data/Maxwell-Jia/AIME_2024 \
+    data.return_raw_chat=True \
+    data.train_batch_size=32 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=5000 \
+    data.filter_overlong_prompts=True \
+    data.truncation='error' \
+    data.custom_cls.path=$PROJECT_DIR/recipe/retool/retool.py \
+    data.custom_cls.name=CustomRLHFDataset \
+    custom_reward_function.path=$PROJECT_DIR/recipe/retool/retool.py \
+    custom_reward_function.name=compute_score \
+    actor_rollout_ref.model.path=font-info/qwen3-4b-sft \
+    actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.kl_loss_coef=0.0 \
+    actor_rollout_ref.actor.clip_ratio_low=0.2 \
+    actor_rollout_ref.actor.clip_ratio_high=0.28 \
+    actor_rollout_ref.actor.clip_ratio_c=10.0 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    algorithm.dynamic_filter.enable=False \
+    actor_rollout_ref.actor.use_dynamic_bsz=False \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=1024 \
+    actor_rollout_ref.rollout.name=sglang \
+    actor_rollout_ref.rollout.mode=async \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
+    actor_rollout_ref.rollout.multi_stage_wake_up=True \
+    actor_rollout_ref.rollout.multi_turn.enable=True \
+    actor_rollout_ref.rollout.multi_turn.max_user_turns=16 \
+    actor_rollout_ref.rollout.multi_turn.max_assistant_turns=16 \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/recipe/retool/sandbox_fusion_tool_config.yaml \
+    actor_rollout_ref.rollout.multi_turn.format=hermes \
+    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \
+    actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
+    actor_rollout_ref.rollout.val_kwargs.n=1 \
+    trainer.logger=['console','wandb'] \
+    trainer.project_name=sglang-dapo-multiturn \
+    trainer.experiment_name=qwen2_5-3b_dapo_multiturn \
+    trainer.n_gpus_per_node=8 \
+    trainer.log_val_generations=20 \
+    trainer.val_before_train=True \
+    trainer.nnodes=1 \
+    trainer.save_freq=-1 \
+    trainer.test_freq=20 \
+    trainer.total_epochs=15 \
+    $@
+
+```
+
+
+
 
 
 ## Debug
