@@ -84,10 +84,10 @@ My learning notes/codes for ML SYS.  English version is under development and on
 ## ML System Fundamentals
 
 - **NCCL and NVIDIA TOPO**  
-  [English](./distributed/nccl/readme_en.md) | [[中文版](./distributed/nccl/readme.md)]：An introduction to NCCL and NVIDIA topology.
+  [English](./torch/nccl/readme_en.md) | [[中文版](./torch/nccl/readme.md)]：An introduction to NCCL and NVIDIA topology.
 
 - **PyTorch Distributed**  
-   [English TODO] | [[中文版](./distributed/torch-distributed/readme.md)]：Practical communication in `torch.distributed`.
+   [English TODO] | [[中文版](./torch/torch-torch/readme.md)]：Practical communication in `torch.distributed`.
 
 - **Give Me BF16 or Give Me Death: A Comprehensive Evaluation of Current Quantization Methods**  
   [[中文版](https://zhuanlan.zhihu.com/p/5485556270)]：A detailed evaluation of current quantization methods.

@@ -63,13 +63,13 @@ $$
 
 ## ML System 基本功
 
-- [基于 torch-memory-savor 浅析 CUDA Graph](./distributed/cuda-graph/readme.md)：同样刊载于[知乎：基于 torch-memory-savor 浅析 CUDA Graph](https://zhuanlan.zhihu.com/p/1921726788574360686)和[英文版](./distributed/cuda-graph/readme_en.md)。
-- [NCCL 与 NVIDIA TOPO](./distributed/nccl/readme.md)：NCCL 的入门与 NVIDIA 显卡的检测，同样刊载于[NCCL 与 NVIDIA TOPO](https://zhuanlan.zhihu.com/p/6160835906)。
-- [PyTorch Distributed](./distributed/torch-distributed/readme.md)：`torch.distributed` 的通讯实践， GIL 和 `all_reduce` 的细节。这一部分同样刊载在 [知乎：PyTorch 通讯实践](https://zhuanlan.zhihu.com/p/5853094319)。
+- [基于 torch-memory-savor 浅析 CUDA Graph](./torch/cuda-graph/readme.md)：同样刊载于[知乎：基于 torch-memory-savor 浅析 CUDA Graph](https://zhuanlan.zhihu.com/p/1921726788574360686)和[英文版](./torch/cuda-graph/readme_en.md)。
+- [NCCL 与 NVIDIA TOPO](./torch/nccl/readme.md)：NCCL 的入门与 NVIDIA 显卡的检测，同样刊载于[NCCL 与 NVIDIA TOPO](https://zhuanlan.zhihu.com/p/6160835906)。
+- [PyTorch Distributed](./torch/torch-torch/readme.md)：`torch.distributed` 的通讯实践， GIL 和 `all_reduce` 的细节。这一部分同样刊载在 [知乎：PyTorch 通讯实践](https://zhuanlan.zhihu.com/p/5853094319)。
 - [Give me BF16 or Give Me Death，当下量化方法的全面评测](https://zhuanlan.zhihu.com/p/5485556270)
 - [AWQ：模型量化应当关注激活值](https://zhuanlan.zhihu.com/p/942485319)
-- [[原创][深度][PyTorch] DDP系列第一篇：入门教程](https://zhuanlan.zhihu.com/p/178402798)：虽然我没学明白 DDP 的内容，我只是借此学习了下 GIL 和 ring all reduce，这一步刊载于 [torch-distributed 的后记](./distributed/torch-distributed/readme.md#gil)。
-- [nvidia-smi命令详解和一些高阶技巧介绍](https://www.yourmetaverse.cn/deep_learning/199/)：主要是一些网络拓扑，在我本机的结果记录在 [nccl 部分](./distributed/nccl/readme.md#nvlink-查询)。
+- [[原创][深度][PyTorch] DDP系列第一篇：入门教程](https://zhuanlan.zhihu.com/p/178402798)：虽然我没学明白 DDP 的内容，我只是借此学习了下 GIL 和 ring all reduce，这一步刊载于 [torch-distributed 的后记](./torch/torch-torch/readme.md#gil)。
+- [nvidia-smi命令详解和一些高阶技巧介绍](https://www.yourmetaverse.cn/deep_learning/199/)：主要是一些网络拓扑，在我本机的结果记录在 [nccl 部分](./torch/nccl/readme.md#nvlink-查询)。
 
 
 ## 开发指南
@@ -83,5 +83,5 @@ $$
 
 之前的笔记大多写于 2024 年年底，经过了半年时间，我的仓库已略年久失修。一方面我自己更多在项目中负责推动 + delivery，反而自己很少写代码；另一方面，多多少少不少朋友向我们的仓库贡献了笔记，但我完全没有来得及整理。这段时间会不断完成整理并发布。这里索性列举下这些尚未完全的笔记，希望大家多多指正。
 
-- [NCCL and SGLang](./distributed/nccl/readme_en.md)：其实和中文内容非常接近，但是额外刊载了一些并行策略的内容。我应该不会修缮完成这个笔记，而是单独写笔记来记录并行策略。
+- [NCCL and SGLang](./torch/nccl/readme_en.md)：其实和中文内容非常接近，但是额外刊载了一些并行策略的内容。我应该不会修缮完成这个笔记，而是单独写笔记来记录并行策略。
 
