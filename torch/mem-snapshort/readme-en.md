@@ -340,19 +340,19 @@ This way, we get a very detailed view of memory usage. Here are two of my most f
 
 1.  **Active Memory Timeline**
 
-<img src="./pics/active-memory-timeline.png" alt="Active Memory Timeline" width="50%"\>
+<img src="./pics/active-memory-timeline.png" alt="Active Memory Timeline" width="50%">
 
 This chart has a lot of detail. First, we can observe the overall memory peak, which is roughly around 25GB. Additionally, we can clearly see many stages during our entire recording phase. Let me zoom in on a small part to look at a specific spike:
 
-<img src="./pics/forward-1.png" alt="Active Memory Timeline" width="50%"\>
+<img src="./pics/forward-1.png" alt="Active Memory Timeline" width="50%">
 
 Observing this spike, we can check the stack below to see when the memory was allocated, the allocation process, and the specific size. Here, we can observe that the spike I've pointed to with an arrow actually comes from the verl FSDP forward pass. The specific stack is confidential and can't be disclosed.
 
 A very interesting observation is that similar or identical memory blocks behave quite consistently when a memory snapshot is taken at different stages. For example, they have the same color, relative position, and size. For instance, we recorded a memory snapshot at the end of each training step in verl in [`examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh`](https://www.google.com/search?q=%5Bhttps://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh%5D\(https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh\)). We observed the memory stack at the end of steps 2, 3, and 4 and got the following three images:
 
-<img src="./pics/step-2.png" alt="step-2" width="50%"\>
-<img src="./pics/step-3.png" alt="step-3" width="50%"\>
-<img src="./pics/step-4.png" alt="step-4" width="50%"\>
+<img src="./pics/step-2.png" alt="step-2" width="50%">
+<img src="./pics/step-3.png" alt="step-3" width="50%">
+<img src="./pics/step-4.png" alt="step-4" width="50%">
 
 Let's look at step 2. We can see three large, contiguous memory blocks at 7.2GB, 7.6GB, and 7.8GB, each 512MB in size (checking the stack, these are actually optimizer states). Then, at step 3, the 512MB memory block at 7.2GB is still in the exact same spot, but the one at 7.6GB in step 2 has moved to 8.6GB. By step 4, this 512MB memory block has moved above 9.6GB. Based on our experience, these two memory blocks don't shift, but the very scattered memory blocks in between are the leaked content. Let's look at the stack specifically:
 
@@ -396,7 +396,7 @@ Based on our discussion, you should now have some experience using `torch.cuda.m
 
 Let's continue to the second visualization method, Allocator State History, which is slightly different from the Active Memory Timeline. We can see the specific memory status of the current process after each recorded event. As shown below:
 
-<img src="./pics/stack.png" alt="step-4" width="50%"\>
+<img src="./pics/stack.png" alt="step-4" width="50%">
 
 The multicolored bars represent the actually allocated memory. Hovering over them shows the specific allocation time and line number, for example:
 
@@ -481,7 +481,7 @@ python -m sglang.bench_serving \
 
 We get the following curve showing memory usage over time:
 
-<img src="./pics/with-gc.png" alt="Active Memory Timeline" width="50%"\>
+<img src="./pics/with-gc.png" alt="Active Memory Timeline" width="50%">
 
 We can see that because 500 requests were sent at the same time, the total memory on the rank suddenly increased by 30GB. This is reasonable because SGLang's `mem_static` parameter does not control the memory usage of the VLM's image processor; the memory usage set for VLM is meant to be lower than for LLM. Also, the image processor must process the images into tensors, which naturally occupies a lot of memory. What's really noteworthy is that after all the requests are processed, both the reserved and allocated memory return to around 145GB.
 
@@ -489,7 +489,7 @@ We can see that because 500 requests were sent at the same time, the total memor
 
 In any case, we can observe that with per-second memory cleanup, there are indeed no leaks. However, when I removed the memory cleanup part, the situation immediately changed:
 
-<img src="./pics/without-gc.png" alt="Active Memory Timeline" width="50%"\>
+<img src="./pics/without-gc.png" alt="Active Memory Timeline" width="50%">
 
 Unfortunately, our **allocated** memory was cleaned up, but the **reserved** memory kept growing. This is what I mentioned earlier: the segments are being divided more and more, becoming more fragmented. Even though the blocks aren't growing, the memory in the Rollout phase is highly fragmented. In our company's complex multi-turn business, a single rollout request can contain multiple images. These fragments eventually prevent SGLang from allocating large, contiguous blocks of memory, leading to an OOM error during the rollout phase.
 
