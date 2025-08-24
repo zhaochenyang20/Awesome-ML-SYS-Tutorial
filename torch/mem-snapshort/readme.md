@@ -2,8 +2,7 @@
 
 前一段时间我们在 RL 训练和 SGLang 本身的推理当中都遇到了一定的显存泄露问题。昨天终于想明白了具体泄露的原因，这篇文章分享我们基于 Torch Memory Snapshot 的排查过程，以及分享我们对显存泄露问题的解决方案。
 
-特别致谢：Hongyu Lu（TikTok），Huapeng Zhou（UW），Changyi Yang（CMU），Xinpeng Wei（Amazon），Rohan Bavishi（Amazon），Xinyuan Tong（USC），Yuhao Yang（HKU），Biao He（LinkedIn），Chenyang Zhao（LMSYS）
-
+特别致谢：Hongyu Lu (TikTok), Xinpeng Wei (Amazon), Rohan Bavishi (Amazon), Vint Lee (Amazon), Daisy Lin (Amazon), Deniz Birlikci (Amazon), Shahil Patel (Amazon), XJ Wang (Amazon), Huapeng Zhou (UW), Changyi Yang (CMU), Xinyuan Tong (USC), Yuhao Yang (HKU), Biao He (LinkedIn), Chenyang Zhao (LMSYS)
 ## 背景
 
 很有意思的是，我们并不是为了支持分析显存泄露才现场学习的 Torch Memory Snapshot，而是大概一个月前，在解决 FSDP2 问题的时候就在逐步使用了。回到我们先前的文章，[FSDP 训练后端](../../rlhf/sys-design/readme-2.md#fsdp-in-verl)，我们提到过，直觉上从 FSDP1 切换到 FSDP2 并不麻烦，只需要修改四行配置：
