@@ -17,6 +17,7 @@ $$
 
 ## RLHF System 开发笔记
 
+- [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshort/readme.md)：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshort/readme-en.md)。
 - [AgentLoop 源码浅析](./rlhf/verl/multi-turn/code-walk-through/readme-6.md): 分析 verl 中基于 AgentLoop 的 multi-turn RL 的实现。
 - [系统性分析 verl multi-turn training 的时间消耗](./rlhf/verl/multi-turn/tool_examples/profile.md)：verl 多轮交互与工具调用 profile 分析，还有[英文版本](./rlhf/verl/multi-turn/tool_examples/profile_en.md)和[知乎](https://zhuanlan.zhihu.com/p/1929748460212552414)。
 - [RL 系统深思：FSDP 训练后端](./rlhf/sys-design/readme-2.md)：讨论 FSDP 的原理和实现，以及分析 verl 的 FSDP 使用。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1929115059113693341)和[英文版本](./rlhf/sys-design/readme-2-en.md)。
