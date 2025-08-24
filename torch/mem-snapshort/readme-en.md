@@ -2,7 +2,7 @@
 
 Recently, we ran into some GPU memory leak issues in both RL training and SGLang's own inference. Yesterday, I finally figured out the specific cause of the leaks. This article shares our debugging process using **Torch Memory Snapshot** and our solutions to these memory leak problems.
 
-Special thanks to: Hongyu Lu (TikTok), Xinpeng Wei (Amazon), Rohan Bavishi (Amazon), Huapeng Zhou (UW), Changyi Yang (CMU), Xinyuan Tong (USC), Yuhao Yang (HKU), Biao He (LinkedIn), Chenyang Zhao (LMSYS)
+Special thanks to: Hongyu Lu (TikTok), Xinpeng Wei (Amazon), Rohan Bavishi (Amazon), Vint Lee (Amazon), Daisy Lin (Amazon), Deniz Birlikci (Amazon), Shahil Patel (Amazon), XJ Wang (Amazon), Huapeng Zhou (UW), Changyi Yang (CMU), Xinyuan Tong (USC), Yuhao Yang (HKU), Biao He (LinkedIn), Chenyang Zhao (LMSYS)
 
 ## Background
 
