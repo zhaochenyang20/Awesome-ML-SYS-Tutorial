@@ -1,4 +1,4 @@
-# 通过 Torch Memory Snapshot 分析显存泄露问题
+# 通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题
 
 前一段时间我们在 RL 训练和 SGLang 本身的推理当中都遇到了一定的显存泄露问题。昨天终于想明白了具体泄露的原因，这篇文章分享我们基于 Torch Memory Snapshot 的排查过程，以及分享我们对显存泄露问题的解决方案。
 
