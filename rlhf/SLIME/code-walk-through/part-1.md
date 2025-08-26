@@ -59,7 +59,7 @@ SLIME 提供两种训练模式：
 ### 3.3 灵活的数据生成
 
 支持用户自定义复杂的数据生成逻辑：
-- 多轮对话 ([例子](https://github.com/THUDM/slime/tree/main/slime/examples/search-r1/))
+- 多轮对话 ([例子](https://github.com/THUDM/slime/tree/main/examples/search-r1))
 - 工具调用
 - 奖励模型集成
 - 自定义验证器
