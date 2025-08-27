@@ -121,6 +121,8 @@ def get_samples(self, num_samples):
 5. **取出的samples格式为list[list[Sample]]**, 其中Sample定义与slime/utils/types.py。
 <details>
 <summary>Sample类</summary>
+
+```python
 class Sample:
     """The sample generated"""
 
@@ -156,7 +158,7 @@ class Sample:
 
     def get_reward_value(self, args) -> float:
         return self.reward if not args.reward_key else self.reward[args.reward_key]
-
+```
 </details>
 
 #### **add_samples() 方法**
