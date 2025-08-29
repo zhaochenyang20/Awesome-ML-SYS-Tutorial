@@ -1,27 +1,27 @@
-# A Brief Code Walkthrough of SLIME
+# A Brief Code Walkthrough of slime
 
 
-## 1. 简介
+## 简介
 
-**SLIME** 是专为强化学习大规模训练设计的 LLM 后训练框架。
+**slime** 是专为强化学习大规模训练设计的 LLM 后训练框架。
 
 
 
-### 1.1 核心能力
+### 核心能力
 
 1. **高性能训练**: 通过 Megatron-LM 提供分布式训练能力，支持 Dense 和 MoE 模型
 2. **灵活数据生成**: 通过 SGLang 引擎和自定义接口，实现任意复杂的数据生成流程
 3. **异步训练**: 支持训练和推理的异步执行，显著提升 GPU 利用率
 
-### 1.2 项目链接
+### 项目链接
 
 - **项目地址**: [https://github.com/THUDM/slime/tree/main/slime](https://github.com/THUDM/slime)
 - **文档**: [slime/docs/](https://github.com/THUDM/slime/tree/main/docs)
 - **Docker 镜像**: `zhuzilin/slime:latest`
 
-## 2. 核心架构
+## 核心架构
 
-SLIME 采用分离式架构，将 RLHF 训练流程分解为三个独立协作的模块：
+slime 采用分离式架构，将 RLHF 训练流程分解为三个独立协作的模块：
 
 - **Training (Megatron)**: 负责主训练流程，支持多种并行策略
   - *代码位置*: [`slime/backends/megatron_utils/`](https://github.com/THUDM/slime/tree/main/slime/backends/megatron_utils/)
@@ -32,15 +32,15 @@ SLIME 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
 - **Data Buffer**: 桥梁模块，管理数据流和自定义生成逻辑
   - *代码位置*: [`slime/ray/buffer.py`](https://github.com/THUDM/slime/tree/main/slime/ray/buffer.py)
 
-### 2.1 整体工作流程
+### 整体工作流程
 
-![SLIME整体工作流程](overall_workflow.jpg)
+![slime整体工作流程](overall_workflow.jpg)
 
-上图展示了SLIME的核心工作流程，包括训练循环、RolloutController、RolloutDataSourceWithBuffer以及SGLang分布式推理系统的完整交互过程。
+上图展示了slime的核心工作流程，包括训练循环、RolloutController、RolloutDataSourceWithBuffer以及SGLang分布式推理系统的完整交互过程。
 
-## 3. 关键特性
+## 关键特性
 
-### 3.1 分布式资源管理
+### 分布式资源管理
 
 基于 Ray 框架进行资源调度：
 - **Placement Groups**: 资源隔离和分配
@@ -49,14 +49,14 @@ SLIME 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
 
 *核心实现*: [`slime/ray/placement_group.py`](https://github.com/THUDM/slime/tree/main/slime/ray/placement_group.py)
 
-### 3.2 异步训练优化
+### 异步训练优化
 
-SLIME 提供两种训练模式：
+slime 提供两种训练模式：
 
 - **同步训练** ([`train.py`](https://github.com/THUDM/slime/tree/main/train.py)): 传统的顺序执行模式
-- **异步训练** ([`train_async.py`](https://github.com/THUDM/slime/tree/main/train_async.py))，在dis-agg情况下，使用```rollout_manager.async_generate```和 ```actor_model.async_train```来分布进行训练，且rollout永远早于train一个step 的off-policy
+- **异步训练** ([`train_async.py`](https://github.com/THUDM/slime/tree/main/train_async.py))，在disaggregated架构下，使用`rollout_manager.async_generate`和`actor_model.async_train`进行训推分离异步训练，其中rollout始终领先train一个step，采用off-policy策略
 
-### 3.3 灵活的数据生成
+### 灵活的数据生成
 
 支持用户自定义复杂的数据生成逻辑：
 - 多轮对话 ([例子](https://github.com/THUDM/slime/tree/main/examples/search-r1))
@@ -67,9 +67,9 @@ SLIME 提供两种训练模式：
 *扩展接口*: [`slime_plugins/rollout_buffer/`](https://github.com/THUDM/slime/tree/main/slime_plugins/rollout_buffer/)
 
 
-## 4. 使用场景
+## 使用场景
 
-### 4.1 支持的模型类型
+### 支持的模型类型
 
 - **Dense 模型**: GLM-4-9B, Qwen3-4B 等
   - *配置示例*: [`slime/scripts/run-qwen3-4B.sh`](https://github.com/THUDM/slime/tree/main/scripts/run-qwen3-4B.sh)
@@ -77,18 +77,18 @@ SLIME 提供两种训练模式：
 - **MoE 模型**: Qwen3-30B-A3B, DeepSeek-R1 等  
   - *配置示例*: [`slime/scripts/run-deepseek-r1.sh`](https://github.com/THUDM/slime/tree/main/scripts/run-deepseek-r1.sh)
 
-### 4.2 训练任务类型
+### 训练任务类型
 
 - **强化学习**: PPO, GRPO, DPO 等算法
 - **监督微调**: SFT 训练支持
 
-### 4.3 部署模式
+### 部署模式
 
 - **单机多卡**: 适合中小规模模型
 - **多机多卡**: 支持大规模分布式训练 (如 128×H100)
 - **混合部署**: 训练和推理资源分离部署
 
-## 5. 代码结构
+## 代码结构
 
 ```
 slime/
@@ -116,7 +116,7 @@ slime/
 
 *参考架构设计: [SGLang Code Walk-through](https://github.com/maocheng23/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme-CN.md)*
 
-### 5.1. 各目录用途与串联关系
+### 各目录用途与串联关系
 
 - `scripts/`：启动脚本与模型配置
   - 用于启动 Ray 集群与提交训练作业；示例脚本会选择 `train.py` 或 `train_async.py`
@@ -144,9 +144,9 @@ slime/
   - 例如 `examples/search-r1/` 展示多轮对话 + 工具调用的生成与训练串联方式
 
 - `docs/`：说明文档与用法指南
-  - 包含模型使用、SFT、AMD/NPU 等平台适配与调优手册
+  - 包含模型使用、SFT、AMD 等平台适配与调优手册
 
-### 5.2 串联关系（从脚本到训练与生成）
+### 串联关系（从脚本到训练与生成）
 
 1) 脚本层（`scripts/`）
 - 启动 Ray → 提交job → 选择 `train.py` 或 `train_async.py` 并传入参数
@@ -164,4 +164,4 @@ slime/
 4) 数据流（`buffer.py` + 插件）
 - `Buffer` 负责抽样/拼批/调用自定义生成（`slime_plugins/rollout_buffer/`）→ 返回训练可用样本
 
-通过以上链路，SLIME 将“脚本 → 入口 → 分布式执行 → 数据/权重流”自然地串起来，实现高效可扩展的 RL 后训练。
+通过以上链路，slime 将*脚本 → 入口 → 分布式执行 → 数据/权重流*自然地串起来，实现高效可扩展的 RL 后训练。
