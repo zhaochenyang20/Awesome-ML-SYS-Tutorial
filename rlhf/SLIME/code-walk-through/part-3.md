@@ -6,12 +6,12 @@ slime/ray/rollout_data_source.py 是rollout系统的数据源管理模块，负�
 ![DataSource](./datasource.svg)
 
 ## 2. 核心Class和Function
-### **1. RolloutDataSource 类**
+### RolloutDataSource 类
 
-#### **作用**
+**作用**
 基础数据源类，负责从原始数据集加载数据，支持全局数据集管理和状态持久化。
 
-#### **关键属性**
+**关键属性**
 ```python
 class RolloutDataSource:
     def __init__(self, args):
@@ -23,7 +23,7 @@ class RolloutDataSource:
         self.dataset = None        # 数据集对象
 ```
 
-#### **初始化逻辑**
+**初始化逻辑**
 <details>
 <summary>初始化逻辑</summary>
 
@@ -58,7 +58,7 @@ else:
 - 只有当`rollout_global_dataset=True`时才加载真实数据集
 - 否则`dataset=None`，用于测试或特殊场景
 
-#### **get_samples() 方法**
+**get_samples() 方法**
 
 **作用**：从数据集中获取指定数量的样本组。
 
@@ -161,7 +161,7 @@ class Sample:
 ```
 </details>
 
-#### **add_samples() 方法**
+**add_samples() 方法**
 
 **作用**：向数据源添加样本（基础类不支持）。
 
@@ -176,7 +176,7 @@ def add_samples(self, samples: list[list[Sample]]):
 
 **设计原理**：基础数据源是只读的，不支持动态添加数据。
 
-#### **save() 方法**
+**save() 方法**
 
 **作用**：保存数据源状态到文件。
 
@@ -204,7 +204,7 @@ def save(self, rollout_id):
 
 **用途**：支持训练中断后恢复，确保数据顺序一致性。
 
-#### **load() 方法**
+**load() 方法**
 
 **作用**：从文件加载数据源状态。
 
@@ -237,12 +237,12 @@ def load(self, rollout_id=None):
 ```
 </details>
 
-### **2. RolloutDataSourceWithBuffer 类**
+### RolloutDataSourceWithBuffer 类
 
-#### **作用**
+**作用**
 带缓冲的数据源类，继承自`RolloutDataSource`，增加了数据缓冲功能，支持数据重用和partial rollout。
 
-#### **关键属性**
+**关键属性**
 <details>
 <summary>RolloutDataSourceWithBuffer初始化</summary>
 
@@ -260,7 +260,7 @@ class RolloutDataSourceWithBuffer(RolloutDataSource):
 ```
 </details>
 
-#### **get_samples() 方法**
+**get_samples() 方法**
 
 **作用**：优先从buffer获取数据，buffer不足时从原始数据集补充。
 
@@ -286,7 +286,7 @@ def get_samples(self, num_samples: int) -> list[list[Sample]]:
 2. **数据集补充**：buffer不足时从原始数据集获取
 3. **无缝集成**：buffer和数据集数据混合使用
 
-#### **_get_samples_from_buffer() 方法**
+**_get_samples_from_buffer() 方法**
 
 **作用**：从buffer中获取指定数量的样本组。
 
@@ -308,7 +308,7 @@ def _get_samples_from_buffer(self, num_samples: int) -> list[list[Sample]]:
 - 使用`buffer_filter`函数决定如何从buffer中选择样本
 - 默认使用`pop_first`函数（先进先出）
 
-#### **add_samples() 方法**
+**add_samples() 方法**
 
 **作用**：向buffer添加样本组。
 
@@ -339,7 +339,7 @@ def add_samples(self, samples: list[list[Sample]]):
 2. **大小验证**：确保每个group包含正确数量的样本
 3. **数据完整性**：确保buffer中的数据格式一致
 
-#### **辅助方法**
+**辅助方法**
 
 <details>
 <summary>辅助方法</summary>
@@ -359,9 +359,9 @@ def get_buffer_length(self):
 ```
 </details>
 
-### **3. pop_first() 函数**
+### pop_first() 函数
 
-#### **作用**
+**作用**
 默认的buffer过滤器，实现先进先出（FIFO）的数据获取策略。
 
 <details>
@@ -383,7 +383,7 @@ def pop_first(args, rollout_id, buffer: list[list[Sample]], num_samples: int) ->
 
 ## 数据流和调用关系
 
-### **1. 调用链**
+### 调用链
 ```
 RolloutController.generate()
     ↓
@@ -394,9 +394,9 @@ _get_samples_from_buffer() + super().get_samples()
 返回 list[list[Sample]]
 ```
 
-### **2. Buffer使用场景**
+### Buffer使用场景
 
-#### **A. Partial Rollout**
+**A. Partial Rollout**
 <details>
 <summary>Partial Rollout示例</summary>
 
@@ -408,9 +408,9 @@ if hasattr(data_source, 'add_samples') and len(filtered_data) > args.rollout_bat
 ```
 </details>
 
-### **3. 状态管理**
+### 状态管理
 
-#### **A. 训练恢复**
+**A. 训练恢复**
 <details>
 <summary>训练恢复示例</summary>
 
@@ -421,7 +421,7 @@ if args.rollout_global_dataset:
 ```
 </details>
 
-#### **B. 检查点保存**
+**B. 检查点保存**
 <details>
 <summary>检查点保存示例</summary>
 

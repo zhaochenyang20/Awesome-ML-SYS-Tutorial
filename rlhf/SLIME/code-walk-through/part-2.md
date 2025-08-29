@@ -1,6 +1,6 @@
 # Ray Placement Group
 
-本节详细说明 SLIME 在 Ray 上如何进行 GPU 资源编排，包括：
+本节详细说明 slime 在 Ray 上如何进行 GPU 资源编排，包括：
 - 如何创建并重排 Placement Group（PG）以实现稳定的 GPU排序
 - 训练 Actor 与 Rollout Engine 如何在 PG 上调度
 - 两种部署形态：colocate与 dis-agg
@@ -64,7 +64,7 @@ def create_placement_groups(args):
 
 ## 稳定的 Bundle 重排：按节点与 GPU 顺序排序
 
-创建 PG 后，SLIME 用一个临时 `InfoActor` 在每个 bundle 上运行一次，探测该 bundle 实际分配到的 `(Node IP, GPU ID)`，随后按“节点 IP 数值化”与 “GPU ID”排序，得到稳定序列。
+创建 PG 后，slime 用一个临时 `InfoActor` 在每个 bundle 上运行一次，探测该 bundle 实际分配到的 `(Node IP, GPU ID)`，随后按“节点 IP 数值化”与 “GPU ID”排序，得到稳定序列。
 <details> <summary> `InfoActor` and `sort_key` </summary>
 
 ```
@@ -148,7 +148,8 @@ def sort_key(x):
 
 在多节点/多卡下，`create_rollout_engines` 会通过 `RayActor._get_current_node_ip_and_free_port` 在目标节点上寻找一段连续可用端口，并将Node 0的 `dist_init_addr` 扩散到同一引擎的其他节点，以保证跨机的进程组一致性。
 <details> <summary> `RayActor._get_current_node_ip_and_free_port` </summary>
-```
+
+```python
 def _get_current_node_ip_and_free_port(start_port=10000, consecutive=1):
     address = ray._private.services.get_node_ip_address()
     address = address.strip("[]")
@@ -158,6 +159,7 @@ def _get_current_node_ip_and_free_port(start_port=10000, consecutive=1):
     return address, port
 ```
 </details>
+
 ---
 
 ## 选择 colocate 还是 dis-agg？
@@ -177,7 +179,7 @@ def _get_current_node_ip_and_free_port(start_port=10000, consecutive=1):
 
 ## 小结
 
-- 通过“InfoActor 探测 + 稳定排序”，SLIME 获得跨多机的稳定 bundle 顺序；
+- 通过“InfoActor 探测 + 稳定排序”，slime 获得跨多机的稳定 bundle 顺序；
 - 训练与 Rollout 共享或分离资源，由 colocate 与 dis-agg 两种模式切换；
 - 端口与分布式地址由引擎所在节点本地探测，确保跨机一致性与可复现部署。
 
