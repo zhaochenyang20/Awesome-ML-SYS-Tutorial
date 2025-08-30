@@ -1,12 +1,16 @@
 # Megatron
 
-任何训练都离不开 Megatron 的五指山，Megatron 就像威震天一样，力量惊人但又难以驾驭。解析 Megatron 的文章已经非常之多了，在此文中，我们对 Megatron 的基本特性浅尝辄止，重点分析 Megatron 在 RL 框架中的使用。
+> 人人都恐惧他，但是没人能离开他。——《The Godfather》
 
-历史上的 Megatron 由三篇文章构成，顾名思义，讲述了 Megatron 发展的三个阶段分别的重要 feature。然而，Megatron 的 feature 相比这些论文所讲述的自然早已丰富了许多，就连 Megatron 都演化出了若干多版本：Megatron，Megatron—Core，M—Bridge 以及 Nemotron。
+人如其名，Megatron 犹如威震天一样，力量惊人但又难以驾驭。没人能逃出 Megatron 的五指山，在本文中，我们对 Megatron 的基本特性浅尝辄止，重点分析 Megatron 在 RL 框架中的使用。
+
+历史上的 Megatron 由三篇文章构成，讲述了 Megatron 发展的三个阶段分别的重要 feature。然而，Megatron 的 feature 相比这些论文所讲述的自然早已丰富了许多，就连 Megatron 都演化出了若干多版本：Megatron，Megatron—Core，M—Bridge 以及 Nemotron。
 
 - [Tensor parallelism](https://arxiv.org/pdf/1909.08053)
 - [3D 并行](https://arxiv.org/pdf/2104.04473)
 - [activation recomputation](https://arxiv.org/pdf/2205.05198)
+
+我们来介绍一些 Megatron 的重要特性。
 
 ## 3D 并行
 
@@ -14,21 +18,15 @@ Megatron 为了支持在数千 GPU 上的巨大规模训练，实现了 3D 并�
 
 1. Tensor Parallelism（TP）
 
-将单层 Transformer 内部的线性层参数在维度上切分（如 MLP 权重、注意力头），分布到多个 GPU 上执行，从而避免单卡参数爆炸。适用于单层参数过大的场景。
-
-Megatron 默认通过 `--tensor-model-parallel-size` 启用 TP，执行过程中配合 all-gather、reduce-scatter 进行跨 GPU 通信。
+将单层 Transformer 内部的线性层参数在维度上切分（如 MLP 权重、注意力头），分布到多个 GPU 上执行，从而避免单卡参数爆炸。Megatron 默认通过 `--tensor-model-parallel-size` 启用 TP，执行过程中配合 all-gather、reduce-scatter 进行跨 GPU 通信。
 
 2. Pipeline Parallelism（PP）
 
-将模型的不同层切分为多个 stage，每个 GPU 或 GPU group 负责一部分层，借助流水线调度执行多个 micro-batch，提升计算利用率。
-
-使用 `--pipeline-model-parallel-size` 配置，同时可启用 interleaved virtual pipeline（虚拟流水线）进一步提升 overlap 能力。
+将模型的不同层切分为多个 stage，每个 GPU 或 GPU group 负责一部分层，借助流水线调度执行多个 micro-batch，提升计算利用率。使用 `--pipeline-model-parallel-size` 配置，同时可启用 interleaved virtual pipeline（交替虚拟流水线）进一步提升 overlap 能力。
 
 3. Data Parallelism（DP）
 
-在多个 worker 上复制模型副本、分发不同样本，通过 gradient all-reduce 同步梯度。Megatron 的 DP 也支持 ZeRO-like distributed optimizer。
-
-使用 `--use-distributed-optimizer`、`--overlap-grad-reduce` 等控制是否采用 ZeRO。
+在多个 worker 上复制模型副本、分发不同样本，通过 gradient all-reduce 同步梯度。Megatron 的 DP 也支持 ZeRO-like distributed optimizer，使用 `--use-distributed-optimizer`、`--overlap-grad-reduce` 等控制是否采用 ZeRO。
 
 ## Megatron-Core
 
