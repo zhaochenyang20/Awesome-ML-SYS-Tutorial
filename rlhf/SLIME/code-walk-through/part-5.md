@@ -1,11 +1,11 @@
-# Slime Rollout 系统详解
+# slime Rollout 系统详解
 
 ## 概述
 
-`slime/rollout` 模块是 Slime 框架中的核心组件，负责处理强化学习训练过程中的样本生成、过滤和评估。该模块提供了一个完整的 pipeline，从数据源获取提示，生成响应，应用奖励模型，并通过过滤器选择高质量样本用于训练。
+`slime/rollout` 模块是 slime 框架中的核心组件，负责处理强化学习训练过程中的样本生成、过滤和评估。该模块提供了一个完整的 pipeline，从数据源获取提示，生成响应，应用奖励模型，并通过过滤器选择高质量样本用于训练。
 
 ## 系统架构图解析
-![SLIME整体工作流程](overall_workflow.jpg)
+![slime整体工作流程](overall_workflow.jpg)
 ### 训练循环流程
 ```
 train.py → ray/rollout.py → RolloutManager → RolloutController → 数据生成 → 模型训练
@@ -36,17 +36,17 @@ slime/rollout/
 
 ## 核心组件详解
 
-### 1. SGLang Rollout (`sglang_rollout.py`)
+### SGLang Rollout (`sglang_rollout.py`)
 
 这是主要的样本生成引擎，基于 SGLang 实现高效的异步文本生成。
 
-#### 关键特性：
+**关键特性：**
 - **异步生成**: 使用 `asyncio` 实现并发样本生成
 - **状态管理**: `GenerateState` 单例类管理全局生成状态
 - **可中断生成**: 支持在生成过程中中断和恢复
 - **批量处理**: 支持批量生成和奖励模型评估
 
-#### 核心类和函数：
+**核心类和函数：**
 
 
 
@@ -298,7 +298,7 @@ async def abort(args, rollout_id: int):
 ```
 </details>
 
-#### 生成流程详解：
+**生成流程详解：**
 
 1. **初始化**: 设置生成参数和并发控制
 2. **数据获取**: 从数据源获取提示样本
@@ -307,7 +307,7 @@ async def abort(args, rollout_id: int):
 5. **过采样过滤**: 应用过采样过滤器选择最终样本
 6. **清理**: 中断未完成的任务并收集结果
 
-#### filter逻辑
+**filter逻辑**
 系统架构图中，rollout部分画的是没有开启filter的逻辑，如果enable了filter，具体的rollout flow为：
 
 * 系统首先启动 over_sampling_batch_size=6 个并发的 generate_and_rm_group 任务。target_data_size=over_sampling_batch_size=6
@@ -318,16 +318,16 @@ async def abort(args, rollout_id: int):
 如下：
 ![slime sampling flow](sampling_flow.jpg)
 
-### 2. SFT Rollout (`sft_rollout.py`)
+### SFT Rollout (`sft_rollout.py`)
 
 专门用于监督微调（SFT）的样本处理模块。
 
-#### 核心功能：
+**核心功能：**
 - **分词处理**: 使用 tokenizer 对样本进行分词
 - **损失掩码生成**: 生成用于训练的损失掩码
 - **响应长度计算**: 计算响应部分的长度
 
-#### 实现示例：
+**实现示例：**
 
 <details>
 
@@ -351,11 +351,11 @@ def generate_rollout(args, rollout_id, data_buffer, evaluation=False):
 ```
 </details>
 
-### 3. 过滤器系统 (`filter_hub/`)
+### 过滤器系统 (`filter_hub/`)
 
 过滤器系统在架构图中体现为动态过滤和过采样过滤机制，用于确保样本质量。
 
-#### 动态采样过滤器 (`dynamic_sampling_filters.py`)
+**动态采样过滤器 (`dynamic_sampling_filters.py`)**
 
 <details>
 <summary>动态采样过滤器详解</summary>
@@ -390,7 +390,7 @@ def check_reward_nonzero_std(args, samples: list[Sample], **kwargs):
 - 确保样本组具有奖励多样性
 </details>
 
-#### 过采样过滤器 (`over_sampling_filters.py`)
+**过采样过滤器 (`over_sampling_filters.py`)**
 
 <details>
 <summary>过采样过滤器详解</summary>
@@ -432,11 +432,11 @@ def sort_by_reward_std(args, samples: list[list[Sample]], **kwargs) -> list[list
 - 确保最终样本具有高质量的训练信号
 </details>
 
-### 4. 奖励模型集合 (`rm_hub/`)
+### 奖励模型集合 (`rm_hub/`)
 
 奖励模型集合在架构图中体现为对生成样本的评估机制，支持多种评估方式。
 
-#### 支持的奖励模型类型：
+**支持的奖励模型类型：**
 
 1. **DeepScaler**: 基于规则的奖励模型
 2. **DAPO**: 数学问题评估模型
@@ -444,7 +444,7 @@ def sort_by_reward_std(args, samples: list[list[Sample]], **kwargs) -> list[list
 4. **F1**: F1分数计算模型
 5. **Remote RM**: 远程奖励模型接口
 
-#### 核心函数：
+**核心函数：**
 
 <details>
 <summary>async_rm 函数详解</summary>
@@ -533,7 +533,7 @@ async def batched_async_rm(args, samples: list[Sample], **kwargs) -> list[Union[
 
 ## 工作流程详解
 
-### 1. 完整系统工作流程
+### 完整系统工作流程
 
 根据架构图，整个系统的工作流程如下：
 
@@ -556,7 +556,7 @@ completed_samples → 训练循环
 ```
 
 
-### 2. 训练循环详细流程
+### 训练循环详细流程
 
 <details>
 <summary>训练循环步骤详解</summary>
@@ -595,7 +595,7 @@ completed_samples → 训练循环
    - 形成完整的训练循环
 </details>
 
-### 3. SGLang 分布式生成流程
+### SGLang 分布式生成流程
 
 <details>
 <summary>SGLang 生成流程详解</summary>
@@ -622,7 +622,7 @@ completed_samples → 训练循环
    - 中断的样本返回为 `aborted_samples`
 </details>
 
-### 4. 数据流和缓冲机制
+### 数据流和缓冲机制
 
 <details>
 <summary>数据流详解</summary>
@@ -660,7 +660,7 @@ completed_samples → 训练循环
    ```
 </details>
 
-### 5. 配置参数详解
+### 配置参数详解
 
 <details>
 <summary>关键配置参数</summary>

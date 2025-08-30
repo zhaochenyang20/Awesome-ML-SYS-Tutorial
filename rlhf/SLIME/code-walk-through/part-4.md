@@ -6,16 +6,16 @@ rollout系统是slime中负责数据生成的核心组件，主要由两个文�
 - `slime/ray/rollout.py`：`class RolloutManager` 管理rollout引擎和路由器的生命周期;
 - `slime/ray/buffer.py`：`class RolloutController` 处理rollout数据生成和转换
 
-![SLIME rollout工作流程](rollout_parts.png)
+![slime rollout工作流程](rollout_parts.png)
 
 ## 核心组件详解
 
-### **1. RolloutManager - 协调器**
+### RolloutManager - 协调器
 
-#### **作用**
+**作用**
 RolloutManager是rollout系统的主控制器，负责协调Router、Controller和Engines之间的交互。
 
-#### **初始化流程**
+**初始化流程**
 <details>
 <summary>RolloutManager初始化</summary>
 
@@ -48,7 +48,7 @@ class RolloutManager:
 ```
 </details>
 
-#### **关键方法**
+**关键方法**
 
 **A. 数据生成**
 <details>
@@ -83,12 +83,12 @@ def async_onload(self, tags: List[str] = None):
 ```
 </details>
 
-### **2. create_rollout_engines - 引擎创建**
+### create_rollout_engines - 引擎创建
 
-#### **作用**
+**作用**
 创建SGLang引擎池，负责模型推理服务。
 
-#### **核心逻辑**
+**核心逻辑**
 <details>
 <summary>create_rollout_engines实现</summary>
 
@@ -143,12 +143,12 @@ def create_rollout_engines(args, pg):
 - **端口管理**：自动分配服务器端口、NCCL端口等
 - **初始化同步**：等待所有引擎初始化完成
 
-### **3. _start_router - 路由器启动**
+### _start_router - 路由器启动
 
-#### **作用**
+**作用**
 启动SGLang路由器，提供负载均衡服务。
 
-#### **实现细节**
+**实现细节**
 <details>
 <summary>_start_router实现</summary>
 
@@ -190,12 +190,12 @@ def _start_router(args):
 ```
 </details>
 
-### **4. RolloutController - 执行器**
+### RolloutController - 执行器
 
-#### **作用**
+**作用**
 RolloutController是rollout系统的核心执行器，负责数据生成、转换和管理。
 
-#### **初始化**
+**初始化**
 <details>
 <summary>RolloutController初始化</summary>
 
@@ -223,7 +223,7 @@ class RolloutController:
 - **SFT支持**：通过`--rollout-function-path`可以切换到SFT模式
 - **数据源管理**：使用带缓冲的数据源
 
-#### **generate方法 - 核心生成流程**
+**generate方法 - 核心生成流程**
 
 <details>
 <summary>generate方法实现</summary>
@@ -275,7 +275,7 @@ def generate(self, rollout_id):
 5. **格式转换**：转换为训练数据格式
 6. **Ray存储**：包装到Ray对象存储
 
-#### **eval方法 - 评估流程**
+**eval方法 - 评估流程**
 
 <details>
 <summary>eval方法实现</summary>
@@ -293,12 +293,12 @@ def eval(self, rollout_id):
 ```
 </details>
 
-### **5. _convert_samples_to_train_data - 数据转换**
+### _convert_samples_to_train_data - 数据转换
 
-#### **作用**
+**作用**
 将生成的Sample对象转换为训练所需的字典格式。
 
-#### **转换逻辑**
+**转换逻辑**
 <details>
 <summary>_convert_samples_to_train_data实现</summary>
 
@@ -352,9 +352,9 @@ def _convert_samples_to_train_data(self, samples: Union[list[Sample], list[list[
 - **raw_reward**：原始奖励（可选）
 - **round_number**：轮次编号（可选）
 
-### **6. log_eval_data - 评估日志**
+### log_eval_data - 评估日志
 
-#### **作用**
+**作用**
 记录评估数据到wandb和控制台。
 
 <details>
@@ -387,16 +387,16 @@ def log_eval_data(rollout_id, args, data):
 
 ### **1. 组件关系概览**
 
-![SLIME rollout组件关系](rollout_parts.png)
+![slime rollout组件关系](rollout_parts.png)
 
-上图展示了SLIME rollout系统中各组件的关系。整个系统采用分层架构，实现了职责分离和高效协作。
+上图展示了slime rollout系统中各组件的关系。整个系统采用分层架构，实现了职责分离和高效协作。
 
 ### **2. 数据流向**
 
-#### **A. 生成请求流**
+**A. 生成请求流**
 训练进程发起生成请求，经过Manager协调、Controller执行、Engine推理的完整流程，最终返回训练数据。
 
-#### **B. 管理操作流**
+**B. 管理操作流**
 - **内存管理**：Manager直接调用Engine的offload/onload方法
 - **状态管理**：Controller管理数据源的状态保存和加载
 - **评估**：Controller调用评估函数并记录日志

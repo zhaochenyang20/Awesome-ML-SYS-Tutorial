@@ -2,8 +2,7 @@
 
 前一段时间我们在 RL 训练和 SGLang 本身的推理当中都遇到了一定的显存泄露问题。昨天终于想明白了具体泄露的原因，这篇文章分享我们基于 Torch Memory Snapshot 的排查过程，以及分享我们对显存泄露问题的解决方案。
 
-特别致谢：Hongyu Lu（TikTok），Huapeng Zhou（UW），Changyi Yang（CMU），Xinpeng Wei（Amazon），Rohan Bavishi（Amazon），Xinyuan Tong（USC），Yuhao Yang（HKU），Biao He（LinkedIn），Chenyang Zhao（LMSYS）
-
+特别致谢：Hongyu Lu (TikTok), Xinpeng Wei (Amazon), Rohan Bavishi (Amazon), Vint Lee (Amazon), Daisy Lin (Amazon), Deniz Birlikci (Amazon), Shahil Patel (Amazon), XJ Wang (Amazon), Huapeng Zhou (UW), Changyi Yang (CMU), Xinyuan Tong (USC), Yuhao Yang (HKU), Biao He (LinkedIn), Chenyang Zhao (LMSYS)
 ## 背景
 
 很有意思的是，我们并不是为了支持分析显存泄露才现场学习的 Torch Memory Snapshot，而是大概一个月前，在解决 FSDP2 问题的时候就在逐步使用了。回到我们先前的文章，[FSDP 训练后端](../../rlhf/sys-design/readme-2.md#fsdp-in-verl)，我们提到过，直觉上从 FSDP1 切换到 FSDP2 并不麻烦，只需要修改四行配置：
@@ -498,8 +497,9 @@ python -m sglang.bench_serving \
 1. 加入定期的显存回收机制，比如每 10s 或者每 10 个 requests 回收一次；
 2. 直接降低 rollout engine 的 mem static，比如从我们一般设置的 0.85 降低到 0.65；
 
-
 1 的原因已经在我上方的图示说明清楚了，而 2 的原因值得一提一方面，SGLang 本身不管理 image processor 的显存，所以 SGLang 推荐的 mem static 参数对 VLM 就是比起 LLM 低。LLM 我们一般设置的 mem static 是 0.85，VLM 推荐可能就是 0.8 了；另一方面，很多时候如果我们 rollout 的时候，使用类似 verl 这种 SPMD 策略，每个 rollout worker 的 requests/worker 是能够算出来的（具体来说，是 `train batch size * grpo group size / num workers`），如果经过我们的计算，requests/worker 本身就不高，低于 20，那么设置更大的 mem static，有更大的 kv cache 空间，对推理性能的影响也不大。当然，对于 slime 这种更加解耦的设计，每个 rollout worker 上的 requests/worker 是不一定的，但是也大差不差，还是可以估算到平均每个 worker 处理的 requests 数量。
+
+当然，在线上的 serving 场景不断地 `gc.collect` 对性能影响非常大，所以我个人觉得目前只能在 RL 场景下这么搞。具体线上 serving 怎么做，还得讨论。
 
 最后，其实很早之前我就意识到了 rollout 可能存在碎片，我甚至也参考了 verl 团队所写的 `aggressive_empty_cache` 函数，给 SGLang 提了这个 [PR 3136](https://github.com/volcengine/verl/pull/3136)。
 
