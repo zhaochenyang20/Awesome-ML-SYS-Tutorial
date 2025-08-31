@@ -92,6 +92,8 @@ Megatron-Core 提供基于模块化构建的 `GPTModel`、`TransformerConfig` �
 
 将单层 Transformer 内部的线性层参数在维度上切分（如 MLP 权重、注意力头），分布到多个 GPU 上执行，从而避免单卡参数爆炸。Megatron 默认通过 `--tensor-model-parallel-size` 启用 TP，执行过程中配合 all-gather、reduce-scatter 进行跨 GPU 通信。在 TP 中，每个 GPU 仅保留一个 tensor 的一部分，仅当某些算子需要完整的张量时才触发聚合操作，否则只需要去聚合经过这层张量后的 activation。
 
+在一个 TP group 里，为了保证数据一致性，只有一个进程会从磁盘加载模型参数，其余进程通过广播操作获取相同的数据，从而确保组内参数一致性。在 verl 中也是如此，比如[此处](https://github.com/volcengine/verl/blob/fcb1e191b758cadd3f45bb9d3ee815d979f4a1ec/verl/models/mcore/loader.py#L85)；在 rank0 上加载完整参数 -> 按 TP 策略切分 -> 广播分片。
+
 比较有意思的是，我们知道 FSDP 也有类似 TP 的切分机制，但是 FSDP 在进行 forwarding 计算时需要将整个 weights 进行聚合，而 TP 则不需要。在此，我们花费一定篇章，通过问答的形式来讨论 TP，FSDP1 和 FSDP2 的区别，不感兴趣的读者可以自行跳过。
 
 * **问题 1：** TP、FSDP1 和 FSDP2 在核心设计思想上有什么根本区别？
@@ -156,36 +158,15 @@ FSDP “先聚后算”的切分纯粹为了存储，分片不具备直接计算
 
 三者的最佳选择不是三选一，而是融合，将 TP 和 FSDP2 的混合使用：在节点内部 (Intra-Node)，对模型中最大的几个层使用 TP；在整个集群范围 (Inter-Node)，用 FSDP2 将这个经过TP改造的模型再包裹一层，实现高效的数据并行扩展。
 
+讨论了这么多，我们来看看 Megatron 是如何实现两个 TP block：
 
-【TODO】
-
-1. TP 需要的中间计算结果的聚合和 FSDP 需要的参数的聚合有什么区别？
-
-简单来说，TP 是分片计算 + 聚合结果，而 FSDP 是聚合参数 + 计算。
-
-TP 的聚合是对中间计算结果的聚合。各 GPU 持有不同的参数分片（如 `W1_part1, W1_part2`），独立计算各自的部分结果（如 `Y_part1, Y_part2`），然后通过 AllReduce 聚合这些部分结果得到完整的层输出或梯度。这种聚合发生在每层的前向和反向传播过程中，目的是将分布式计算的部分结果组装成完整的 activation 或梯度继续传播。参数本身始终保持分片状态，各 GPU 只需维护和更新自己负责的参数片段。
-
-FSDP 本质上还是 DP，FSDP 的聚合是对分片参数的聚合。各 GPU 平时只存储模型参数的一个分片，在计算时临时通过 AllGather 重构完整的参数矩阵进行计算，计算完毕后立即释放完整参数以节省内存。这种聚合的目的是获得完整参数进行标准的神经网络计算，聚合频率更高（每层计算前都需要），通信的是参数本身而非计算结果。
-
-1. 在一个 TP group 里，为了保证数据一致性，只有一个进程会从磁盘加载模型参数，其余进程通过广播操作获取相同的数据，从而确保组内参数一致性。
-
-【这是真的么？大家都加载不会快些么？】
-
-是真的 可以看看https://github.com/volcengine/verl/blob/fcb1e191b758cadd3f45bb9d3ee815d979f4a1ec/verl/models/mcore/loader.py#L85
-rank0: 加载完整参数 -> 按TP策略切分 -> 广播分片，猜测是因为这样的分发效率可能比并发读要高
-
-
-2. TP 在执行期间涉及频繁的数据通信。为了提升计算效率，实际部署时应尽可能将同一个 TP group 的进程安排在同一台机器内，利用 NVLink 降低通信延迟。
-3. 由于参数被分块计算，每个进程仅生成输出的一部分状态。当这些中间结果需要作为后续层的输入或输出时，需要进行通讯并合并结果。
-
-![image](https://hackmd.io/_uploads/B16YjQLBel.png)
-
-我们来简单看看 Megatron 实现的两个 TP block：
+这段代码将 MLP 沿着列切分，每个 rank 存储 1/N 的权重，然后进行计算。
 
 <details>
 <summary>
 MLP 的 TP 实现
 </summary>
+
 
 ```python
 class ColumnParallelLinear(torch.nn.Module):
@@ -240,13 +221,7 @@ class ColumnParallelLinear(torch.nn.Module):
 ```
 </details>
 
-【卧槽，这段代码在讲啥】
-
-上面一段TP中列切分线性层，把一个大的权重矩阵"竖着切开"分给多个GPU。
-
-下面一段是多头注意力的TP切分，把不同的注意力头分配到不同的GPU上并行计算。其实这两段算是对mengyuan老师文化最那个的一点代码补充
-
-> 对三个参数矩阵Q，K，V，按照“列切割”，每个头放到一块GPU上，做并行计算。对线性层B，按照“行切割”。切割的方式和MLP层基本一致，其forward与backward原理也一致。
+下面一段是 MHA 的 TP 切分：对三个参数矩阵 Q，K，V，按照列切分，对线性层 B 则按照行切分。
 
 <details>
 <summary>
@@ -261,44 +236,85 @@ class ParallelAttention(MegatronModule):
                 encoder_output=None, inference_params=None,
                 rotary_pos_emb=None):
 
+        # hidden_states: 输入张量，形状为 [sq, b, h]
+        # sq: 序列长度 (sequence length)
+        # b: 批次大小 (batch size)
+        # h: 隐藏层维度 (hidden_size)
+
         ...
 
         if self.attention_type == AttnType.self_attn:
           
-            # qkv 全连接层输出 [sq, b, h]
+            # 步骤 1: QKV 权重矩阵的列并行计算
+            # self.query_key_value 是一个 ColumnParallelLinear 层。
+            # 它的权重矩阵在加载时已经被按列（输出维度）切分。
+            # 原始 QKV 权重合并后形状为 [h, 3 * h]，切分后每个 GPU 上的权重形状为 [h, (3 * h) / N]，其中 N 是 TP world size。
+            # 因此，前向计算的结果 mixed_x_layer 也是在最后一个维度上被切分的。
+            # mixed_x_layer 的形状: [sq, b, (3 * h) / N]
             mixed_x_layer, _ = self.query_key_value(hidden_states)
 
-            # [sq, b, hp] --> [sq, b, ng, (np/ng + 2) * hn]
-            # [句长， 批大小， 维度] --> [句长, 批大小, 注意力头[分片],  头维度]
-            # num_query_groups_per_partition 把头按张量并行进行分片， num_attention_heads/word_size
+            # 步骤 2: 重塑张量以分离注意力头
+            # 这一步的目标是将扁平的、被切分的隐藏维度 (3 * h) / N，重塑为结构化的、能区分出各个注意力头的形状。
+            # 这是 TP 实现中最关键和最复杂的一步。
 
+            # self.num_query_groups_per_partition: 每个 GPU 上分配到的查询组数量。
+            # 在标准 MHA 中，每个 Q 头都是一个独立的组，所以这个值 = num_attention_heads / world_size。
+            # 在 GQA 中，多个 Q 头会共享一组 K/V 头，这个值 = num_query_groups_per_partition / world_size。
+            
+            # self.num_attention_heads_per_partition: 每个 GPU 上分配到的 Q 头数量。 (num_attention_heads / world_size)
+            # self.hidden_size_per_attention_head: 每个注意力头的维度 (h / num_attention_heads)。
+            
+            # 让我们解析 new_tensor_shape 的最后一个维度：
+            # (self.num_attention_heads_per_partition // self.num_query_groups_per_partition + 2)
+            # num_attention_heads_per_partition // num_query_groups_per_partition: 每个查询组内包含的 Q 头数量。
+            #  + 2: 代表每个查询组还附带 1 个 K 头 和 1 个 V 头。
+ 
+            # 整个表达式计算出了在一个查询组内，所有 Q、K、V 头加起来的总维度。
             new_tensor_shape = mixed_x_layer.size()[:-1] + (
-                 # 注意头大小已经按张量大小进行分片
                 self.num_query_groups_per_partition,
                 (
                     (self.num_attention_heads_per_partition // self.num_query_groups_per_partition + 2)
                     * self.hidden_size_per_attention_head
                 ),
             )
+            
+            # 将 [sq, b, (3 * h) / world_size] 重塑为 [sq, b, num_groups_per_gpu, group_dim]
+            # group_dim 代表一个查询组内所有 Q,K,V 头的总维度。
             mixed_x_layer = mixed_x_layer.view(*new_tensor_shape)
 
-            # [sq, b, ng, (np/ng + 2) * hn] --> [sq, b, ng, np/ng * hn], [sq, b, ng, hn], [sq, b, ng, hn]
-            # 将QKV进行分割, 按最后一个维度进行分割
+            # 步骤 3: 从重塑后的张量中切分出 Q, K, V
+            # 此时，我们沿着最后一个维度（dim=3），即 group_dim，把 Q、K、V 分离出来。
+            # 这个切分是在每个 GPU 上独立进行的，操作的是已经被 TP 切分过的数据。
             (query_layer, key_layer, value_layer) = torch.split(
                 mixed_x_layer,
                 [
+                    # Q 的总维度：(每个组的 Q 头数量 * 单个头的维度)
                     (
                         self.num_attention_heads_per_partition // self.num_query_groups_per_partition
                         * self.hidden_size_per_attention_head
                     ),
+                    # K 的总维度：(1 个 K 头 * 单个头的维度)
                     self.hidden_size_per_attention_head,
+                    # V 的总维度：(1 个 V 头 * 单个头的维度)
                     self.hidden_size_per_attention_head
                 ],
                 dim=3)
+            
+            # 切分后，得到的 query_layer, key_layer, value_layer 都只是全局 Q, K, V 的一部分（分片）。
+            # query_layer 形状: [sq, b, num_groups_per_gpu, num_q_heads_in_group * head_dim]
+            # key_layer 形状:   [sq, b, num_groups_per_gpu, head_dim]
+            # value_layer 形状: [sq, b, num_groups_per_gpu, head_dim]
 
-            # [sq, b, ng, np/ng * hn] -> [sq, b, np, hn] 
+            # 步骤 4: 整理 Q 的形状以进行注意力计算
+            # 将 query_layer 的最后两个维度重新组合，把“组”和“组内头”合并为总的“注意力头”维度。
+            # 最终得到一个方便进行后续 attention score 计算的形状。
+            # 最终形状: [sq, b, num_q_heads_on_this_gpu, head_dim]
             query_layer = query_layer.view(query_layer.size(0),
                                            query_layer.size(1), -1, self.hidden_size_per_attention_head)
+
+            # 此时，key_layer 和 value_layer 也需要进行类似的 reshape 和准备（代码中未完全展示）。
+            # 接下来，每个GPU会用它自己持有的Q, K, V分片，独立地计算它所负责的那部分头的注意力得分。
+            # 最后，在 Attention 模块的输出线性层（一个 RowParallelLinear 层），会将所有GPU的结果通过 All-Reduce 聚合起来，得到最终的完整输出。
 ```
 
 </details>
