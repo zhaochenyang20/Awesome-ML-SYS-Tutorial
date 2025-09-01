@@ -139,7 +139,7 @@ def create_placement_groups(args):
 
 这样可以获得跨多机的稳定 bundle 顺序，避免由于映射不稳定造成的调度错配。
 
-<details> <summary> `InfoActor` and `sort_key` 具体实现</summary>
+<details> <summary> InfoActor and sort_key 具体实现</summary>
 
 ```python
 @ray.remote(num_gpus=1)
