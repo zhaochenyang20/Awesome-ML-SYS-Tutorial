@@ -960,7 +960,7 @@ class AsyncLoopThread:
 
 </details>
 
-## SGLang Rollou
+## SGLang Rollout
 
 我们继续向下研究，默认的 [`generate_rollout_async`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L235) 是直接定义在 [`sglang_rollout.py`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py) 中。
 
@@ -996,6 +996,8 @@ slime/rollout/
 
 `GenerateState` 是全局生成状态管理器：管理 `Group: List[Sample]` 的生成状态；控制 `generate_and_rm_group` 任务的提交；维护 `semaphore`, `sampling_params`, `args` 等。
 
+【TODO】：这个 State 的名字很奇怪，state 应该就是状态，很简单一个类，怎么还管着 submit task 😂
+
 <details>
 <summary>GenerateState 具体实现</summary>
 
@@ -1004,6 +1006,7 @@ class GenerateState(metaclass=SingletonMeta):
     def __init__(self, args):
         self.args = args
         self.tokenizer = AutoTokenizer.from_pretrained(args.hf_checkpoint, trust_remote_code=True)
+        # 这个 semaphore 控制的是 router 上的最大流量，防止 router 崩溃
         self.semaphore = asyncio.Semaphore(args.sglang_server_concurrency * args.rollout_num_gpus // args.rollout_num_gpus_per_engine)
         self.sampling_params = dict(
             temperature=args.rollout_temperature,
@@ -1027,6 +1030,7 @@ class GenerateState(metaclass=SingletonMeta):
         for group in samples:
             self.pendings.add(
                 asyncio.create_task(
+                    # generate_and_rm_group 是一个 GRPO 组，组内是一个 prompt 的多个 requests
                     generate_and_rm_group(
                         self.args,
                         group,
@@ -1042,7 +1046,19 @@ class GenerateState(metaclass=SingletonMeta):
 
 **[`generate_rollout_async`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L235)**
 
-`generate_rollout_async` 这是异步样本生成的主函数，在前文也有提到，被作为协程对象传入到 `run` 函数中。
+`generate_rollout_async` 这是异步样本生成的主函数，在前文也有提到，被作为协程对象传入到 `run` 函数中。这个函数坦诚说写的还有提升空间：
+
+【TODO】：重构这个函数的 over_sampling_filter 逻辑
+
+1. 初始化 `dynamic_filter` 和 `over_sampling_filter`，`dynamic_filter` 就是 DAPO 中提到的策略，将 reward std 为 0 的整个组从 data 中丢弃；但是，`over_sampling_filter` 其实在 slime 中是没有用到的；slime 虽然会默认开启 over sample（设置 `over_sample_batch_size` 大于 `rollout_batch_size`），但是不会用到 `over_sampling_filter`；
+2. 进入 while 主循环，等待 `data` 中得到 `target_data_size` 个 group 才退出；
+3. 进入提交 group 给 router 的循环，检测当前的 `remaining_batch_size` 是否小于 `target_data_size`，如果小于，则提交 `over_sample_batch_size` 个 group 给 router；注意，第一次进入这个循环时，`remaining_batch_size` 是 0，因为还没开始提交 group；所以一定会 submit `over_sample_batch_size` 个 group 给 router；然后 `remaining_batch_size` 会加上 `over_sample_batch_size`；
+4. 提交完 group 后，等待任意一个 group 结束，也即整个 group 的所有 requests 都 rollout 结束了；
+5. 如果开启了 `dynamic_filter`，则对完成的 group 应用 `dynamic_filter`；如果 `dynamic_filter` 返回 False，则减掉一个 `remaining_batch_size`，不会加入 `data` 中；
+6. 如此以来，不断往 `data` 中添加 group，直到 `data` 中得到 `target_data_size` 个 group 为止；或者，被 filter 掉的 group 太多了，`remaining_batch_size` 小于了 `target_data_size`，则还要再提交 `over_sample_batch_size` 个 group 给 router；
+7. 直到采样到 `data` 中得到 `target_data_size` 个 group 为止，退出 while 主循环；
+8. 注意到，我们提交的 groups 的数目至少是一个 `over_sample_batch_size`，而 `target_data_size` 可能小于 `over_sample_batch_size`，所以需要 abort 掉未完成 groups 剩下的 requests；
+
 
 <details>
 <summary>generate_rollout_async 函数</summary>
@@ -1064,6 +1080,7 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
     state = GenerateState(args)
 
     # instantiate data filters
+    # dynamic filter 就是 DAPO 的策略，一个组内 reward 的 std 是 0 就全删了
     dynamic_filter = (
         load_function(args.dynamic_sampling_filter_path) if args.dynamic_sampling_filter_path is not None else None
     )
@@ -1072,6 +1089,9 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
     )
 
     # target_data_size is the total number of valid samples to get
+    # 默认情况下，over sample filter 是不开的，但是 over_sample_batch_size 会比 rollout_batch_size 大
+    # 一次性发送 over_sample_batch_size 个 requests，等到 rollout_batch_size(target_data_size) 个 group
+    # 返回了就退出循环，剩下的 requests 会 abort 掉
     target_data_size = args.over_sampling_batch_size if over_sampling_filter is not None else args.rollout_batch_size
 
     data = []
@@ -1084,6 +1104,7 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
             state.submit_generate_tasks(samples)
 
         # wait for the generation to finish
+        # 整个 group 的所有 requests 都 rollout 结束了，才返回
         done, state.pendings = await asyncio.wait(state.pendings, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             group: list[Sample] = task.result()
@@ -1097,6 +1118,7 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
 
             assert len(group) == args.n_samples_per_prompt
             if dynamic_filter is not None and not dynamic_filter(args, group):
+                # 如果被 dynamic_filter 过滤掉了，就减掉一个 remaining_batch_size，不会加入 data 中
                 state.remaining_batch_size -= 1
                 continue
 
@@ -1112,7 +1134,7 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
         flush=True,
     )
 
-    # there are still some unfinished requests, abort them
+    # 因为可能交了多次 over_sampling_batch_size 个 groups，所以需要 abort 掉未完成 groups 剩下的 requests
     aborted_samples = await abort(args, rollout_id)
 
     if over_sampling_filter is not None:
@@ -1127,14 +1149,15 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
 ```
 </details>
 
-【TODO】：
 
-`generate_and_rm_group`对样本组进行生成和奖励模型评估.
-- 处理 `Group: List[Sample]` 中的每个样本
-- 对每sample执行 `generate_and_rm` 操作
+**[`generate_and_rm_group`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L178)**
+
+对样本组的每个 request 执行 `generate_and_rm` 操作。
 
 <details>
-<summary>generate_and_rm_group 函数</summary>
+<summary>generate_and_rm_group 相关实现</summary>
+
+1. generate_and_rm_group 函数
 
 ```python
 async def generate_and_rm_group(args, group: list[Sample], sampling_params: dict, evaluation=False) -> list[Sample]:
@@ -1157,14 +1180,8 @@ async def generate_and_rm_group(args, group: list[Sample], sampling_params: dict
 
     return group
 ```
-</details>
 
-`generate_and_rm`单个样本的生成和奖励模型评估。
-- 处理 `sample1`, `sample2` 等单个样本
-- 执行生成和奖励评估
-
-<details>
-<summary>generate_and_rm 函数</summary>
+2. generate_and_rm 函数
 
 ```python
 async def generate_and_rm(args, sample: Sample, sampling_params: dict, evaluation=False) -> Sample:
@@ -1200,13 +1217,8 @@ async def generate_and_rm(args, sample: Sample, sampling_params: dict, evaluatio
     sample.reward = await async_rm(args, sample)
     return sample
 ```
-</details>
 
-`abort` 中断生成过程，收集部分完成的样本。
-- post abort_all 到sglang_router
-- 如果partial_rollout，将 `aborted_samples` 放入data buffer
-<details>
-<summary>abort 函数</summary>
+3. abort 函数
 
 ```python
 async def abort(args, rollout_id: int):
@@ -1240,27 +1252,13 @@ async def abort(args, rollout_id: int):
 5. **过采样过滤**: 应用过采样过滤器选择最终样本
 6. **清理**: 中断未完成的任务并收集结果
 
-**filter逻辑**
-系统架构图中，rollout部分画的是没有开启filter的逻辑，如果enable了filter，具体的rollout flow为：
+【TODO】：重新整理下 over sample filter 的逻辑
 
-* 系统首先启动 over_sampling_batch_size=6 个并发的 generate_and_rm_group 任务。target_data_size=over_sampling_batch_size=6
-* 当某个group完成时，会通过Dynamic filter检查奖励标准差（Std=0 的组被丢弃）。
-* 由于需要 target_data_size=6 个有效group，在检测到已经获得的有效group数量+正在rollout的group数量<target_data_size时，会提交一个新的batch来获得足够的样本。
-* 最终收集够 target_data_size=6 个有效group后，通过 finish & abort 操作中断未完成的任务，然后应用Over Sampling filter从 6 个完成的样本组中按奖励标准差排序，选出质量最高的 4 个作为最终的 Completed Samples。
-
-如下：
 ![slime sampling flow](sampling_flow.jpg)
 
 ### SFT Rollout (`sft_rollout.py`)
 
-专门用于监督微调（SFT）的样本处理模块。
-
-**核心功能：**
-- **分词处理**: 使用 tokenizer 对样本进行分词
-- **损失掩码生成**: 生成用于训练的损失掩码
-- **响应长度计算**: 计算响应部分的长度
-
-**实现示例：**
+专门用于监督微调（SFT）的样本处理模块：使用 tokenizer 对样本进行分词，生成用于训练的损失掩码，计算响应部分的长度。
 
 <details>
 
@@ -1284,16 +1282,16 @@ def generate_rollout(args, rollout_id, data_buffer, evaluation=False):
 ```
 </details>
 
-### 过滤器系统 (`filter_hub/`)
+### `filter_hub/`
 
-过滤器系统在架构图中体现为动态过滤和过采样过滤机制，用于确保样本质量。
+用于实现动态过滤（dynamic sampling filter）和过采样过滤（over sampling filter）机制，确保样本质量。
 
-**动态采样过滤器 (`dynamic_sampling_filters.py`)**
+1. dynamic sampling filters
+
+过滤掉 reward std 为 0 的样本组（删除全 0/1 样本组）
 
 <details>
-<summary>动态采样过滤器详解</summary>
-
-**功能**: 过滤掉奖励标准差为0的样本组（删除全0/1样本组）
+<summary>dynamic sampling filters 实现</summary>
 
 ```python
 def check_reward_nonzero_std(args, samples: list[Sample], **kwargs):
@@ -1312,23 +1310,13 @@ def check_reward_nonzero_std(args, samples: list[Sample], **kwargs):
     return torch.tensor(rewards, dtype=torch.float).std() > 0.0
 ```
 
-**作用**: 
-- 确保选择的样本组具有足够的多样性
-- 避免选择所有样本奖励都相同的组
-- 提高训练数据的质量
 
-**在系统架构图中的角色**:
-- 在生成过程中实时应用
-- 过滤掉不合格的样本组
-- 确保样本组具有奖励多样性
-</details>
+2. over sampling filters
 
-**过采样过滤器 (`over_sampling_filters.py`)**
+按奖励标准差对样本组进行排序，优先选择方差大的样本组，默认不打开
 
 <details>
-<summary>过采样过滤器详解</summary>
-
-**功能**: 按奖励标准差对样本组进行排序，优先选择方差大的样本组
+<summary>over sampling filters 实现</summary>
 
 ```python
 def sort_by_reward_std(args, samples: list[list[Sample]], **kwargs) -> list[list[Sample]]:
@@ -1353,36 +1341,23 @@ def sort_by_reward_std(args, samples: list[list[Sample]], **kwargs) -> list[list
     samples_with_std.sort(key=lambda x: x[1], reverse=True)
     return [item[0] for item in samples_with_std]
 ```
-
-**作用**: 
-- 优先选择奖励分布更加多样化的样本组
-- 这些样本组通常包含更有价值的训练信号
-- 提高模型学习的效率
-
-**在系统架构图中的角色**:
-- 在所有候选样本生成完成后应用
-- 从候选样本中选择最优的子集
-- 确保最终样本具有高质量的训练信号
 </details>
 
 ### 奖励模型集合 (`rm_hub/`)
 
-奖励模型集合在架构图中体现为对生成样本的评估机制，支持多种评估方式。
+对生成样本的评估机制，支持多种评估方式：
 
-**支持的奖励模型类型：**
+- DeepScaler: 基于规则的奖励模型
+- DAPO/Math: 数学问题评估模型
+- F1: F1分数计算模型
+- Remote RM: 远程奖励模型接口
 
-1. **DeepScaler**: 基于规则的奖励模型
-2. **DAPO**: 数学问题评估模型
-3. **Math**: 数学答案验证模型
-4. **F1**: F1分数计算模型
-5. **Remote RM**: 远程奖励模型接口
-
-**核心函数：**
-
-<details>
-<summary>async_rm 函数详解</summary>
+1. `async_rm`
 
 根据配置的奖励模型类型评估单个样本。
+
+<details>
+<summary>async_rm 实现</summary>
 
 ```python
 async def async_rm(args, sample: Sample, **kwargs):
@@ -1424,17 +1399,15 @@ async def async_rm(args, sample: Sample, **kwargs):
     else:
         raise NotImplementedError(f"Rule-based RM for {rm_type} is not implemented.")
 ```
-
-**在系统架构图中的角色**:
-- 在 `generate_and_rm` 函数中被调用
-- 评估单个样本的奖励值
-- 支持多种评估策略
 </details>
 
-<details>
-<summary>batched_async_rm 函数详解</summary>
+2. `batched_async_rm`
 
 批量评估多个样本的奖励，提高评估效率。
+
+<details>
+<summary>batched_async_rm 实现</summary>
+
 
 ```python
 async def batched_async_rm(args, samples: list[Sample], **kwargs) -> list[Union[int, float]]:
@@ -1457,155 +1430,3 @@ async def batched_async_rm(args, samples: list[Sample], **kwargs) -> list[Union[
     rewards = await asyncio.gather(*tasks)
     return rewards
 ```
-
-**在系统架构图中的角色**:
-- 在 `generate_and_rm_group` 函数中被调用
-- 支持组级奖励模型评估
-- 提高批量评估效率
-</details>
-
-## 工作流程详解
-
-### 完整系统工作流程
-
-根据架构图，整个系统的工作流程如下：
-
-```
-训练循环 (train.py) 
-    ↓
-RolloutManager (ray/rollout.py)
-    ↓
-RolloutController (ray/buffer.py)
-    ↓
-RolloutDataSourceWithBuffer (ray/rollout_data_source.py)
-    ↓
-generate_rollout (rollout/sglang_rollout.py)
-    ↓
-SGLang Router → SGLang Servers → TP Ranks
-    ↓
-样本生成 → 奖励评估 → 过滤选择
-    ↓
-completed_samples → 训练循环
-```
-
-
-### 训练循环详细流程
-
-<details>
-<summary>训练循环步骤详解</summary>
-
-1. **rollout samples**: 
-   - 调用 `RolloutManager.async_generate(rollout_id)`
-   - 触发 `RolloutController.generate(rollout_id)`
-   - 执行样本生成流程
-
-2. **offload sglang**: 
-   - 调用 `RolloutManager.async_offload()`
-   - 释放 SGLang 相关内存，为训练腾出空间
-
-3. **model training**: 
-   - 使用生成的样本进行模型训练
-   - 更新模型参数
-
-4. **offload megatron**: 
-   - 释放 Megatron 相关内存
-   - 为 SGLang 恢复做准备
-
-5. **resume sglang weight**: 
-   - 调用 `RolloutManager.async_onload()`
-   - 恢复 SGLang 权重
-
-6. **weight sync**: 
-   - 同步模型权重
-   - 确保各组件状态一致
-
-7. **resume sglang kv cache**: 
-   - 恢复 SGLang KV 缓存
-   - 为下一轮生成做准备
-
-8. **回到 rollout samples**: 
-   - 开始下一轮样本生成
-   - 形成完整的训练循环
-</details>
-
-### SGLang 分布式生成流程
-
-<details>
-<summary>SGLang 生成流程详解</summary>
-
-1. **Router 路由**:
-   - 中央 Router 接收生成请求
-   - 根据负载均衡策略分发到不同的 SGLang Server
-
-2. **SGLang Server 处理**:
-   - 每个 SGLang Server 处理分配到的请求
-   - 支持多个 Server 并行处理
-
-3. **Tensor Parallelism (TP) 并行**:
-   - 每个 Server 内部使用 TP0-TP3 进行张量并行
-   - 提高大模型的推理效率
-
-4. **样本生成和评估**:
-   - 执行 `generate_and_rm_group` 操作
-   - 生成样本并进行奖励评估
-   - 支持 "start" 和 "abort" 控制点
-
-5. **结果返回**:
-   - 完成的样本返回为 `completed_samples`
-   - 中断的样本返回为 `aborted_samples`
-</details>
-
-### 数据流和缓冲机制
-
-<details>
-<summary>数据流详解</summary>
-
-1. **数据获取流程**:
-   ```
-   RolloutDataSourceWithBuffer.get_samples()
-   ├── 首先尝试从 buffer 获取样本
-   ├── 如果 buffer 不够，调用父类 get_samples()
-   └── 返回足够的样本组
-   ```
-
-2. **样本生成流程**:
-   ```
-   generate_rollout_async()
-   ├── 提交生成任务到 SGLang
-   ├── 等待生成完成
-   ├── 应用动态过滤器
-   └── 应用过采样过滤器
-   ```
-
-3. **结果处理流程**:
-   ```
-   生成结果
-   ├── completed_samples → 返回给训练循环
-   └── aborted_samples → 添加到 RolloutDataSourceWithBuffer.buffer
-   ```
-
-4. **缓冲管理**:
-   ```
-   RolloutDataSourceWithBuffer
-   ├── buffer: 存储中断的样本
-   ├── add_samples(): 添加样本到缓冲区
-   └── get_samples(): 从缓冲区获取样本
-   ```
-</details>
-
-### 配置参数详解
-
-<details>
-<summary>关键配置参数</summary>
-
-| 参数 | 说明 | 架构图中的体现 | 影响 |
-|------|------|----------------|------|
-| `rollout_batch_size` | 每批次生成的样本数量 | 最终返回的样本数量 | 控制生成效率 |
-| `over_sampling_batch_size` | 过采样批次大小 | 生成过程中的样本数量 | 控制样本选择范围 |
-| `n_samples_per_prompt` | 每个提示生成的样本数量 | Group 中的样本数量 | 控制多样性 |
-| `dynamic_sampling_filter_path` | 动态过滤器路径 | 动态过滤机制 | 实时过滤不合格样本 |
-| `over_sampling_filter_path` | 过采样过滤器路径 | 过采样过滤机制 | 选择最优样本子集 |
-| `rollout_num_gpus_per_engine` | 每个引擎的GPU数量 | SGLang Server 配置 | 控制并行度 |
-| `rollout_num_gpus` | 总GPU数量 | 系统规模 | 影响整体性能 |
-| `sglang_server_concurrency` | SGLang 服务器并发数 | 并发控制 | 影响生成速度 |
-</details>
