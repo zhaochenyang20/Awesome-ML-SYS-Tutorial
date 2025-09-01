@@ -181,7 +181,7 @@ dis-aggregate 下，训练 Actor 与 Rollout 引擎使用各自独立的 GPU 池
 
 在多节点/多卡下，`create_rollout_engines` 会通过 `RayActor._get_current_node_ip_and_free_port` 在目标节点上寻找一段连续可用端口，并将 Node 0 的 `dist_init_addr` 扩散到同一引擎的其他节点，以保证跨机的进程组一致性。
 
-<details> <summary> `RayActor._get_current_node_ip_and_free_port` 具体实现</summary>
+<details> <summary> RayActor._get_current_node_ip_and_free_port 具体实现</summary>
 
 ```python
 def _get_current_node_ip_and_free_port(start_port=10000, consecutive=1):
