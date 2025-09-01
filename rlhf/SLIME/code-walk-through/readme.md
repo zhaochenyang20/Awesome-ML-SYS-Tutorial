@@ -1,6 +1,6 @@
 # A Brief Code Walkthrough of slime
 
-在我心中，如果 openrlhf 是第一代 RLHF 框架的话，那么 slime 毫无疑问已经是第三代框架了，在易用性和性能上都做出了巨大的优化。slime 选择了以 SGLang 和 Megatron LM 作为唯一后端，强力支持了 MOE 模型的训练和极为自由的采样逻辑。
+在我心中，slime 毫无疑问已经是第三代 RL 框架了，在易用性和性能上都做出了巨大的优化。slime 选择了以 SGLang 和 Megatron LM 作为唯一后端，强力支持了 MOE 模型的训练和极为自由的采样逻辑。
 
 正值 slime 发布 0.1.0 版本之际，我们在这篇文档中快速学习以 partial rollout 为代表的 slime 核心代码，具体基于 commit [261ecee](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7)。
 
@@ -532,4 +532,331 @@ args.buffer_filter_path = "path.to.custom_buffer_filter"
 ```
 </details>
 
-写的真清楚，不明白为什么有的公司写个 partial rollout 得写 2k 行代码。
+写的真清楚，非常好扩展。
+
+## Rollout System
+
+rollout 主要由两个文件组成：
+
+- `slime/ray/rollout.py`：`class RolloutManager` 管理 rollout 引擎和 router 的生命周期;
+- `slime/ray/buffer.py`：`class RolloutController` 处理 rollout 生成的数据并转换为训练数据；
+
+![slime rollout工作流程](rollout_parts.png)
+
+### [`RolloutManager`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout.py#L149)
+
+RolloutManager 是 rollout 系统的主控制器，负责协调 Router，Controller 和 Engines 之间的交互。
+
+1. 初始化：初始化 Router，Controller，Engines 池，并创建锁；
+
+<details>
+<summary>RolloutManager 初始化</summary>
+
+```python
+class RolloutManager:
+    def __init__(self, args, pg, wandb_run_id):
+        self.args = args
+        
+        # 1. 启动 Router
+        _start_router(args)
+        
+        # 2. 创建 Controller
+        self.controller = RolloutController.options(
+            num_cpus=1,
+            num_gpus=0,
+        ).remote(args, wandb_run_id=wandb_run_id)
+
+        # 3. 创建 Engines 池
+        self.all_rollout_engines = create_rollout_engines(args, pg)
+        
+        # 4. 多节点配置：如果 sglang engine 需要跨越多个 node，则只向着每个 engine 的 node-0 发送请求
+        nodes_per_engine = max(1, args.rollout_num_gpus_per_engine // args.rollout_num_gpus_per_node)
+        self.rollout_engines = self.all_rollout_engines[::nodes_per_engine]
+        
+        # 5. 创建锁
+        # 训练进程需要向所有 rollout engines 广播新的权重
+        # 同时 rollout engines 可能正在处理推理请求
+        # 如果广播和推理同时进行，可能导致通信死锁
+        self.rollout_engine_lock = Lock.options(
+            num_cpus=1,
+            num_gpus=0,
+        ).remote()
+```
+</details>
+
+2. `async_generate(), async_eval(), async_offload(), async_onload()`：
+
+这四个函数都是直接向下调用 Controller 或者 Engines 的对应函数，之后再解析。
+
+3. [`create_rollout_engines`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout.py#L15)
+
+创建 SGLang engines：
+
+<details>
+<summary>create_rollout_engines 实现</summary>
+
+```python
+def create_rollout_engines(args, pg):
+    if args.debug_train_only:
+        return []
+
+    # 计算引擎配置
+    num_gpu_per_engine = min(args.rollout_num_gpus_per_engine, args.rollout_num_gpus_per_node)
+    num_engines = args.rollout_num_gpus // num_gpu_per_engine
+
+    # 创建 Ray Actor
+    RolloutRayActor = ray.remote(SGLangEngine)
+    
+    rollout_engines = []
+    for i in range(num_engines):
+        num_gpus = 0.2
+        num_cpus = num_gpus
+
+        # 设置调度策略
+        scheduling_strategy = PlacementGroupSchedulingStrategy(
+            placement_group=pg,
+            placement_group_capture_child_tasks=True,
+            placement_group_bundle_index=reordered_bundle_indices[i * num_gpu_per_engine],
+        )
+
+        # 创建引擎
+        rollout_engines.append(
+            RolloutRayActor.options(
+                num_cpus=num_cpus,
+                num_gpus=num_gpus,
+                scheduling_strategy=scheduling_strategy,
+                runtime_env={"env_vars": {name: "1" for name in NOSET_VISIBLE_DEVICES_ENV_VARS_LIST}},
+            ).remote(args, rank=i)
+        )
+
+    # 端口分配和初始化
+    # ... 端口分配逻辑 ...
+    
+    # 初始化所有引擎
+    init_handles = [engine.init.remote(**ports) for engine, ports in zip(rollout_engines, addr_and_ports)]
+    # 等待所有引擎初始化完成
+    ray.get(init_handles)
+
+    return rollout_engines
+```
+</details>
+
+4. [`_start_router`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout.py#L114)
+
+启动 SGLang router，提供负载均衡服务：
+
+<details>
+<summary>_start_router 实现</summary>
+
+```python
+def _start_router(args):
+    if args.sglang_router_ip is not None:
+        return  # 已经有了外部 Router
+
+    from sglang_router.launch_router import RouterArgs
+
+    # 自动分配 IP 和端口
+    args.sglang_router_ip = get_host_info()[1]
+    args.sglang_router_port = find_available_port(random.randint(3000, 4000))
+
+    # 配置 Router 参数
+    router_args = RouterArgs(
+        host=args.sglang_router_ip,
+        port=args.sglang_router_port,
+        balance_abs_threshold=0,
+    )
+
+    # 设置日志级别和超时
+    if hasattr(router_args, "log_level"):
+        router_args.log_level = "warn"
+    if hasattr(router_args, "request_timeout_secs"):
+        router_args.request_timeout_secs = args.sglang_router_request_timeout_secs
+
+    # 启动 Router 进程
+    process = multiprocessing.Process(
+        target=run_router,
+        args=(router_args,),
+    )
+    process.daemon = True
+    process.start()
+    
+    # 等待启动完成
+    time.sleep(3)
+    assert process.is_alive()
+```
+</details>
+
+注意，对于 sgl router 而言，我们本身可以同时启动 router 和 engine，而 slime 中是先分开启动了 engine 和 router，之后再让 engine 通过 `add_worker` 向 router 注册。
+
+### [`RolloutController`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py#L21)
+
+RolloutController 是 rollout 系统的真正执行者，负责数据生成、转换和管理。
+
+1. 初始化：创建数据源，动态加载 rollout 函数。
+
+<details>
+<summary>RolloutController 初始化</summary>
+
+```python
+@ray.remote
+class RolloutController:
+    def __init__(self, args, wandb_run_id):
+        self.args = args
+        init_wandb_secondary(args, wandb_run_id)
+
+        # 创建数据源
+        self.data_source = RolloutDataSourceWithBuffer(args)
+
+        # 动态加载 rollout 函数
+        self.generate_rollout = load_function(self.args.rollout_function_path)
+        self.eval_generate_rollout = load_function(self.args.eval_function_path)
+        
+        print(f"import {self.args.rollout_function_path} as generate_rollout function.")
+        print(f"import {self.args.eval_function_path} as eval_generate_rollout function.")
+```
+</details>
+
+2. [`generate()`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py#L42)
+
+
+调用 rollout 函数进行采样随后转换为训练数据格式：
+
+<details>
+<summary>generate 方法实现</summary>
+
+```python
+def generate(self, rollout_id):
+    self.rollout_id = rollout_id
+
+    # 1. 调试模式：从磁盘加载数据
+    if self.args.load_debug_rollout_data:
+        data = torch.load(
+            open(self.args.load_debug_rollout_data.format(rollout_id=rollout_id), "rb"),
+        )["samples"]
+        data = [Sample.from_dict(sample) for sample in data]
+    else:
+        # 2. 正常模式：调用 rollout 函数生成数据
+        data = self.generate_rollout(self.args, rollout_id, self.data_source, evaluation=False)
+        
+        # 3. 扁平化数据（如果是嵌套列表）
+        if isinstance(data[0], list):
+            data = sum(data, [])
+
+    # 4. 可选：保存调试数据
+    if (path_template := self.args.save_debug_rollout_data) is not None:
+        path = Path(path_template.format(rollout_id=self.rollout_id))
+        print(f"Save debug rollout data to {path}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            dict(
+                rollout_id=self.rollout_id,
+                samples=[sample.to_dict() for sample in data],
+            ),
+            path,
+        )
+    
+    # 5. 转换为训练数据格式
+    data = self._convert_samples_to_train_data(data)
+    
+    # 6. 包装并返回
+    return Box(ray.put(data))
+```
+</details>
+
+3. [`eval()`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py#L74)
+
+调用 eval rollout 函数进行采样随后进行评分：
+
+<details>
+<summary>eval 方法实现</summary>
+
+```python
+def eval(self, rollout_id):
+    if self.args.debug_train_only:
+        return  # 调试模式不生成评估数据
+
+    # 调用评估rollout函数
+    data = self.eval_generate_rollout(self.args, rollout_id, self.data_source, evaluation=True)
+    
+    # 记录评估数据
+    log_eval_data(rollout_id, self.args, data)
+```
+</details>
+
+4. [`_convert_samples_to_train_data`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py#L105)
+
+将生成的 Sample 对象转换为训练所需的字典格式：
+
+<details>
+<summary>_convert_samples_to_train_data 实现</summary>
+
+```python
+def _convert_samples_to_train_data(self, samples: Union[list[Sample], list[list[Sample]]]):
+    """
+    Convert inference generated samples to training data.
+    """
+    # 基础训练数据
+    train_data = {
+        "tokens": [sample.tokens for sample in samples], # prompt + response 的 token ids
+        "response_lengths": [sample.response_length for sample in samples], # response 的 token 长度
+        "rewards": [sample.get_reward_value(self.args) for sample in samples], # 奖励值
+        "truncated": [1 if sample.status == Sample.Status.TRUNCATED else 0 for sample in samples], # 是否被截断的标志
+        "sample_indices": [sample.index for sample in samples], # 样本索引
+    }
+
+    # 处理 loss mask
+    loss_masks = []
+    for sample in samples:
+        # 如果没有提供 loss_mask，创建默认的
+        if sample.loss_mask is None:
+            sample.loss_mask = [1] * sample.response_length
+        
+        # 验证 loss_mask 长度
+        assert (
+            len(sample.loss_mask) == sample.response_length
+        ), f"loss mask length {len(sample.loss_mask)} != response length {sample.response_length}"
+        loss_masks.append(sample.loss_mask)
+    train_data["loss_masks"] = loss_masks
+
+    # 处理 raw reward
+    if samples[0].metadata and "raw_reward" in samples[0].metadata:
+        train_data["raw_reward"] = [sample.metadata["raw_reward"] for sample in samples]
+
+    # 处理 round_number（用于 rollout buffer）
+    if samples[0].metadata and "round_number" in samples[0].metadata:
+        train_data["round_number"] = [sample.metadata["round_number"] for sample in samples]
+    
+    return train_data
+```
+</details>
+
+### [`log_eval_data`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py#L163)
+
+记录评估数据到 wandb 和控制台：
+
+<details>
+<summary>log_eval_data 实现</summary>
+
+```python
+def log_eval_data(rollout_id, args, data):
+    log_dict = {}
+    for key in data.keys():
+        rewards = data[key]["rewards"]
+        log_dict[f"eval/{key}"] = sum(rewards) / len(rewards)
+        
+        if "truncated" in data[key]:
+            truncated = data[key]["truncated"]
+            log_dict[f"eval/{key}-truncated_ratio"] = sum(truncated) / len(truncated)
+
+    print(f"eval {rollout_id}: {log_dict}")
+    
+    if args.use_wandb:
+        log_dict["eval/step"] = (
+            rollout_id
+            if not args.wandb_always_use_train_step
+            else rollout_id * args.rollout_batch_size * args.n_samples_per_prompt // args.global_batch_size
+        )
+        wandb.log(log_dict)
+```
+</details>
+
