@@ -909,7 +909,7 @@ def run(coro):
 ```
 </details>
 
-简洁到让我惊讶的程度，实际上传入给 `run` 的 `coro` 是一个 `coroutine`（协程）对象。 举个例子，在实际运行中，默认传入的 `coro` 是 `generate_rollout_async(args, rollout_id, data_source)`。当执行 `run(generate_rollout_async(args, rollout_id, data_source))` 时：
+简洁到让我惊讶的程度，实际上传入给 `run` 的 `coro` 是一个 `coroutine`（协程）对象。 在上文中，传入的 `coro` 是 `generate_rollout_async(args, rollout_id, data_source)`。当执行 `run(generate_rollout_async(args, rollout_id, data_source))` 时：
 
 1. `run()` 函数接收 `generate_rollout_async(args, rollout_id, data_source)` 协程对象；
 2. `get_async_loop()` 获取或创建后台事件循环线程；
@@ -960,9 +960,9 @@ class AsyncLoopThread:
 
 </details>
 
-## SGLang Server
+## SGLang Rollou
 
-Rollout control 继续向下传递请求给 SGLang server。
+我们继续向下研究，默认的 [`generate_rollout_async`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L235) 是直接定义在 [`sglang_rollout.py`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py) 中。
 
 ```
 Router → SGLang Server 1/2 → TP0/TP1/TP2/TP3 → 样本生成 → 奖励评估
@@ -988,11 +988,11 @@ slime/rollout/
 
 核心组件详解：
 
-### SGLang Rollout
+### RL Rollout
 
-[SGLang Rollout](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py) 负责实际的样本生成。使用 `asyncio` 实现并发样本生成；`GenerateState` 单例类管理全局生成状态；支持在生成过程中中断和恢复；支持批量生成和奖励模型评估。
+[SGLang Rollout](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py) 负责为 RL 训练采集实际样本。使用 `asyncio` 实现并发样本生成；`GenerateState` 单例类管理全局生成状态；支持在生成过程中中断和恢复；支持批量生成和奖励模型评估。
 
-1.[`GenerateState`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L18)：
+**[`GenerateState`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L18)**
 
 `GenerateState` 是全局生成状态管理器：管理 `Group: List[Sample]` 的生成状态；控制 `generate_and_rm_group` 任务的提交；维护 `semaphore`, `sampling_params`, `args` 等。
 
@@ -1040,22 +1040,9 @@ class GenerateState(metaclass=SingletonMeta):
 
 </details>
 
-2. [`generate_rollout_async`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L235)：
+**[`generate_rollout_async`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L235)**
 
-
-`generate_rollout_async` 这是异步样本生成的主函数。
-workflow:
-* Step1. 定义相关的filters，e.g. dynamic_filter&over_sampling_filter
-* 定义 target_data_size=
-  1. 如果over_sampling_filter未开启，则target_data_size=rollout_batch_size
-  2. 如果over_sampling_filter开启，则target_data_size=over_sampling_batch_size
-* Step2. 确定data size，从dataset中取出over_sampling_batch_size的samples
-* Step3. 等到Step2的batch中第一个group结束，对完成的部分进行采样 (同时进行dynmaic filter)
-* Step4. 如果整体采样数量不够 (已经获得的有效group数量+剩余正在rollout的group数量<target_data_size)，重复Step2&3
-* Step5. Abort还在pending的job，如果是partial rollout则回收至buffer
-* Step6. 如果使用了over_sampling_filter，则进行filter
-
-
+`generate_rollout_async` 这是异步样本生成的主函数，在前文也有提到，被作为协程对象传入到 `run` 函数中。
 
 <details>
 <summary>generate_rollout_async 函数</summary>
@@ -1139,6 +1126,8 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
     return data, aborted_samples
 ```
 </details>
+
+【TODO】：
 
 `generate_and_rm_group`对样本组进行生成和奖励模型评估.
 - 处理 `Group: List[Sample]` 中的每个样本
