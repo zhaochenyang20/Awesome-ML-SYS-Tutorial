@@ -410,7 +410,8 @@ def load(self, rollout_id=None):
 
 带缓冲的数据类，继承自 `RolloutDataSource`，增加了数据缓冲功能，支持为了 partial rollout 而设计的数据重用策略。
 
-**关键属性**
+1. 初始化：完全继承了 `RolloutDataSource` 的初始化逻辑，并额外初始化了 `buffer_filter` 方法和空的 `buffer` 列表。
+
 <details>
 <summary>RolloutDataSourceWithBuffer初始化</summary>
 
@@ -420,7 +421,7 @@ class RolloutDataSourceWithBuffer(RolloutDataSource):
         super().__init__(args)
         self.buffer = []  # 数据缓冲区
         
-        # 设置buffer过滤器
+        # 设置 buffer 过滤器
         if self.args.buffer_filter_path is None:
             self.buffer_filter = pop_first  # 默认：先进先出
         else:
@@ -428,131 +429,83 @@ class RolloutDataSourceWithBuffer(RolloutDataSource):
 ```
 </details>
 
-**get_samples() 方法**
+2. [`get_samples()`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout_data_source.py#L133C9-L133C20)
 
-**作用**：优先从buffer获取数据，buffer不足时从原始数据集补充。
+写的实在太清楚了，优先从 buffer 获取数据，buffer 不足时从原始数据集补充。
 
 <details>
-<summary>get_samples方法</summary>
+<summary>get_samples 方法</summary>
 
 ```python
 def get_samples(self, num_samples: int) -> list[list[Sample]]:
-    # 1. 首先从buffer中获取样本
+    # 1. 首先从 buffer 中获取样本组
     samples = self._get_samples_from_buffer(num_samples)
     num_samples -= len(samples)
     
-    # 2. 如果buffer不够，从原始数据集获取剩余样本
+    # 2. 如果 buffer 不够，从原始数据集获取剩余样本组
     if num_samples > 0:
         samples += super().get_samples(num_samples=num_samples)
     
     return samples
 ```
-</details>
-
-**数据获取优先级**：
-1. **Buffer优先**：首先从buffer中获取数据
-2. **数据集补充**：buffer不足时从原始数据集获取
-3. **无缝集成**：buffer和数据集数据混合使用
-
-**_get_samples_from_buffer() 方法**
-
-**作用**：从buffer中获取指定数量的样本组。
-
-<details>
-<summary>_get_samples_from_buffer方法</summary>
 
 ```python
 def _get_samples_from_buffer(self, num_samples: int) -> list[list[Sample]]:
     if len(self.buffer) == 0 or num_samples == 0:
-        return []  # buffer为空或不需要样本
+        return []  # buffer 为空或不需要样本
     
-    # 使用buffer过滤器获取样本
+    # 使用 buffer 过滤器获取样本组
     samples = self.buffer_filter(self.args, None, self.buffer, num_samples)
     return samples
 ```
+
 </details>
 
-**关键点**：
-- 使用`buffer_filter`函数决定如何从buffer中选择样本
-- 默认使用`pop_first`函数（先进先出）
+3. [`add_samples()`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout_data_source.py#L154C9-L154C20)
 
-**add_samples() 方法**
-
-**作用**：向buffer添加样本组。
+向 buffer 添加样本组。注意，`RolloutDataSource` 是不支持添加样本的；此处添加的是样本组，也即 partial rollout 是一整个 prompt 的所有 requests 同时写入 buffer，不会出现 prompt 的不同 requests 在不同的 step 被用于训练的情况。
 
 <details>
-<summary>add_samples方法</summary>
+<summary>add_samples 方法</summary>
 
 ```python
 def add_samples(self, samples: list[list[Sample]]):
     if not samples:
         return
     
-    # 验证输入格式
+    # 验证输入格式，确保输入是 list[list[Sample]] 格式
     assert isinstance(samples, list), f"samples must be a list, got {type(samples)}"
     assert isinstance(samples[0], list), f"the elements of samples must be list, got {type(samples[0])}"
     
-    # 验证每个group的大小
+    # 验证每个 group 的大小
     for i in range(0, len(samples)):
         assert (
             len(samples[i]) == self.args.n_samples_per_prompt
         ), f"the length of the elements of samples must be equal to n_samples_per_prompt, got {len(samples[i])} != {self.args.n_samples_per_prompt}"
         group = samples[i]
-        self.buffer.append(group)  # 添加到buffer
+        self.buffer.append(group)  # 添加到 buffer
 ```
 </details>
 
-**验证机制**：
-1. **格式验证**：确保输入是`list[list[Sample]]`格式
-2. **大小验证**：确保每个group包含正确数量的样本
-3. **数据完整性**：确保buffer中的数据格式一致
+3. [`pop_first()`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout_data_source.py#L181)
 
-**辅助方法**
+默认的 buffer 过滤器，实现先进先出（FIFO）的数据获取策略。
 
 <details>
-<summary>辅助方法</summary>
-
-```python
-def update_metadata(self, metadata: dict):
-    """更新元数据"""
-    self.metadata.update(metadata)
-
-def get_metadata(self):
-    """获取元数据"""
-    return self.metadata
-
-def get_buffer_length(self):
-    """获取buffer长度"""
-    return len(self.buffer)
-```
-</details>
-
-### pop_first() 函数
-
-**作用**
-默认的buffer过滤器，实现先进先出（FIFO）的数据获取策略。
-
-<details>
-<summary>pop_first函数</summary>
+<summary>pop_first 方法</summary>
 
 ```python
 def pop_first(args, rollout_id, buffer: list[list[Sample]], num_samples: int) -> list[list[Sample]]:
-    num_to_pop = min(len(buffer), num_samples)  # 取buffer长度和需求量的较小值
-    samples = buffer[:num_to_pop]               # 获取前num_to_pop个样本
-    del buffer[:num_to_pop]                     # 从buffer中删除这些样本
+    num_to_pop = min(len(buffer), num_samples)  # 取 buffer 长度和需求量的较小值
+    samples = buffer[:num_to_pop]               # 获取前 num_to_pop 个样本
+    del buffer[:num_to_pop]                     # 从 buffer 中删除这些样本
     return samples
 ```
 </details>
 
-**特点**：
-- **FIFO策略**：先进入buffer的数据先被取出
-- **安全取数**：不会超出buffer实际长度
-- **内存管理**：取出后立即从buffer中删除
+4. 最终的数据调用链：
 
-## 数据流和调用关系
-
-### 调用链
-```
+```bash
 RolloutController.generate()
     ↓
 RolloutDataSourceWithBuffer.get_samples()
@@ -562,86 +515,10 @@ _get_samples_from_buffer() + super().get_samples()
 返回 list[list[Sample]]
 ```
 
-### Buffer使用场景
+5. 自定义 Buffer 过滤器：
 
-**A. Partial Rollout**
 <details>
-<summary>Partial Rollout示例</summary>
-
-```python
-# 在sglang_rollout.py中，被abort的样本会写回buffer
-if hasattr(data_source, 'add_samples') and len(filtered_data) > args.rollout_batch_size:
-    rejected_samples = filtered_data[args.rollout_batch_size:]
-    data_source.add_samples(rejected_samples)
-```
-</details>
-
-### 状态管理
-
-**A. 训练恢复**
-<details>
-<summary>训练恢复示例</summary>
-
-```python
-# 在train.py中
-if args.rollout_global_dataset:
-    ray.get(rollout_manager.controller.load.remote(args.start_rollout_id - 1))
-```
-</details>
-
-**B. 检查点保存**
-<details>
-<summary>检查点保存示例</summary>
-
-```python
-# 在train.py中
-if args.rollout_global_dataset:
-    ray.get(rollout_manager.controller.save.remote(rollout_id))
-```
-</details>
-
-## 设计特点总结
-
-1. **分层设计**：基础数据源 + 缓冲扩展
-2. **状态持久化**：支持训练中断恢复
-3. **数据重用**：通过buffer机制提高数据利用率
-4. **灵活过滤**：支持自定义buffer选择策略
-5. **数据完整性**：严格的格式验证和状态管理
-6. **Epoch管理**：自动处理数据集边界和重shuffle
-
-## 关键配置参数
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `rollout_global_dataset` | 是否使用全局数据集 | False |
-| `rollout_shuffle` | 是否对数据集进行shuffle | False |
-| `n_samples_per_prompt` | 每个prompt生成的样本数量 | 8 |
-| `buffer_filter_path` | 自定义buffer过滤器路径 | None |
-| `rollout_max_prompt_len` | 最大prompt长度 | - |
-| `input_key` | 输入字段名 | - |
-| `label_key` | 标签字段名 | - |
-
-## 使用示例
-
-### **基本使用**
-<details>
-<summary>基本使用示例</summary>
-
-```python
-# 创建数据源
-data_source = RolloutDataSourceWithBuffer(args)
-
-# 获取样本
-samples = data_source.get_samples(32)  # 获取32个prompt组
-
-# 添加样本到buffer
-data_source.add_samples(rejected_samples)
-```
-</details>
-
-### **自定义Buffer过滤器**
-<details>
-<summary>自定义Buffer过滤器示例</summary>
+<summary>自定义 Buffer 过滤器示例</summary>
 
 ```python
 # 定义自定义过滤器
@@ -655,4 +532,4 @@ args.buffer_filter_path = "path.to.custom_buffer_filter"
 ```
 </details>
 
-这个设计使得rollout系统能够高效地管理训练数据，支持复杂的训练场景如partial rollout和over-sampling。 
+写的真清楚，不明白为什么有的公司写个 partial rollout 得写 2k 行代码。
