@@ -6,7 +6,7 @@
 
 Acknowlegment: 
 
-Mao Cheng @ Meta, Zhuoran Yin @ CMU, Ji Li @ Ant Group, Yusheng Su @ AMD, Zhuohao Li @ Alibaba, Yuzhen Zhou @ CMU, Jiajun Li @ CMU, Biao He @ LinkedIn, Huapeng Zhou @ UW, Chenyang Zhao @ LMSYS
+Mao Cheng @ Meta, Zhuoran Yin @ CMU, Ji Li @ Ant Group, Yixuan Zhang @ UoA, Yusheng Su @ AMD, Zhuohao Li @ Alibaba, Yuzhen Zhou @ CMU, Jiajun Li @ CMU, Biao He @ LinkedIn, Huapeng Zhou @ UW, Chenyang Zhao @ LMSYS
 
 ## 核心架构
 
@@ -26,11 +26,11 @@ slime 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
 
 1. 资源调度自由：支持 co-locate 与 dis-aggregate 两种部署策略；在 rollout 和 training 上各自支持 DP/TP/PP/EP；具体实现见 [`slime/ray/placement_group.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/placement_group.py)
 
-2. 训练方式自由：支持同步训练和异步训练两种模式；具体实现见 [`slime/train.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/train.py) 和 [`slime/train_async.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/train_async.py)；注意，后者需要在 dis-aggregate 架构下，使用 `rollout_manager.async_generate` 和 `actor_model.async_train` 进行训推分离的异步训练，rollout 始终领先 train 一个 step，也即 one-step off-policy；
+2. 训练方式自由：支持同步训练和异步训练两种模式；具体实现见 [`slime/train.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/train.py) 和 [`slime/train_async.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/train_async.py)；注意，后者需要在 dis-aggregate 架构下，使用 `rollout_manager.async_generate` 和 `actor_model.async_train` 进行训推分离的异步训练，rollout 始终领先 train 一个 step，也即 one-step off-policy；
 
 3. 采样方式自由：支持用户自定义复杂的采样流程，包括[多轮工具调用](https://github.com/THUDM/slime/tree/main/examples/search-r1)、奖励模型集成、自定义验证器等；具体实现见 [`slime_plugins/rollout_buffer/`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime_plugins/rollout_buffer/)。
 
-4. 模型支持自由：支持 Dense 和 MoE 模型；具体脚本可参考 [`slime/scripts/run-qwen3-4B.sh`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/scripts/run-qwen3-4B.sh) 和 [`slime/scripts/run-deepseek-r1.sh`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/scripts/run-deepseek-r1.sh)。
+4. 模型支持自由：支持 Dense 和 MoE 模型；具体脚本可参考 [`slime/scripts/run-qwen3-4B.sh`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/scripts/run-qwen3-4B.sh) 和 [`slime/scripts/run-deepseek-r1.sh`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/scripts/run-deepseek-r1.sh)。
 
 
 ## 代码结构
