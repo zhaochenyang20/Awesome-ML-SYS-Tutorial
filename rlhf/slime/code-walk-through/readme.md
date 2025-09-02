@@ -14,7 +14,9 @@ slime 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
   
 - Data Buffer: 管理数据流和自定义生成逻辑，可以说是 slime 最匠心独运的模块；具体实现在[`slime/ray/buffer.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py)。
 
-![slime整体工作流程](overall_workflow.jpg)
+<div style="text-align: center;">
+  <img src="./overall_workflow.jpg" alt="Overall Workflow" style="width:50%;">
+</div>
 
 基于前卫的设计，slime 的自由灵活让人非常清爽：
 
@@ -200,7 +202,9 @@ def _get_current_node_ip_and_free_port(start_port=10000, consecutive=1):
 
 下图做的无比清晰，介绍了整个数据的获取流程，Data Source 可以是 `RolloutDataSource` 或 `RolloutDataSourceWithBuffer`。
 
-![DataSource](./datasource.svg)
+<div style="text-align: center;">
+  <img src="./datasource.svg" alt="DataSource" style="width:50%;">
+</div>
 
 ### RolloutDataSource
 
@@ -541,9 +545,10 @@ rollout 主要由两个 class control：
 - `slime/ray/rollout.py`：`class RolloutManager` 管理 rollout 引擎和 router 的生命周期;
 - `slime/ray/buffer.py`：`class RolloutController` 处理 rollout 生成的数据并转换为训练数据；
 
-![slime rollout工作流程](rollout_parts.png)
+<div style="text-align: center;">
+  <img src="./rollout_parts.svg" alt="Rollout Parts" style="width:50%;">
+</div>
 
-TODO：我感觉这个图和其他图格格不入 😂 这个图的起点貌似在中间呀，不是一个从左到右 or 从右到左，看着是从中间到两边
 
 ### [`RolloutManager`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout.py#L149)
 
@@ -1048,16 +1053,26 @@ class GenerateState(metaclass=SingletonMeta):
 
 `generate_rollout_async` 这是异步样本生成的主函数，在前文也有提到，被作为协程对象传入到 `run` 函数中。这个函数坦诚说写的还有提升空间：
 
-【TODO】：重构这个函数的 over_sampling_filter 逻辑
-
-1. 初始化 `dynamic_filter` 和 `over_sampling_filter`，`dynamic_filter` 就是 DAPO 中提到的策略，将 reward std 为 0 的整个组从 data 中丢弃；但是，`over_sampling_filter` 其实在 slime 中是没有用到的；slime 虽然会默认开启 over sample（设置 `over_sample_batch_size` 大于 `rollout_batch_size`），但是不会用到 `over_sampling_filter`；
-2. 进入 while 主循环，等待 `data` 中得到 `target_data_size` 个 group 才退出；
+1. 初始化 `dynamic_filter` 和 `over_sampling_filter`，`dynamic_filter` 就是 DAPO 中提到的策略，将 reward std 为 0 的整个组从 data 中丢弃；但是，`over_sampling_filter` 其实在 slime 中是不会默认用到的；slime 虽然会默认开启 over sample（设置 `over_sample_batch_size` 大于 `rollout_batch_size`），但是不会默认打开 `over_sampling_filter`；我们先不看开启 `over_sampling_filter` 的情况，此时 `target_data_size` 就等于 `rollout_batch_size` 而小于 `over_sample_batch_size`；
+2. 进入 while 主循环，等待 `data` 中得到 `target_data_size`(`rollout_batch_size`) 个 group 才退出；
 3. 进入提交 group 给 router 的循环，检测当前的 `remaining_batch_size` 是否小于 `target_data_size`，如果小于，则提交 `over_sample_batch_size` 个 group 给 router；注意，第一次进入这个循环时，`remaining_batch_size` 是 0，因为还没开始提交 group；所以一定会 submit `over_sample_batch_size` 个 group 给 router；然后 `remaining_batch_size` 会加上 `over_sample_batch_size`；
 4. 提交完 group 后，等待任意一个 group 结束，也即整个 group 的所有 requests 都 rollout 结束了；
 5. 如果开启了 `dynamic_filter`，则对完成的 group 应用 `dynamic_filter`；如果 `dynamic_filter` 返回 False，则减掉一个 `remaining_batch_size`，不会加入 `data` 中；
 6. 如此以来，不断往 `data` 中添加 group，直到 `data` 中得到 `target_data_size` 个 group 为止；或者，被 filter 掉的 group 太多了，`remaining_batch_size` 小于了 `target_data_size`，则还要再提交 `over_sample_batch_size` 个 group 给 router；
 7. 直到采样到 `data` 中得到 `target_data_size` 个 group 为止，退出 while 主循环；
 8. 注意到，我们提交的 groups 的数目至少是一个 `over_sample_batch_size`，而 `target_data_size` 可能小于 `over_sample_batch_size`，所以需要 abort 掉未完成 groups 剩下的 requests；
+
+如果我们开启 `over_sampling_filter`，则 `target_data_size` 就等于 `over_sample_batch_size`，等待 `over_sample_batch_size` 个 group 完成 rollout 才退出循环，中间可能还会被 `dynamic_filter` 过滤掉一些 group，还得继续提交更多组 group 给 router；循环退出后，我们拿到了 `over_sample_batch_size` 个 group，然后应用 `over_sampling_filter` 过滤掉一些 group（比如把 reward std 排名倒数的 group 丢弃），然后拿去训练。
+
+如果您看懂了上方的逻辑，可以来看看这个例子。我们设置 `over_sample_batch_size` 为 6，`rollout_batch_size` 为 4，开启 `dynamic_filter` 和 `over_sampling_filter`。
+
+图片中间的上部分是第一次提交的 `over_sample_batch_size` 个 group 给 router，6 个 group 的所有 requests 同时开始 rollout。随后我们发现中间三组的 reward std 为 0，被 `dynamic_filter` 过滤掉了，此时 `remaining_batch_size` 变为 3，小于了 `target_data_size`（此时等于 `over_sample_batch_size = 6`），所以需要再提交一组 `over_sample_batch_size` 个 group 给 router。
+
+此时，注意到图片中间下方的 6 个 group，当前 4 个 group 采样结束且没有被 dynamic filter 过滤掉，`data` 里面连带着上方的 2 个 groups，一共就有了 6 个 group，达到了 `target_data_size`，所以退出循环，把图中橙色的 3 组还没有 rollout 结束的 abort 掉。随后进入图片的最左边，`data` 中的 6 个 groups 应用 `over_sampling_filter` 过滤掉 2 个 group，最后得到 4 个 group 拿去训练。
+
+<div style="text-align: center;">
+  <img src="./sampling_flow.jpg" alt="Sampling Flow" style="width:50%;">
+</div>
 
 
 <details>
@@ -1134,7 +1149,9 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
         flush=True,
     )
 
-    # 因为可能交了多次 over_sampling_batch_size 个 groups，所以需要 abort 掉未完成 groups 剩下的 requests
+    # 因为 over_sampling_batch_size 一定是大于 rollout_batch_size 
+    #如果等待 rollout_batch_size 个 groups 就退出循环
+    # 则需要 abort 掉未完成 groups 剩下的 requests
     aborted_samples = await abort(args, rollout_id)
 
     if over_sampling_filter is not None:
@@ -1157,7 +1174,7 @@ async def generate_rollout_async(args, rollout_id: int, data_source) -> list[lis
 <details>
 <summary>generate_and_rm_group 相关实现</summary>
 
-1. generate_and_rm_group 函数
+1. `generate_and_rm_group` 函数
 
 ```python
 async def generate_and_rm_group(args, group: list[Sample], sampling_params: dict, evaluation=False) -> list[Sample]:
@@ -1181,7 +1198,7 @@ async def generate_and_rm_group(args, group: list[Sample], sampling_params: dict
     return group
 ```
 
-2. generate_and_rm 函数
+2. `generate_and_rm` 函数
 
 ```python
 async def generate_and_rm(args, sample: Sample, sampling_params: dict, evaluation=False) -> Sample:
@@ -1218,7 +1235,7 @@ async def generate_and_rm(args, sample: Sample, sampling_params: dict, evaluatio
     return sample
 ```
 
-3. abort 函数
+3. `abort` 函数
 
 ```python
 async def abort(args, rollout_id: int):
@@ -1242,19 +1259,6 @@ async def abort(args, rollout_id: int):
     return aborted_samples
 ```
 </details>
-
-**生成流程详解：**
-
-1. **初始化**: 设置生成参数和并发控制
-2. **数据获取**: 从数据源获取提示样本
-3. **任务提交**: 将生成任务提交到 SGLang 服务器
-4. **动态过滤**: 应用动态采样过滤器
-5. **过采样过滤**: 应用过采样过滤器选择最终样本
-6. **清理**: 中断未完成的任务并收集结果
-
-【TODO】：重新整理下 over sample filter 的逻辑
-
-![slime sampling flow](sampling_flow.jpg)
 
 ### SFT Rollout (`sft_rollout.py`)
 
