@@ -1,6 +1,6 @@
 # A Brief Code Walkthrough of slime
 
-在我心中，slime 是极度优雅简洁的 RL 框架，在易用性和性能上都做出了巨大的优化。slime 选择了以 SGLang 和 Megatron LM 作为唯一后端，强力支持了 MOE 模型的训练和极为自由的采样逻辑。
+slime 是极度优雅简洁的 RL 框架，在易用性和性能上都做出了巨大的优化。基于 SGLang 和 Megatron LM 作为唯一后端，slime 强力支持了 MOE 模型的训练和极为自由的采样逻辑。
 
 正值 slime 发布 0.1.0 版本之际，我们在这篇文档中快速学习以 partial rollout 为代表的 slime 核心代码，具体基于 commit [261ecee](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7)。
 
@@ -1003,8 +1003,6 @@ slime/rollout/
 **[`GenerateState`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L18)**
 
 `GenerateState` 是全局生成状态管理器：管理 `Group: List[Sample]` 的生成状态；控制 `generate_and_rm_group` 任务的提交；维护 `semaphore`, `sampling_params`, `args` 等。
-
-【TODO】：这个 State 的名字很奇怪，state 应该就是状态，很简单一个类，怎么还管着 submit task 😂
 
 <details>
 <summary>GenerateState 具体实现</summary>

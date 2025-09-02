@@ -1,6 +1,6 @@
 # A Brief Code Walkthrough of slime
 
-In my opinion, slime is an extremely elegant and concise RL framework that has made tremendous optimizations in both usability and performance. slime chose SGLang and Megatron LM as the only backends, providing strong support for MOE model training and extremely flexible sampling logic.
+slime is an extremely elegant and concise RL framework that has made tremendous optimizations in both usability and performance. Based on SGLang and Megatron LM as the only backends, slime provides strong support for MOE model training and extremely flexible sampling logic.
 
 On the occasion of slime's 0.1.0 release, we'll quickly learn the core code of slime represented by partial rollout in this document, specifically based on commit [261ecee](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7).
 
@@ -998,8 +998,6 @@ Core component details:
 **[`GenerateState`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/rollout/sglang_rollout.py#L18)**
 
 `GenerateState` is the global generation state manager: manages generation state of `Group: List[Sample]`; controls submission of `generate_and_rm_group` tasks; maintains `semaphore`, `sampling_params`, `args`, etc.
-
-[TODO]: This State name is strange, state should just be state, a simple class, how does it manage submit task 😂
 
 <details>
 <summary>GenerateState specific implementation</summary>
