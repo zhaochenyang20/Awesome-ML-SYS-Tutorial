@@ -4,6 +4,10 @@
 
 正值 slime 发布 0.1.0 版本之际，我们在这篇文档中快速学习以 partial rollout 为代表的 slime 核心代码，具体基于 commit [261ecee](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7)。
 
+Acknowlegment: 
+
+Mao Cheng @ Meta, Zhuoran Yin @ CMU, Ji Li @ Ant Group, Yusheng Su @ AMD, Zhuohao Li @ Alibaba, Yuzhen Zhou @ CMU, Jiajun Li @ CMU, Biao He @ LinkedIn, Chenyang Zhao @ LMSYS
+
 ## 核心架构
 
 slime 采用分离式架构，将 RLHF 训练流程分解为三个独立协作的模块：
