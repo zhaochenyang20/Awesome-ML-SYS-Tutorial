@@ -6,7 +6,7 @@
 
 Acknowlegment: 
 
-Mao Cheng @ Meta, Zhuoran Yin @ CMU, Ji Li @ Ant Group, Yixuan Zhang @ UoA, Yusheng Su @ AMD, Zhuohao Li @ Alibaba, Yuzhen Zhou @ CMU, Jiajun Li @ CMU, Biao He @ LinkedIn, Huapeng Zhou @ UW, Chengxi Li @ CMU, Chenyang Zhao @ LMSYS
+Mao Cheng @ Meta, Zhuoran Yin @ CMU, Ji Li @ Ant Group, Yixuan Zhang @ UoA, Yusheng Su @ AMD, Zhuohao Li @ Alibaba, Yuzhen Zhou @ CMU, Jiajun Li @ CMU, Biao He @ LinkedIn, Huapeng Zhou @ UW, Chengxi Li @ CMU, Chengxing Xie @Zhipu, Zilin Zhu @ Zhipu, Chenyang Zhao @ LMSYS
 
 ## 核心架构
 
@@ -19,7 +19,7 @@ slime 采用分离式架构，将 RLHF 训练流程分解为三个独立协作�
 - Data Buffer: 管理数据流和自定义生成逻辑，可以说是 slime 最匠心独运的模块；具体实现在[`slime/ray/buffer.py`](https://github.com/THUDM/slime/tree/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/buffer.py)。
 
 <div style="text-align: center;">
-  <img src="./overall_workflow.jpg" alt="Overall Workflow" style="width:50%;">
+  <img src="./overall_workflow.png" alt="Overall Workflow" style="width:50%;">
 </div>
 
 基于前卫的设计，slime 的自由灵活让人非常清爽：
@@ -207,7 +207,7 @@ def _get_current_node_ip_and_free_port(start_port=10000, consecutive=1):
 下图做的无比清晰，介绍了整个数据的获取流程，Data Source 可以是 `RolloutDataSource` 或 `RolloutDataSourceWithBuffer`。
 
 <div style="text-align: center;">
-  <img src="./datasource.svg" alt="DataSource" style="width:50%;">
+  <img src="./datasource.png" alt="DataSource" style="width:50%;">
 </div>
 
 ### RolloutDataSource
@@ -550,9 +550,8 @@ rollout 主要由两个 class control：
 - `slime/ray/buffer.py`：`class RolloutController` 处理 rollout 生成的数据并转换为训练数据；
 
 <div style="text-align: center;">
-  <img src="./rollout_parts.svg" alt="Rollout Parts" style="width:50%;">
+  <img src="./rollout_parts.png" alt="Rollout Parts" style="width:50%;">
 </div>
-
 
 ### [`RolloutManager`](https://github.com/THUDM/slime/blob/261ecee700b30429ba2cf4d4c27e3fc7ae0a12c7/slime/ray/rollout.py#L149)
 
