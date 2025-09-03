@@ -1072,7 +1072,7 @@ class GenerateState(metaclass=SingletonMeta):
 此时，注意到图片中间下方的 6 个 group，当前 4 个 group 采样结束且没有被 dynamic filter 过滤掉，`data` 里面连带着上方的 2 个 groups，一共就有了 6 个 group，达到了 `target_data_size`，所以退出循环，把图中橙色的 3 组还没有 rollout 结束的 abort 掉。随后进入图片的最左边，`data` 中的 6 个 groups 应用 `over_sampling_filter` 过滤掉 2 个 group，最后得到 4 个 group 拿去训练。
 
 <div style="text-align: center;">
-  <img src="./sampling_flow.jpg" alt="Sampling Flow" style="width:50%;">
+  <img src="./sampling_flow.png" alt="Sampling Flow" style="width:50%;">
 </div>
 
 
