@@ -1287,7 +1287,6 @@ def generate_rollout(args, rollout_id, data_buffer, evaluation=False):
 ```
 </details>
 
-
 ### `filter_hub/`
 
 用于实现动态过滤（dynamic sampling filter）和过采样过滤（over sampling filter）机制，确保样本质量。
