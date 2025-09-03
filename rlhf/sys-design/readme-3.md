@@ -321,101 +321,93 @@ class ParallelAttention(MegatronModule):
 
 ### PP
 
-流水线并行和我在本科学习过的《计算机组成原理》中的流水线并行概念一致，将模型的多个 layer 在 rank 上做切分。一个 batch 的数据被分割成较小的 micro batches，在不同的 rank 上进行流水线式执行。PP 的数据通信量相对较少，只在 PP Group 内相邻的流水段间进行通信，而比较 TP 要在整个 TP 组内都进行通讯。常见的组合策略是将 PP group 安排到不同节点，而优先安排 TP 在同一个节点上。流水线并行是序列化的计算过程，通信类型是 P2P 通信，单词通信数据量较少但是比较频繁，而且因为流水线的特点，会产生流水线 bubble。
+流水线并行和我们在本科学习过的《计算机组成原理》中的流水线并行概念一致，将模型的多个 layer 在 rank 上做切分。一个 batch 的数据被分割成较小的 micro batches，在不同的 rank 上进行流水线式执行。PP 的数据通信量相对较少，只在 PP Group 内相邻的流水段间进行通信，而比较 TP 要在整个 TP 组内都进行通讯。常见的组合策略是将 PP group 安排到不同节点，而优先安排 TP 在同一个节点上。流水线并行是序列化的计算过程，通信类型是 P2P 通信，单个 token 通信数据量较少但是比较频繁，而且因为流水线的特点，会产生流水线 bubble。
 
 **普通流水线并行**
 
-在普通流水线（FThenB）中，模型被拆分成多个阶段（stage），每个 GPU 负责其中的一部分层。数据则被拆分成若干个微批次，每个微批依次经过不同的阶段。比如：
+在普通流水线（Forward Then Backward）中，模型被拆分成多个阶段（stage），每个 GPU 负责其中的一部分层。数据则被拆分成若干个微批次，每个微批依次经过不同的阶段。比如：
 
-![image](https://hackmd.io/_uploads/rJrlRrvSle.png)
 
-前向传播和反向传播是串行执行的，即前向传播完成后才开始反向传播。这样会导致 GPU 之间的资源利用率不高，因为在前向传播阶段，反向传播阶段的 GPU 会处于空闲状态。而且由于前向传播和反向传播是串行执行的，会导致反向传播需要的中间变量无法释放，从而导致显存占用过高，甚至 OOM。
+<div style="text-align: center;">
+  <img src="./pics/fthenb.png" alt="Forward Then Backward Diagram" style="width:50%;">
+</div>
 
-【没懂，为什么“在前向传播阶段，反向传播阶段的 GPU 会处于空闲状态”。】
-
-这里我理解的是所有micro batch前向传播完，才会开始反向传播，所以前向传播结束的GPU会较长时间处于空闲状态。可以与下面的1F1B对比一下。
+前向传播和反向传播是串行执行的，即前向传播完成后才开始反向传播。这样会导致 GPU 之间的资源利用率不高；而且由于前向传播和反向传播是串行执行的，会导致反向传播需要的中间变量无法释放，从而导致显存占用过高，甚至 OOM。
 
 **1F1B**
 
 为了解决 FThenB 的问题，引入了 1F1B 调度策略。1F1B 的全称是 1 Forward 1 Backward，即一边前向传播，一边反向传播
 
-![image](https://hackmd.io/_uploads/HkS_CrvSgg.png)
+<div style="text-align: center;">
+  <img src="./pics/1f1b.png" alt="1F1B Diagram" style="width:50%;">
+</div>
 
-在 1F1B 中，前向传播和反向传播交替进行，因此在计算一个微批次的反向传播时，前向传播结果可以立刻释放。这种交替执行的模式减少了显存占用。
+在 1F1B 中，前向传播和反向传播交替进行，因此在计算一个微批次的反向传播时，前向传播结果可以立刻释放。这种交替执行的模式减少了显存占用和 bubble。
 
 **Interleaved Pipelining**
 
 普通流水线并行虽然在一定程度上提升了并行计算的效率，但当模型参数继续增大时，依然存在问题：某些 GPU 可能在等待其他阶段完成时会闲置。为了进一步优化这一点，Megatron-LM 提出了交错流水线并行，它在普通流水线的基础上引入了更细粒度的模型分块
 
-将模型进一步划分为多个小块（num_model_chunks），每个小块都有自己的微批微批和小块交替执行，让每个 GPU 在同一时刻可以处理不同层的计算：
+将模型进一步划分为多个小块（num_model_chunks），每个小块都有自己的微批和和小块交替执行，让每个 GPU 在同一时刻可以处理不同层的计算：
 
-![image](https://hackmd.io/_uploads/rksJkIvSee.png)
+<div style="text-align: center;">
+  <img src="./pics/chunked_pp.png" alt="Chunked PP Diagram" style="width:50%;">
+</div>
 
 ### SP
 
 还是建议看[这篇文章](https://zhuanlan.zhihu.com/p/4083427292)
 
-序列并行是 Megatron-LM 中一项重要的优化技术，旨在进一步减少训练长序列模型时的显存占用，特别是激活值的显存。它与 TP 协同工作，通常在 TP Group组内部署。
-megatron sp的核心思想是借鉴tp把模型权重切分到多卡上的方式，把激活值也切分到各张卡上。
+序列并行是 Megatron-LM 中一项重要的优化技术，旨在进一步减少训练长序列模型时的显存占用，特别是激活值的显存。它与 TP 协同工作，通常在 TP Group 组内部署。SP 的核心思想是借鉴 TP 把模型权重切分到多卡上的方式，把激活值也切分到各张卡上。
 
-我们先来看仅有tp的情况 
-
-<div style="text-align: center;">
-  <img src="./pics/tp.png" alt="fsdp-arch" style="width:80%;">
-</div>
-
-相比于tp，tp+sp保持了原始tp并行模块不变，只是针对Attn和MLP的输入/输出部分做了sp（序列并行处理）。
+我们先来看仅有 TP 的情况：
 
 <div style="text-align: center;">
-  <img src="./pics/tp+sp.png" alt="fsdp-arch" style="width:80%;">
+  <img src="./pics/tp.png" alt="TP Diagram" style="width:80%;">
 </div>
 
-对于已经有tp的部分，激活值天生就是切开保存的，所以我们需要通过SP优化的是图中layernorm和dropout部分。这些操作在序列维度上是独立的。比如 Layer Normalization，对每个 token 的 embedding 独立进行归一化，以及 Dropout，独立地对每个元素应用 dropout。
+相比于 TP，TP + SP 保持了原始 TP 并行模块不变，只是针对 Attn 和 MLP 的输入/输出部分做了 SP（序列并行处理）。
 
-对于这些操作，我们不需要在每个 GPU 上都拥有完整的序列数据。序列并行利用了这一点，将输入张量的序列维度 (sequence length) 切分到张量并行组内的各个 GPU 上。
+<div style="text-align: center;">
+  <img src="./pics/tp+sp.png" alt="TP + SP Diagram" style="width:80%;">
+</div>
 
-序列并行是在一个已经定义好的张量并行组（TP group）内进行的。假设 TP group 的大小为 `tp_size`。一个典型的输入张量到 Transformer 层的形状可能是 `(sequence_length, batch_size, hidden_size)`。在进行序列并行时，这个张量的 `sequence_length` 维度会被切分成 `tp_size` 份。 每个 TP rank（TP 组内的 GPU）只处理序列的一部分，即 `(sequence_length / tp_size, batch_size, hidden_size)`。
+对于已经有 TP 的部分，激活值天生就是切开保存的，所以 SP 优化的其实是图中 LayerNorm 和 Dropout 部分。这些操作在序列维度上是独立的。比如 Layer Normalization，对每个 token 的 embedding 独立进行归一化，以及 Dropout，独立地对每个元素应用 dropout。对于这些操作，我们不需要在每个 GPU 上都拥有完整的序列数据。序列并行利用了这一点，将输入张量的序列维度 (sequence length) 切分到张量并行组内的各个 GPU 上。
 
-在 Transformer 块中，那些在序列维度上独立的操作（如上面提到的 LayerNorm, Dropout, element-wise operations）就可以直接在切分后的序列数据上并行执行。例如，对于 LayerNorm，每个 GPU 只对自己持有的 `sequence_length / tp_size` 这么长的序列片段进行 LayerNorm 即可。
+具体来说，假设 TP group 的大小为 `tp_size`。一个典型的输入张量到 Transformer 层的形状可能是 `(sequence_length, batch_size, hidden_size)`。在进行序列并行时，这个张量的 `sequence_length` 维度会被切分成 `tp_size` 份。 每个 TP rank 只处理序列的一部分，即 `(sequence_length / tp_size, batch_size, hidden_size)`。
 
-然而，attention 是序列依赖的。计算 Query, Key, Value 矩阵乘法时，每个 Query 需要与序列中的所有 Key 进行交互。因此，在计算 attn 之前，必须将各个 GPU 上切分的序列片段 all-gather 起来，恢复成完整的序列。 在自注意力计算完成之后，如果后续的操作可以进行序列并行，那么注意力机制的输出需要再次被切分。
+然而，attention 是序列依赖的。计算 Query, Key, Value 矩阵乘法时，每个 Query 需要与序列中的所有 Key 进行交互。因此，在计算 Attention 之前，必须将各个 GPU 上切分的序列片段 all-gather 起来，恢复成完整的序列。 在自注意力计算完成之后，如果后续的操作可以进行序列并行，那么注意力机制的输出需要再次被切分。
 
 在前向传播中，这通常是一个简单的切片 (slice) 操作，每个 GPU 取出属于自己的那部分序列。 在反向传播中，对应的操作通常是 Reduce-Scatter。梯度的计算会先在完整序列上进行，然后通过 Reduce-Scatter 将梯度分发并累加到各个 GPU 对应的序列片段上。
-
-【SP 和 CP 只有训练才会使用？]
-根据我对sp cp原理的理解在推理时也是能用的 但是我对megatron推理调研不多，实际应用上是否支持还不太确定
 
 ### CP
 
 https://zhuanlan.zhihu.com/p/5502876106
 
-megatron 还支持了 context parallelism。CP 和 SP 很接近，然而 SP 只针对 Layernorm 和 Dropout 在 sequence 维度上进行切分，CP 则是对所有的input 输入在 sequence 维度上进行切分，可以看成是增强版 SP, 在原来的基础上进行局部优化。开启 CP 就会覆盖 SP 的效果。除了 Attention 模块以外，Layernorm、Dropout 在 CP 时和 SP 一样处理。
+megatron 还支持了 context parallelism。CP 和 SP 很接近：SP 只针对 Layernorm 和 Dropout 在 sequence 维度上进行切分，CP 则是对所有的 input 输入在 sequence 维度上进行切分，可以看成是增强版 SP, 在原来的基础上进行局部优化。开启 CP 就会覆盖 SP 的效果。除了 Attention 模块以外，Layernorm、Dropout 在 CP 时和 SP 一样处理。
 
-Attention 计算过程中每个 token 的 Q 要跟同一个 sequence 中其他 token 的 K 和 V 一同计算。所以启动 CP 后，在计算 Attention 前要通过all-gather 拿到所有 token 的 K 和 V，在反向计算时对应需要通过 reduce_scatter 分发 gradient 梯度。
+Attention 计算过程中每个 token 的 Q 要跟同一个 sequence 中其他 token 的 K 和 V 一同计算。所以启动 CP 后，在计算 Attention 前要通过all-gather 拿到所有 token 的 K 和 V，在反向计算时对应需要通过 reduce_scatter 分发梯度。
 
 为了减少显存占用，在前向时每个 gpu 只用保存一部分 KV 块，反向时通过 all-gather 通信拿到所有的 KV 数据。
 
-【这里的 KV 并不是 KV cache，而只是前向传播计算出的 KV？可能也是留存的 KV，但是目的不是在其他 sequence 的计算中复用？】
+通过 CP 可以更好解决 long context 训练的 OOM 问题，每个 GPU 只用处理一部分的 sequence, 同时减少 CP 倍的通信和计算，但保持 TP 不变，同时 activation 也会减少 CP 倍。CP 优化的性能参考如下图，在 Megatron 中通过指定 `--context-parallel-size`使用，最终 `world_size = CP * PP * DP * TP`。
 
-
-通过 CP 可以更好解决 long context 训练的 OOM 问题，每个 GPU 只用处理一部分的 sequence, 同时减少 CP 倍的通信和计算，但保持 TP 不变，同时 activation 也会减少 CP 倍。CP 优化的性能参考如下图，在 Megatron 中通过指定 `--context-parallel-size` 可以进行使用 `world_size = CP * PP * DP * TP`。
-
-![image](https://hackmd.io/_uploads/Hk-R5SDSxg.png)
-
-【CP 可以减少通讯量么？】TODO
+<div style="text-align: center;">
+  <img src="./pics/tp+cp.png" alt="TP + CP Diagram" style="width:80%;">
+</div>
 
 
 ### EP
 
 在并行化方面，Megatron-Core 还支持专家并行。
 
-Expert Parallelism 的逻辑如下图所示，每个 EP rank 上只包含一部分 expert，而每个 EP rank 上的 token（即 token 对应的 hidden state） 会根据 gating 结果分发到其他 EP rank 上的 expert。这个过程通过 all-to-all 通信完成。
+Expert Parallelism 的逻辑如下图所示，每个 EP rank 上只包含一部分 expert。EP rank 上的 token 根据 gating 结果，常常需要分发到其他 EP rank 上，因此这个过程需要 all-to-all 通信。
 
 <div style="text-align: center;">
   <img src="./pics/ep.png" alt="ep" style="width:80%;">
 </div>
 
-以 4 个 expert、2 个 EP rank 和 topk=2 为例 ，下图中每个 EP rank 上有 3 个 token：
+以 4 个 expert、2 个 EP rank 和 top-k=2 为例 ，下图中每个 EP rank 上有 3 个 token：
 
 <div style="text-align: center;">
   <img src="./pics/epall2all.png" alt="epall2all" style="width:80%;">
