@@ -79,6 +79,7 @@ bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn.sh
 ```bash
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+python3 -m uv pip install qwen-vl-utils
 
 # 拉取并预处理 geo3k 数据集
 python examples/data_preprocess/geo3k.py --local_dir ~/data/geo3k
