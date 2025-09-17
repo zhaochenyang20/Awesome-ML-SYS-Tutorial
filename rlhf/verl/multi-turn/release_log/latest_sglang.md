@@ -41,6 +41,7 @@ chmod 1777 /tmp
 apt update
 apt install -y python3.10 python3.10-venv
 python3 -m ensurepip --upgrade
+mkdir ~/.python
 python3 -m venv ~/.python/verl-sglang
 source ~/.python/verl-sglang/bin/activate
 python3 -m pip install --upgrade pip
