@@ -92,13 +92,17 @@ bash examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh
 
 6. 测试 dapo：
 
+sandbox fusion 需要在裸机环境下启动，请确保在物理机器上执行下面一条命令。
+```bash
+#启动 sandbox fusion （dapo tool call requirement）
+docker run -it -p 8080:8080 volcengine/sandbox-fusion:server-20250609
+```
 
+我们回到开发 docker 中，启动 dapo 训练：
 ```bash
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-#启动 sandbox fusion （dapo tool call requirement）
-docker run -it -p 8080:8080 volcengine/sandbox-fusion:server-20250609
 
 # 启动 8 卡训练
 bash examples/sglang_multiturn/run_qwen3_4b_dapo_multiturn.sh
