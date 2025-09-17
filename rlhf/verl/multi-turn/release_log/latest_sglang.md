@@ -92,13 +92,32 @@ bash examples/grpo_trainer/run_qwen2_5_vl-7b-sglang.sh
 
 6. 测试 dapo：
 
+注意 dapo 和先前的设置有所不同，因为 dapo 需要另一个 docker 来启动 sandboxfusion，所以需要回到宿主机上，单独启动 tool 服务器：
+
+```bash
+#启动 sandbox fusion （dapo tool call requirement）
+docker run -it -p 8080:8080 volcengine/sandbox-fusion:server-20250609
+```
+
+此外，为了让 dapo 的训练脚本在一个单独的 docker 内进行，同时能够访问到宿主机上 sandboxfusion 的 8080 端口，我们需要在启动 docker 的时候额外添加 `--network=host`，也即步骤 1 的启动指令需要改为：
+
+```bash
+docker run -it --name h100_verl_{your_name} --gpus all \
+    --shm-size 32g \
+    -v {your_cache_path}:/root/.cache \
+    --env "HF_TOKEN=$HF_TOKEN" \
+    --env "WANDB_API_KEY=$WANDB_API_KEY" \
+    --network=host \
+    --ipc=host \
+    lmsysorg/sglang:latest \
+    /bin/bash
+```
+
+之后照样 follow 步骤 2 3 的安装过程，安装完成后启动训练：
 
 ```bash
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-
-#启动 sandbox fusion （dapo tool call requirement）
-docker run -it -p 8080:8080 volcengine/sandbox-fusion:server-20250609
 
 # 启动 8 卡训练
 bash examples/sglang_multiturn/run_qwen3_4b_dapo_multiturn.sh
