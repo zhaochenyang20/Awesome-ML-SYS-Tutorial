@@ -185,8 +185,27 @@ model = fully_shard(base_model)  # FSDP v2 API
 
 
 ### B-series GPU Setup
+## 启动docker
+```shell
+# 拉取最新镜像,最新的镜像是B卡 H卡通用的
+docker pull slimerl/slime:latest
 
-步骤和H卡操作步骤完全相同
+
+# 启动容器
+docker run -d
+    --gpus all 
+    --ipc=host 
+    --shm-size=32g \
+    --ulimit memlock=-1 
+    --ulimit stack=67108864 \
+    -v /home/yineng/shared_model:/root/.cache \
+    -v /home/yineng/william:/workspace \
+    --name slime_william \
+    -it slimerl/slime:latest /bin/bash
+```
+
+## 剩余步骤和H卡操作步骤完全相同
+
 
 > 如果遇到 nccl 的 error，在ray启动的时候可以指定一个端口
 ```shell
