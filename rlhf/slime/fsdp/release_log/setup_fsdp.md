@@ -192,18 +192,17 @@ docker pull slimerl/slime:latest
 
 
 # 启动容器
-docker run \
-      -itd \
-      --shm-size 32g \
-      --gpus all \
-      --ipc=host \
-      --network=host \
-      --privileged \
-      -v /home/yineng/shared_model:/root/.cache \
-      -v /home/yineng/william:/workspace \
-      --name slime_william \
-      slimerl/slime:latest \
-      /bin/bash
+# 这里 GPU相关参数完全相同，主要差异是镜像版本和挂载目录（这些是环境配置，不是硬件差异）
+docker run -d
+    --gpus all 
+    --ipc=host 
+    --shm-size=32g \
+    --ulimit memlock=-1 
+    --ulimit stack=67108864 \
+    -v /home/yineng/shared_model:/root/.cache \
+    -v /home/yineng/william:/workspace \
+    --name slime_william \
+    -it slimerl/slime:latest /bin/bash
 ```
 
 ## 剩余步骤和H卡操作步骤完全相同
