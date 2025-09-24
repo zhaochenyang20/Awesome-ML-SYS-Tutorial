@@ -11,6 +11,7 @@
 
 ```shell
 # 拉取最新镜像
+# 最新的镜像是B卡 H卡通用的
 docker pull slimerl/slime:latest
 
 # 启动容器
