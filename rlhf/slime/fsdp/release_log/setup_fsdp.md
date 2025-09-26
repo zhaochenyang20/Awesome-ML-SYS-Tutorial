@@ -116,7 +116,7 @@ ray job submit ... \
 
 ## FSDP 脚本原理
 
-### FSDP 激活机制
+**FSDP 激活机制**
 
 ```bash
 # 关键：指定后端为 FSDP
@@ -125,54 +125,53 @@ ray job submit ... \
 
 这个环境变量告诉 `slime` 使用 `FSDP` 后端而不是默认的 `Megatron` 后端。
 
-### FSDP 核心配置
+**FSDP 核心配置**
 
-#### GPU 分片设置
+GPU 分片设置：
 ```bash
 export CUDA_VISIBLE_DEVICES=1,2  # 使用 GPU 1,2
 --actor-num-gpus-per-node 2      # 2 个 GPU 进行模型分片
 ```
 
-#### FSDP 模式选择
+FSDP 模式选择：
 ```bash
 --fsdp-full-params  # 启用 FULL_STATE_DICT 模式
 # 注释掉则使用默认的 SHARDED_STATE_DICT 模式
 ```
 
-### 为什么这样能用到 FSDP
+**为什么这样能用到 FSDP**
 
-#### 1. 后端路由
-当设置 `SLIME_BACKEND=fsdp` 时，`slime` 会：
-- 加载 `slime/backends/fsdp_utils/` 下的 `FSDP` 实现
-- 使用 `FSDPTrainRayActor` 而不是 `MegatronTrainRayActor`
-- 调用 `create_fsdp_v2_model()` 创建 `FSDP` 模型
+1. **后端路由**：当设置 `SLIME_BACKEND=fsdp` 时，`slime` 会：
+   - 加载 `slime/backends/fsdp_utils/` 下的 `FSDP` 实现
+   - 使用 `FSDPTrainRayActor` 而不是 `MegatronTrainRayActor`
+   - 调用 `create_fsdp_v2_model()` 创建 `FSDP` 模型
 
-#### 2. 模型分片
-```python
-# 在 FSDP 后端中会执行
-model = fully_shard(base_model)  # FSDP v2 API
-# 70B 模型在 2 个 GPU 上分片：每 GPU ~35B 参数
-```
+2. **模型分片**：
+   ```python
+   # 在 FSDP 后端中会执行
+   model = fully_shard(base_model)  # FSDP v2 API
+   # 70B 模型在 2 个 GPU 上分片：每 GPU ~35B 参数
+   ```
 
-#### 3. 权重更新测试
-- 训练时使用 `DTensor`（分片存储）
-- 权重更新时调用 `dtensor.full_tensor()` 
-- 通过 `IPC` 发送给 `SGLang` 推理引擎
+3. **权重更新测试**：
+   - 训练时使用 `DTensor`（分片存储）
+   - 权重更新时调用 `dtensor.full_tensor()` 
+   - 通过 `IPC` 发送给 `SGLang` 推理引擎
 
-#### 4. 协同部署验证
-```bash
---colocate  # 训练和推理进程共享 GPU 资源
-```
-验证 `FSDP` 训练进程与 `SGLang` 推理进程的 GPU 内存协调。
+4. **协同部署验证**：
+   ```bash
+   --colocate  # 训练和推理进程共享 GPU 资源
+   ```
+   验证 `FSDP` 训练进程与 `SGLang` 推理进程的 GPU 内存协调。
 
-### 测试脚本路径
+**测试脚本路径**
 
 主要的 `FSDP` 测试文件位于：
 - `slime/tests/test_fsdp.sh` - 基础 `FSDP` 测试
 - `slime/tests/test_fsdp_colocated_2GPU.sh` - 2GPU 协同训练测试
 - `tests/test_fsdp_import.py` - `FSDP` 导入测试
 
-### 测试目标
+**测试目标**
 
 **本质上**：这个测试验证了完整的"`FSDP` 训练 → 权重提取 → `SGLang` 更新"数据流，正是我们分析的内存瓶颈所在。
 
