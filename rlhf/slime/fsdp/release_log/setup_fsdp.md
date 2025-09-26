@@ -80,7 +80,7 @@ bash slime/tests/test_fsdp.sh                # 基础 FSDP 测试
 
 ### Colocated Actor and Rollout
 
-在默认的配置下，训练（Actor）和推理（Rollout）的资源是分开指定的，通过 `ray` 给训练部分分配 `actor_num_nodes * actor_num_gpus_per_node` 张 GPU，给推理分配 `rollout_num_gpus` 张 GPU，也即训推分离。
+在默认的配置下，训练（Actor）和推理（Rollout）的资源是分开指定的，通过 `ray` 给训练部分分配 `actor_num_nodes * actor_num_gpus_per_node` 张 GPU，给推理分配 `actor_num_nodes * rollout_num_gpus` 张 GPU，也即训推分离。
 
 **标准（分离）配置**：
 ```bash
