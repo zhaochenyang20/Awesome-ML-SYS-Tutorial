@@ -1,6 +1,6 @@
 # FSDP Setup Guide
 
-这个文档记录如何在 Slime 上测试 `FSDP`，包括 H 卡和 B 卡，以及 `Colocate` 和分离的配置。以下操作在 H 卡上完成
+这个文档记录如何在 Slime 上测试 `FSDP`，包括 H 卡和 B 卡，以及 `Colocate` 和 `Disaggregated` 的配置。以下操作在 H 卡上完成
 
 
 ## 基础环境搭建
@@ -27,7 +27,7 @@ docker run -d --gpus all --ipc=host --shm-size=16g \
 ```bash
 # 路径可根据实际情况调整
 cd /root/
-git clone https://github.com/Williamren97/slime.git # FSDP 开发中的分支
+git clone https://github.com/Williamren97/slime.git #FSDP 开发中的分支，之后会 merge 到 slime main
 cd slime
 pip install -e .
 git checkout optimize/fsdp-memory-overhead 
