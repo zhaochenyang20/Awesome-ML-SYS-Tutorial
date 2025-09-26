@@ -1,6 +1,6 @@
 # FSDP Setup Guide
 
-这个文档记录如何在 Slime 上测试 `FSDP`，包括 H 卡和 B 卡，以及 `Colocate` 和 `Disaggregated` 的配置。以下操作在 H 卡上完成
+这个文档记录如何在 slime 上测试 `FSDP`，包括 H 卡和 B 卡，以及 `Colocate` 和 `Disaggregated` 的配置。以下操作在 H 卡上完成
 
 
 ## 基础环境搭建
@@ -98,11 +98,8 @@ ray job submit ... \
 
 > ⚠️ 在异步训练时，`sglang` 的性能检测日志与训练日志可能会混到一起，不易区分，可以通过 `--sglang-log-level` 来减少 `sglang` 的日志。
 
-
-
 **训推一体化（Colocated）配置**：
 要将训练和推理部署在同一组 GPU 上，请添加 `--colocate` 参数，开启后会忽略 `--rollout-num-gpus` 让训练和推理的卡数相等。
-
 
 ```bash
 ray job submit ... \
@@ -123,42 +120,41 @@ ray job submit ... \
 "SLIME_BACKEND": "fsdp"
 ```
 
-这个环境变量告诉 `slime` 使用 `FSDP` 后端而不是默认的 `Megatron` 后端。
-
 **FSDP 核心配置**
 
 GPU 分片设置：
+
 ```bash
 export CUDA_VISIBLE_DEVICES=1,2  # 使用 GPU 1,2
 --actor-num-gpus-per-node 2      # 2 个 GPU 进行模型分片
 ```
 
 FSDP 模式选择：
+
 ```bash
 --fsdp-full-params  # 启用 FULL_STATE_DICT 模式
 # 注释掉则使用默认的 SHARDED_STATE_DICT 模式
 ```
 
-**为什么这样能用到 FSDP**
-
 1. **后端路由**：当设置 `SLIME_BACKEND=fsdp` 时，`slime` 会：
+   
    - 加载 `slime/backends/fsdp_utils/` 下的 `FSDP` 实现
    - 使用 `FSDPTrainRayActor` 而不是 `MegatronTrainRayActor`
    - 调用 `create_fsdp_v2_model()` 创建 `FSDP` 模型
 
-2. **模型分片**：
+3. **模型分片**：
    ```python
    # 在 FSDP 后端中会执行
    model = fully_shard(base_model)  # FSDP v2 API
    # 70B 模型在 2 个 GPU 上分片：每 GPU ~35B 参数
    ```
 
-3. **权重更新测试**：
+4. **权重更新测试**：
    - 训练时使用 `DTensor`（分片存储）
    - 权重更新时调用 `dtensor.full_tensor()` 
    - 通过 `IPC` 发送给 `SGLang` 推理引擎
 
-4. **协同部署验证**：
+5. **协同部署验证**：
    ```bash
    --colocate  # 训练和推理进程共享 GPU 资源
    ```
