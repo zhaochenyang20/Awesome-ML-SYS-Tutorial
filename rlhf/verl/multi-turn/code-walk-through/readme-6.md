@@ -225,7 +225,7 @@ def _init_agent_loop_workers(self):
 - 每个 agentLoopWorker 处理自身的 chunk，通过`ray.get([worker.generate_sequences.remote(chunk) for ...])`并行执行并得到结果；
 - 处理完成后调用`self.sleep()`让 server 进入睡眠状态以释放显存
 - 计算生成序列和工具调用的性能指标
-- 合并所有 `A``gentLoopWorker` 的输出并返回
+- 合并所有 `AgentLoopWorker` 的输出并返回
 
 Code link [[here](https://github.com/volcengine/verl/blob/c5b189a1af496d0bc68320cd1d5bd7a1f1e3638a/verl/experimental/agent_loop/agent_loop.py#L486)]
 
