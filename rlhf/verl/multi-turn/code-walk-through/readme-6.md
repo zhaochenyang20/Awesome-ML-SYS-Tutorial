@@ -327,7 +327,7 @@ async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any],
 
 ## AsyncLLMServerManager
 
-管理多个 OpenAI 兼容的 LLM 服务器 (例如 `Async``SGLang``Server`)，提供负载均衡和会话粘性功能。支持最少请求负载均衡算法，确保多轮对话发送到同一服务器以实现自动前缀缓存。可以认为就是简单的 router/load balancer 层。
+管理多个 OpenAI 兼容的 LLM 服务器 (例如 `AsyncSGLangServer`)，提供负载均衡和会话粘性功能。支持最少请求负载均衡算法，确保多轮对话发送到同一服务器以实现自动前缀缓存。可以认为就是简单的 router/load balancer 层。
 
 **初始化**
 
