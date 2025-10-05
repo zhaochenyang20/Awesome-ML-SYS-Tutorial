@@ -225,7 +225,7 @@ def _init_agent_loop_workers(self):
 - 每个 agentLoopWorker 处理自身的 chunk，通过`ray.get([worker.generate_sequences.remote(chunk) for ...])`并行执行并得到结果；
 - 处理完成后调用`self.sleep()`让 server 进入睡眠状态以释放显存
 - 计算生成序列和工具调用的性能指标
-- 合并所有 `A``gentLoopWorker` 的输出并返回
+- 合并所有 `AgentLoopWorker` 的输出并返回
 
 Code link [[here](https://github.com/volcengine/verl/blob/c5b189a1af496d0bc68320cd1d5bd7a1f1e3638a/verl/experimental/agent_loop/agent_loop.py#L486)]
 
@@ -327,7 +327,7 @@ async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any],
 
 ## AsyncLLMServerManager
 
-管理多个 OpenAI 兼容的 LLM 服务器 (例如 `Async``SGLang``Server`)，提供负载均衡和会话粘性功能。支持最少请求负载均衡算法，确保多轮对话发送到同一服务器以实现自动前缀缓存。可以认为就是简单的 router/load balancer 层。
+管理多个 OpenAI 兼容的 LLM 服务器 (例如 `AsyncSGLangServer`)，提供负载均衡和会话粘性功能。支持最少请求负载均衡算法，确保多轮对话发送到同一服务器以实现自动前缀缓存。可以认为就是简单的 router/load balancer 层。
 
 **初始化**
 
