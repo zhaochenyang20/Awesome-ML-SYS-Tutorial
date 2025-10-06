@@ -24,10 +24,9 @@ docker run -d --gpus all --ipc=host --shm-size=16g \
 ```bash
 # 路径可根据实际情况调整
 cd /root/
-git clone https://github.com/Williamren97/slime.git # FSDP 的开发开发分支，之后会 merge 到 slime main
+git clone https://github.com/THUDM/slime.git
 cd slime
 pip install -e .
-git checkout optimize/fsdp-memory-overhead 
 ```
 
 ### 模型与数据集下载
@@ -65,8 +64,7 @@ source scripts/models/qwen3-0.6B.sh
 
 ```bash
 cd /root/slime
-bash slime/tests/test_fsdp_colocated_2GPU.sh # 2GPU 协同训练测试
-bash slime/tests/test_fsdp.sh                # 基础 FSDP 测试
+bash tests/test_qwen3-0.6B_fsdp_colocated_2xGPU.sh # 2GPU 协同训练测试
 ```
 
 ## 特性介绍
