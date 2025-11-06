@@ -109,7 +109,7 @@ DefaultModelLoader.load_weights_and_postprocess →
 ### 4.2 模型构造与方法注入
 - `_initialize_model` 将 `quant_config` 传递到如 `DeepseekV2ForCausalLM` 等模型，再逐层下沉到解码层、MoE 模块、线性层。
 - `LinearBase` 层调用 `quant_config.get_quant_method`：普通线性层获得 `Fp8LinearMethod`，MoE 层获得 `W4AFp8MoEMethod`；跳过列表中的层使用未量化实现。
-- `create_weights` 注册打包后的 INT4/INT8 权重张量、scale（逆尺度）、输入激活缩放、专家权重索引等参数，并为 checkpoint loader 绑定定制加载逻辑。
+- `create_weights` 注册打包后的 INT4/INT8 权重张量、scale（缩放因子）、输入激活缩放、专家权重索引等参数，并为 checkpoint loader 绑定定制加载逻辑。
 
 ### 4.3 权重加载与后处理
 - Checkpoint 加载阶段填充量化权重和 scale。
