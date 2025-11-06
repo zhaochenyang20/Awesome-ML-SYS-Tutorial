@@ -10,7 +10,7 @@
 
 量化相关的核心基类定义在 `base_config.py`：
 
-- `QuantizeMethodBase`：声明权重注册（`create_weights`）、前向执行（`apply`）以及权重落盘后的处理（`process_weights_after_loading`）。
+- `QuantizeMethodBase`：声明权重注册（`create_weights`）、前向执行（`apply`）以及权重加载完成后的处理（`process_weights_after_loading`）。
 - `LinearMethodBase` / `FusedMoEMethodBase`：分别约束标准线性层和融合 MoE 层的量化方法，补充专家路由、并行度等上下文信息。
 - `QuantizationConfig`：负责解析量化配置、校验硬件能力与激活 dtype，并按层返回正确的量化方法实例。
 
