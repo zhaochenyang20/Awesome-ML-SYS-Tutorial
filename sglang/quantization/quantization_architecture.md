@@ -16,7 +16,7 @@
 
 量化方法注册表位于 `__init__.py`，将原生方案（AWQ、GPTQ、FP8、W4AFp8、ModelOpt 等）映射到字符串标识，必要时按 CUDA/HIP 能力注入额外配置（如 ROCm 下的 `quark` 配置）。
 
-## 2. 目录结构
+## 2. 目录结构与文件职责
 ```
 python/sglang/srt/layers/quantization/
 ├── base_config.py                 # 抽象基类与公共工具
@@ -161,19 +161,19 @@ DefaultModelLoader.load_weights_and_postprocess →
   # W4AFp8MoEMethod.apply
   output = cutlass_w4a8_moe(
       x,
-      layer.w13_weight,           # INT4 量化权重
-      layer.w2_weight,             # INT4 量化权重
-      layer.w13_weight_scale_inv,  # 权重 scale
-      layer.w2_weight_scale_inv,   # 权重 scale
-      topk_weights,                # 专家路由权重
-      topk_ids,                    # 专家路由 ID
+      layer.w13_weight,                                   # INT4 量化权重
+      layer.w2_weight,                                    # INT4 量化权重
+      layer.w13_weight_scale_inv,                         # 权重 scale
+      layer.w2_weight_scale_inv,                          # 权重 scale
+      topk_weights,                                      # 专家路由权重
+      topk_ids,                                          # 专家路由 ID
       self.a_strides1, self.b_strides1, self.c_strides1,  # GEMM1 strides
       self.a_strides2, self.b_strides2, self.c_strides2,  # GEMM2 strides
-      self.s_strides13, self.s_strides2,                   # Scale strides
-      self.expert_offsets,                                 # 专家偏移
-      self.problem_sizes1, self.problem_sizes2,            # 问题尺寸
-      layer.w13_input_scale,                               # 输入 scale
-      layer.w2_input_scale,                                # 输入 scale
+      self.s_strides13, self.s_strides2,                  # Scale strides
+      self.expert_offsets,                               # 专家偏移
+      self.problem_sizes1, self.problem_sizes2,          # 问题尺寸
+      layer.w13_input_scale,                             # 输入 scale
+      layer.w2_input_scale,                              # 输入 scale
   )
   # 融合路由缩放系数
   if self.moe_runner_config.routed_scaling_factor is not None:
@@ -186,7 +186,7 @@ DefaultModelLoader.load_weights_and_postprocess →
 | ---------------- | -------------------------------------------------------------------------- | -------------------------------------------------- |
 | FP8 系列         | `fp8`, `w8a8_fp8`, `modelopt_fp8`, `fbgemm_fp8`                            | 原生 FP8、W8A8-FP8 混合、ModelOpt/FBGEMM 扩展      |
 | INT8 系列        | `w8a8_int8`, `blockwise_int8`                                              | 经典 8bit 权重/激活、块级 INT8                     |
-| INT4/混合精度    | `w4afp8`, `qoq`, `moe_wna16`                                               | 4bit 权重 + FP8 激活、QoQ、自研 WNA16              |
+| INT4/混合精度    | `w4afp8`, `qoq`, `moe_wna16`                                               | 4bit 权重 + FP8 激活、QoQ、WNA16（W4A16/W8A16）    |
 | FP4 / MXFP4      | `modelopt_fp4`, `petit_nvfp4`, `mxfp4`, `quark`                            | FP4 / MXFP4 方案，`quark` 为 ROCm 专用             |
 | 预量化格式导入   | `awq`, `awq_marlin`, `gptq`, `gptq_marlin`, `gguf`, `compressed-tensors`, `auto-round`, `modelopt` | 与外部工具链或压缩张量框架对接，`modelopt` 可自动检测 FP8/FP4 |
 | KV Cache 量化    | `kv_cache.py` 中的 `BaseKVCacheMethod` 及其子类                            | 为注意力缓存提供 scale、零点管理                   |
