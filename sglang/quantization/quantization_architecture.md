@@ -104,7 +104,7 @@ DefaultModelLoader.load_weights_and_postprocess →
 ### 4.1 配置识别与对象构造
 - 当 `hf_quant_config.json` 中 `quant_algo == "MIXED_PRECISION"` 时，`ModelConfig` 会把量化方案映射为 `w4afp8` 并校验硬件兼容性。
 - `weight_utils.get_quant_config` 通过 `get_quantization_config` 获取 `W4AFp8Config` 类，然后调用 `from_config` 实例化配置对象；若模型目录提供额外 JSON，会在 `from_config` 中加载，补充跳层、专家映射等信息。
-- 配置实例记录线性层/ MoE 层的激活缩放方案（动态或静态）、权重量化 group size、是否启用 checkpoint 内自带的量化格式等。
+- 配置实例包含线性层/ MoE 层的激活缩放方案（动态或静态）、权重量化 group size、是否启用 checkpoint 内自带的量化格式等。
 
 ### 4.2 模型构造与方法注入
 - `_initialize_model` 将 `quant_config` 传递到如 `DeepseekV2ForCausalLM` 等模型，再逐层下沉到解码层、MoE 模块、线性层。
