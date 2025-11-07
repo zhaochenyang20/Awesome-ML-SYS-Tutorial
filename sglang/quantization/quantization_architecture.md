@@ -1,4 +1,4 @@
-# 拆解 SGLang 量化架构：从 W4AFp8 看懂"三步走"设计
+# 一文浅析 SGLang 框架的量化设计与思路
 
 ## 故事是这样开始的
 
@@ -212,7 +212,7 @@ def process_weights_after_loading(self, layer: Module) -> None:
     
     # 将输入 scale 聚合为单一标量（静态量化模式）
     w13_input_scale_max = layer.w13_input_scale.max().to(torch.bfloat16).item()
-    layer.w13_input_scale = Parameter(torch.tensor([w13_input_scale_max], ...), ...)
+    layer.w13_input_scale = Parameter(torch.tensor([w13_input_scale_max], dtype=torch.bfloat16), requires_grad=False)
 ```
 
 #### 第三步：apply (开火！调用底层内核)
@@ -269,3 +269,14 @@ def apply(self, layer, dispatch_output) -> CombineInput:
 3. **注册方案**：在 `__init__.py` 的 `BASE_QUANTIZATION_METHODS` 中"挂个号"，写入字符串标识与配置类映射。
 
 搞定！SGLang 的解耦设计让这一切变得非常简单。
+
+## 附录：SGLang中已经支持的量化方法
+
+| Category              | Representative Configurations                                                                 | Description                                                                              |
+| --------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| FP8 Series            | `fp8`, `w8a8_fp8`, `modelopt_fp8`, `fbgemm_fp8`                                               | Native FP8, W8A8-FP8 hybrid, ModelOpt/FBGEMM extensions                                  |
+| INT8 Series           | `w8a8_int8`, `blockwise_int8`                                                                 | Classic 8bit weight/activation, blockwise INT8                                           |
+| INT4/Mixed Precision  | `w4afp8`, `qoq`, `moe_wna16`                                                                  | 4bit weight + FP8 activation, QoQ, WNA16 (W4A16/W8A16)                                  |
+| FP4 / MXFP4           | `modelopt_fp4`, `petit_nvfp4`, `mxfp4`, `quark`                                               | FP4 / MXFP4 schemes, `quark` is ROCm-specific                                           |
+| Pre-quantized Formats | `awq`, `awq_marlin`, `gptq`, `gptq_marlin`, `gguf`, `compressed-tensors`, `auto-round`, `modelopt` | Integration with external toolchains or compressed tensor frameworks, `modelopt` auto-detects FP8/FP4 |
+| KV Cache Quantization | `BaseKVCacheMethod` and its subclasses in `kv_cache.py`                                       | Provides scale and zero-point management for attention caches                            |
