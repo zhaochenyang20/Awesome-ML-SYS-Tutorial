@@ -1,8 +1,6 @@
 # 一文浅析 SGLang 框架的量化设计与思路
 
-## 故事是这样开始的
-
-大家好，前段时间我深度参与了 deepseek 模型的 w4afp8 量化项目，对 SGLang 的量化部分做了次"深度潜入"。（顺手提了个PR https://github.com/sgl-project/sglang/pull/9598，最终合进了 https://github.com/sgl-project/sglang/pull/8247#issuecomment-3258884128）。
+前段时间我深度参与了 deepseek 模型的 w4afp8 量化项目，被迫对 SGLang 的量化部分有了不错的认知。（顺手提了个PR https://github.com/sgl-project/sglang/pull/9598，最终合进了 https://github.com/sgl-project/sglang/pull/8247#issuecomment-3258884128）。
 
 项目做完后，我一直想抽空做个总结，因为 SGLang 在量化这块的设计确实非常清晰，很值得拿出来聊聊。所以就有了这篇文章。本文会以 w4afp8 为例，带大家看看 SGLang 是如何处理量化的。
 
