@@ -6,15 +6,15 @@
 
 SGLang 把所有的量化实现都"藏"在了 `python/sglang/srt/layers/quantization/` 目录里。它用了一套非常巧妙的抽象和钩子函数 (Hook Function)，把模型构建、权重加载、推理执行这三个完全不同的阶段给串了起来。
 
-**量化三步走：create_weights → process_weights_after_loading → apply**
+**我们将量化拆解为三个阶段：create_weights → process_weights_after_loading → apply**
 
-- **create_weights**（建立管道）：这步是"打地基"。模型刚开始构建，啥都还没有，这个函数就先把量化权重、Scale 因子这些参数的"坑"给占好（分配内存）。就像先把水管铺设好，但里面还没通水。
-- **process_weights_after_loading**（数据转换）：水来了！权重从文件加载进来后，是"原水"，还不能直接用。这步就是"水处理厂"，它负责把权重和 Scale 转换成计算内核（比如 CUTLASS）最喜欢的格式和布局，比如做一些重排优化。
-- **apply**（数据流动）：开闸放水！这是真正干活的时候。当模型跑 forward 时，apply 函数就会被调用，它会"指挥"底层的计算内核（比如 FP8 GEMM），让激活和权重这些"处理好的水"在管道里真正流动起来，完成计算。
+- **create_weights**（建立管道）：预分配基础，模型刚开始构建，此函数负责把量化权重、Scale 因子这些参数分配内存。类似于先铺设水管，还没有通水。
+- **process_weights_after_loading**（数据转换）：权重从文件加载进来后，不能直接处理，它负责把权重和 Scale 转换成计算内核（比如 CUTLASS）最喜欢的格式和布局，比如做一些重排优化。
+- **apply**：当模型运行 `forward` 时，`apply` 函数就会被调用，它会指挥底层的计算内核（比如 FP8 GEMM），让激活和权重在管道里真正流动起来，完成计算。
 
 ## 整体流程
 
-了解了"三步走"的宏观概念，我们来看看 SGLang 是怎么用代码（特别是类）把这套流程"焊死"的。
+具体看看 SGLang 的实现逻辑：
 
 ### 执行流程
 
@@ -27,15 +27,14 @@ _initialize_model(...) → 把 quant_config 传入模型/各层
       ↓
 LinearBase.quant_method.create_weights → 注册量化权重占位
       ↓
-DefaultModelLoader.load_weights_and_postprocess →
-    先 load_weights 加载权重，再逐层调用 quant_method.process_weights_after_loading
+DefaultModelLoader.load_weights_and_postprocess → 先 load_weights 加载权重，再逐层调用 quant_method.process_weights_after_loading
       ↓
 推理时 LinearBase.forward → quant_method.apply 执行量化 GEMM
 ```
 
 ### 类的继承层次
 
-这套设计牛就牛在它的继承和抽象：
+SGLang 的抽象和继承做的恰到好处。
 
 ```
 配置类继承关系：
