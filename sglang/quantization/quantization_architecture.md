@@ -4,7 +4,7 @@
 
 项目做完后，我一直想抽空做个总结，因为 SGLang 在量化这块的设计确实非常清晰，很值得拿出来聊聊。所以就有了这篇文章。本文会以 w4afp8 为例，带大家看看 SGLang 是如何处理量化的。
 
-SGLang 把所有的量化实现都"藏"在了 `python/sglang/srt/layers/quantization/` 目录里。它用了一套非常巧妙的抽象和钩子函数 (Hook Function)，把模型构建、权重加载、推理执行这三个完全不同的阶段给串了起来。
+SGLang 的量化实现位于 `python/sglang/srt/layers/quantization/` 目录。通过抽象基类和钩子函数 (Hook Function) 的设计，将模型构建、权重加载、推理执行这三个阶段有机地连接起来。
 
 **我们将量化拆解为三个阶段：create_weights → process_weights_after_loading → apply**
 
@@ -77,7 +77,7 @@ DeepseekV2AttentionMLA.__init__()
       ↓
 RowParallelLinear.__init__()
       ↓
-LinearBase.__init__() (super().__init__())
+LinearBase.__init__() (super().__init__()) # self.quant_method就是在父类初始化函数里
       ↓
 quant_config.get_quant_method() → 返回 Fp8LinearMethod
       ↓
@@ -132,7 +132,7 @@ Fp8LinearMethod.apply()
 
 ## 实战解剖：W4AFp8 量化方案
 
-光说理论有点干。咱们拿这次项目里啃的"硬骨头"—— W4AFp8（权重 4bit + 激活 FP8）——来当"麻雀"解剖一下，看看 SGLang 是怎么具体处理的。
+下面以 W4AFp8（权重 4bit + 激活 FP8）量化方案为例，详细分析 SGLang 的具体实现逻辑。
 
 ### W4AFp8Config
 
@@ -146,12 +146,12 @@ if quant_algo == "MIXED_PRECISION":
     return {"quant_method": "w4afp8"}
 ```
 
-**对象构造**：`weight_utils.get_quant_config` 会拿到 `W4AFp8Config` 类，然后调用 `from_config` 实例化。
+**对象构造**：`weight_utils.get_quant_config` 获取 `W4AFp8Config` 类，然后调用 `from_config` 方法进行实例化。
 
 **关键方法**：
 
 - `W4AFp8Config.from_config()`：从配置字典解析并实例化配置对象
-- `W4AFp8Config.get_quant_method(layer, prefix)`：这个最关键，它根据层类型返回对应的"工人"（量化方法）：
+- `W4AFp8Config.get_quant_method(layer, prefix)`：核心方法，根据层类型返回对应的量化方法实例：
   ```python
   if isinstance(layer, LinearBase):
       return Fp8LinearMethod(self)  # 普通层用 Fp8LinearMethod
@@ -161,11 +161,11 @@ if quant_algo == "MIXED_PRECISION":
 
 ### W4AFp8MoEMethod ("三步走"实战)
 
-`W4AFp8MoEMethod` 是 W4AFp8 在 MoE 层上的具体实现，是"硬骨头"里的"硬核"。我们还是按照"三步走"的顺序来看它干了啥：
+`W4AFp8MoEMethod` 是 W4AFp8 在 MoE 层上的具体实现。我们按照"三步走"的顺序来看它干了啥：
 
-#### 第一步：create_weights (搭架子，占个坑)
+#### 第一阶段：create_weights（参数预分配）
 
-如前所述，这一步纯纯是"占坑"。在 `FusedMoE` 模块初始化时，它会为 MoE 层创建量化所需的参数容器。
+如前所述，这一步是预分配基础。在 `FusedMoE` 模块初始化时，它会为 MoE 层创建量化所需的参数容器，负责把量化权重、Scale 因子这些参数分配内存。
 
 主要工作包括：
 
@@ -174,7 +174,7 @@ if quant_algo == "MIXED_PRECISION":
 - 准备激活缩放因子：`w13_input_scale` 和 `w2_input_scale`
 - 初始化计算所需的元数据：如 stride、expert offsets 等
 
-注意，此时里面全是空的（`torch.empty`），只是把"管道"的架子搭好了。
+注意，此时参数容器为空（使用 `torch.empty` 创建），仅完成内存布局的初始化，尚未填充实际数据。
 
 ```python
 def create_weights(self, layer, num_experts, hidden_size, ...):
@@ -190,13 +190,13 @@ def create_weights(self, layer, num_experts, hidden_size, ...):
     self.a_strides1 = torch.full((num_experts, 3), hidden_size, ...)
 ```
 
-#### 第二步：process_weights_after_loading (数据大挪移)
+#### 第二阶段：process_weights_after_loading（数据转换）
 
-权重数据从 Checkpoint 灌进来了，但格式不对。这一步是性能优化的关键，它要让数据"服从"底层内核的安排，避免运行时转换：
+权重数据从 Checkpoint 加载后，需要进行格式转换以适配底层计算内核。此阶段是性能优化的关键，通过预处理避免运行时的格式转换开销：
 
-- **权重 scale 的格式优化**：这一步很秀。它把 float32 的 scale 转成 bfloat16（省一半内存），并且调用 `interleave_scales` 函数对 scale 进行交错重排。
+- **权重 scale 的格式优化**：将 float32 格式的 scale 转换为 bfloat16（减少 50% 内存占用），并调用 `interleave_scales` 函数对 scale 进行交错重排。
 
-  为何重排？这是为了"迎合" CUTLASS 内核的内存访问模式（参考了 TRT-LLM 的实现）。重排后，内核在计算时能更高效地抓取数据。
+  为何重排？重排的目的是匹配 CUTLASS 内核的内存访问模式（参考了 TRT-LLM 的实现）。重排后，内核在计算时能够更高效地访问数据，提升缓存命中率。
 
 - **输入 scale 的聚合**：在静态量化模式下，把每个专家的输入 scale 聚合为单一标量，减少推理计算量。
 
@@ -212,11 +212,11 @@ def process_weights_after_loading(self, layer: Module) -> None:
     layer.w13_input_scale = Parameter(torch.tensor([w13_input_scale_max], dtype=torch.bfloat16), requires_grad=False)
 ```
 
-#### 第三步：apply (开火！调用底层内核)
+#### 第三阶段：apply（量化计算执行）
 
-万事俱备，只欠 forward。`apply` 就是那个"点火开关"。
+万事俱备，只欠 forward。在前向传播阶段，`apply` 函数被调用以执行量化计算。
 
-它会收集所有准备好的数据（激活、重排后的权重和 scale、路由结果等），然后"喊一声" `cutlass_w4a8_moe` 这个封装好的底层内核来干活，执行两个 GEMM 操作：
+此函数收集所有预处理完成的数据（激活、重排后的权重和 scale、路由结果等），然后调用 `cutlass_w4a8_moe` 底层内核执行两个 GEMM 操作：
 
 - GEMM1：`w13_weight`（gate 和 up）
 - GEMM2：`w2_weight`（down）
@@ -259,13 +259,13 @@ def apply(self, layer, dispatch_output) -> CombineInput:
 
 ## 总结：如何扩展新量化方案？
 
-最后，SGLang 这套架构最"香"的地方就在于扩展性。如果你想接入一种全新的量化方案（比如叫 W2A8），完全不用改动框架，只需要"照猫画虎"：
+SGLang 架构的核心优势在于其良好的扩展性。要接入新的量化方案（例如 W2A8），无需修改框架核心代码，只需按照以下步骤实现：
 
-1. **实现配置类**：继承 `QuantizationConfig`，解析自定义参数并实现 `get_quant_method`。
-2. **实现量化方法类**：继承 `LinearMethodBase` / `FusedMoEMethodBase`，实现 `create_weights`、`process_weights_after_loading` 和 `apply`。
-3. **注册方案**：在 `__init__.py` 的 `BASE_QUANTIZATION_METHODS` 中"挂个号"，写入字符串标识与配置类映射。
+1. **实现配置类**：继承 `QuantizationConfig`，解析自定义参数并实现 `get_quant_method` 方法。
+2. **实现量化方法类**：继承 `LinearMethodBase` / `FusedMoEMethodBase`，实现 `create_weights`、`process_weights_after_loading` 和 `apply` 三个方法。
+3. **注册方案**：在 `__init__.py` 的 `BASE_QUANTIZATION_METHODS` 中注册，建立字符串标识与配置类的映射关系。
 
-搞定！SGLang 的解耦设计让这一切变得非常简单。
+OK！SGLang 的解耦设计让这一切变得非常简单。
 
 ## 附录：SGLang中已经支持的量化方法
 
