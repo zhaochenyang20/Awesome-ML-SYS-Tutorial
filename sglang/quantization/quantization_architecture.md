@@ -4,7 +4,7 @@
 
 项目做完后，我一直想抽空做个总结，因为 SGLang 在量化这块的设计确实非常清晰，很值得拿出来聊聊。所以就有了这篇文章。本文会以 w4afp8 为例，带大家看看 SGLang 是如何处理量化的。
 
-SGLang 的量化实现位于 `python/sglang/srt/layers/quantization/` 目录。通过抽象基类和钩子函数 (Hook Function) 的设计，将模型构建、权重加载、推理执行这三个阶段有机地连接起来。
+SGLang 把所有的量化实现都"藏"在了 `python/sglang/srt/layers/quantization/` 目录里。它用了一套非常巧妙的抽象和钩子函数 (Hook Function)，把模型构建、权重加载、推理执行这三个阶段有机地连接起来。
 
 **我们将量化拆解为三个阶段：create_weights → process_weights_after_loading → apply**
 
