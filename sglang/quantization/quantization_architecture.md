@@ -1,6 +1,10 @@
 # 一文浅析 SGLang 框架的量化设计与思路
 
-前段时间我深度参与了 deepseek 模型的 w4afp8 量化项目，被迫对 SGLang 的量化部分有了不错的认知。（顺手提了个PR https://github.com/sgl-project/sglang/pull/9598，最终合进了 https://github.com/sgl-project/sglang/pull/8247#issuecomment-3258884128）。
+编者按：2025 年年初时，本系列的 ML-SYS-Tutorial 刚刚拥有 1k github stars。那时候这系列笔记中还包括有各方各面的内容，包括量化、并行策略，而今天，由于编者的时间有限，这几个月只有 RL sys 部分偶尔更新，确实背离初衷。索性编者结识了社区的好朋友们，打算在近期逐渐将散落在本系列博客的未发表部分逐一审核、重写然后发表。为了做到精益求精，我们会发布 linkedin、知乎、twitter、小红书以及 github 原版。由于时间有限，其中只有 github 的中文版维持更新，其余部分均为一次性 LLM 机器翻译（不过翻译质量肯定会得到保证），感谢大家理解。这段时间编者的工作和学习也发生了许多重大变化，等到事情告一段落再来分享这一路的心历。
+
+【本文由来自百度的姚攀登老师所写，由编者协助进行了一定修改，感谢姚老师的支持和对 SGLang 的厚爱。下文的“我”为姚攀登老师。】
+
+前段时间我深度参与了 deepseek 模型的 w4afp8 量化项目，被迫对 SGLang 的量化部分有了不错的认知。（顺手提了个 [PR](https://github.com/sgl-project/sglang/pull/9598)，最终合进了 [#8247](https://github.com/sgl-project/sglang/pull/8247#issuecomment-3258884128) 中）。
 
 项目做完后，我一直想抽空做个总结，因为 SGLang 在量化这块的设计确实非常清晰，很值得拿出来聊聊。所以就有了这篇文章。本文会以 w4afp8 为例，带大家看看 SGLang 是如何处理量化的。
 
@@ -8,15 +12,13 @@ SGLang 把所有的量化实现都"藏"在了 `python/sglang/srt/layers/quantiza
 
 **我们将量化拆解为三个阶段：create_weights → process_weights_after_loading → apply**
 
-- **create_weights**（建立管道）：预分配基础，模型刚开始构建，此函数负责把量化权重、Scale 因子这些参数分配内存。类似于先铺设水管，还没有通水。
-- **process_weights_after_loading**（数据转换）：权重从文件加载进来后，不能直接处理，它负责把权重和 Scale 转换成计算内核（比如 CUTLASS）最喜欢的格式和布局，比如做一些重排优化。
+- **create_weights**（建立管道）：预分配张量，模型刚开始构建，此函数负责把量化权重、Scale 因子这些参数分配内存。类似于先铺设水管，还没有通水。
+- **process_weights_after_loading**（数据转换）：权重从文件加载进来后，不能直接处理，它负责把权重和 Scale 转换成计算内核（比如 CUTLASS）最优的格式和布局，比如做一些重排优化，而后存储下来。
 - **apply**：当模型运行 `forward` 时，`apply` 函数就会被调用，它会指挥底层的计算内核（比如 FP8 GEMM），让激活和权重在管道里真正流动起来，完成计算。
 
 ## 整体流程
 
 具体看看 SGLang 的实现逻辑：
-
-### 执行流程
 
 ```
 ModelConfig._parse_quant_hf_config → 判定 quant_method（如 w4afp8）
@@ -77,7 +79,7 @@ DeepseekV2AttentionMLA.__init__()
       ↓
 RowParallelLinear.__init__()
       ↓
-LinearBase.__init__() (super().__init__()) # self.quant_method就是在父类初始化函数里
+LinearBase.__init__() (super().__init__()) # self.quant_method 就是在父类初始化函数里
       ↓
 quant_config.get_quant_method() → 返回 Fp8LinearMethod
       ↓
@@ -130,13 +132,13 @@ Fp8LinearMethod.apply()
 调用底层内核（CUTLASS/Marlin/torch）执行量化 GEMM
 ```
 
-## 实战解剖：W4AFp8 量化方案
+## W4AFp8 量化方案
 
-下面以 W4AFp8（权重 4bit + 激活 FP8）量化方案为例，详细分析 SGLang 的具体实现逻辑。
+下面以 W4AFp8（权重 INT4 + 激活 FP8）量化方案为例，详细分析 SGLang 的具体实现逻辑。
 
 ### W4AFp8Config
 
-`W4AFp8Config` 继承自 `QuantizationConfig`，它的任务就是把"配置 → 具体量化方法"这条链路打通。
+`W4AFp8Config` 继承自 `QuantizationConfig`，负责描述清楚"配置 → 具体量化方法"。
 
 **配置识别**：当 `hf_quant_config.json` 中 `quant_algo == "MIXED_PRECISION"` 时，`ModelConfig` 会把量化方案映射为 `w4afp8` 并校验硬件兼容性：
 
@@ -152,20 +154,21 @@ if quant_algo == "MIXED_PRECISION":
 
 - `W4AFp8Config.from_config()`：从配置字典解析并实例化配置对象
 - `W4AFp8Config.get_quant_method(layer, prefix)`：核心方法，根据层类型返回对应的量化方法实例：
-  ```python
-  if isinstance(layer, LinearBase):
-      return Fp8LinearMethod(self)  # 普通层用 Fp8LinearMethod
-  elif isinstance(layer, FusedMoE):
-      return W4AFp8MoEMethod(self)  # MoE 层用 W4AFp8MoEMethod
-  ```
+  
+```python
+if isinstance(layer, LinearBase):
+return Fp8LinearMethod(self)  # 普通层用 Fp8LinearMethod
+elif isinstance(layer, FusedMoE):
+return W4AFp8MoEMethod(self)  # MoE 层用 W4AFp8MoEMethod
+```
 
-### W4AFp8MoEMethod ("三步走"实战)
+### W4AFp8MoEMethod 具体流程
 
-`W4AFp8MoEMethod` 是 W4AFp8 在 MoE 层上的具体实现。我们按照"三步走"的顺序来看它干了啥：
+`W4AFp8MoEMethod` 是 W4AFp8 在 MoE 层上的具体实现。按照之前的三个步骤，我们来分析具体的实现：
 
-#### 第一阶段：create_weights（参数预分配）
+1. `create_weights`
 
-如前所述，这一步是预分配基础。在 `FusedMoE` 模块初始化时，它会为 MoE 层创建量化所需的参数容器，负责把量化权重、Scale 因子这些参数分配内存。
+如前所述，这一步是参数预分配。在 `FusedMoE` 模块初始化时，它会为 MoE 层创建量化所需的参数容器，负责把量化权重、Scale 因子这些参数分配内存。
 
 主要工作包括：
 
@@ -174,7 +177,7 @@ if quant_algo == "MIXED_PRECISION":
 - 准备激活缩放因子：`w13_input_scale` 和 `w2_input_scale`
 - 初始化计算所需的元数据：如 stride、expert offsets 等
 
-注意，此时参数容器为空（使用 `torch.empty` 创建），仅完成内存布局的初始化，尚未填充实际数据。
+注意，此时参数为空（使用 `torch.empty` 创建），仅完成内存布局的初始化，尚未填充实际数据。
 
 ```python
 def create_weights(self, layer, num_experts, hidden_size, ...):
@@ -190,14 +193,11 @@ def create_weights(self, layer, num_experts, hidden_size, ...):
     self.a_strides1 = torch.full((num_experts, 3), hidden_size, ...)
 ```
 
-#### 第二阶段：process_weights_after_loading（数据转换）
+2. `process_weights_after_loading`
 
-权重数据从 Checkpoint 加载后，需要进行格式转换以适配底层计算内核。此阶段是性能优化的关键，通过预处理避免运行时的格式转换开销：
+权重数据从 Checkpoint 加载后，需要进行格式转换以适配底层计算内核：
 
-- **权重 scale 的格式优化**：将 float32 格式的 scale 转换为 bfloat16（减少 50% 内存占用），并调用 `interleave_scales` 函数对 scale 进行交错重排。
-
-  为何重排？重排的目的是匹配 CUTLASS 内核的内存访问模式（参考了 TRT-LLM 的实现）。重排后，内核在计算时能够更高效地访问数据，提升缓存命中率。
-
+- **权重 scale 的格式优化**：将 float32 格式的 scale 转换为 bfloat16（减少 50% 内存占用），并调用 `interleave_scales` 函数对 scale 进行交错重排。（重排的目的是匹配 CUTLASS 内核的内存访问模式（参考了 TRT-LLM 的实现）。重排后，内核在计算时能够更高效地访问数据，提升缓存命中率。）
 - **输入 scale 的聚合**：在静态量化模式下，把每个专家的输入 scale 聚合为单一标量，减少推理计算量。
 
 ```python
@@ -212,11 +212,9 @@ def process_weights_after_loading(self, layer: Module) -> None:
     layer.w13_input_scale = Parameter(torch.tensor([w13_input_scale_max], dtype=torch.bfloat16), requires_grad=False)
 ```
 
-#### 第三阶段：apply（量化计算执行）
+3. `apply`
 
-万事俱备，只欠 forward。在前向传播阶段，`apply` 函数被调用以执行量化计算。
-
-此函数收集所有预处理完成的数据（激活、重排后的权重和 scale、路由结果等），然后调用 `cutlass_w4a8_moe` 底层内核执行两个 GEMM 操作：
+万事俱备，只欠 forward。在前向传播阶段，`apply` 函数被调用以执行量化计算。此函数收集所有预处理完成的数据（激活、重排后的权重和 scale、路由结果等），然后调用 `cutlass_w4a8_moe` 底层内核执行两个 GEMM 操作：
 
 - GEMM1：`w13_weight`（gate 和 up）
 - GEMM2：`w2_weight`（down）
@@ -241,7 +239,7 @@ def apply(self, layer, dispatch_output) -> CombineInput:
         self.expert_offsets, self.problem_sizes1, self.problem_sizes2,
         layer.w13_input_scale, layer.w2_input_scale,
     )
-    # 应用路由缩放因子（如果配置了）
+    # 应用路由缩放因子
     if self.moe_runner_config.routed_scaling_factor is not None:
         output *= self.moe_runner_config.routed_scaling_factor
     return StandardCombineInput(hidden_states=output)
@@ -249,25 +247,23 @@ def apply(self, layer, dispatch_output) -> CombineInput:
 
 ### Fp8LinearMethod
 
-那普通线性层（非 MoE）呢？`W4AFp8Config` 会分配 `Fp8LinearMethod` 去处理它。
-
-逻辑是类似的，但更简单：
+接着参考线性层的实现，`W4AFp8Config` 会分配 `Fp8LinearMethod`；逻辑类似，但更简单：
 
 - `create_weights`：注册 `weight`、`weight_scale` 和 `input_scale` 占位符。
 - `process_weights_after_loading`：根据硬件（Marlin、CUTLASS 等）要求，对权重和 scale 进行格式转换。
 - `apply`：调用合适的内核（Marlin、CUTLASS 等）执行 FP8 GEMM 计算。
 
-## 总结：如何扩展新量化方案？
+## 如何扩展新量化方案？
 
-SGLang 架构的核心优势在于其良好的扩展性。要接入新的量化方案（例如 W2A8），无需修改框架核心代码，只需按照以下步骤实现：
+SGLang 的可扩展性以及恰到好处、不多不少的抽象确实非常舒服。要接入新的量化方案（例如 W2A8），无需修改框架核心代码，只需按照以下步骤实现：
 
 1. **实现配置类**：继承 `QuantizationConfig`，解析自定义参数并实现 `get_quant_method` 方法。
-2. **实现量化方法类**：继承 `LinearMethodBase` / `FusedMoEMethodBase`，实现 `create_weights`、`process_weights_after_loading` 和 `apply` 三个方法。
+2. **实现量化方法类**：继承 `LinearMethodBase`、`FusedMoEMethodBase`，实现 `create_weights`、`process_weights_after_loading` 和 `apply` 三个方法。
 3. **注册方案**：在 `__init__.py` 的 `BASE_QUANTIZATION_METHODS` 中注册，建立字符串标识与配置类的映射关系。
 
-OK！SGLang 的解耦设计让这一切变得非常简单。
+SGLang 的解耦设计让这一切变得非常简单。
 
-## 附录：SGLang中已经支持的量化方法
+## 附录：SGLang 中已经支持的量化方法
 
 | Category              | Representative Configurations                                                                 | Description                                                                              |
 | --------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
