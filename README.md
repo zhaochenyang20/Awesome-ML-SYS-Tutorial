@@ -1,4 +1,5 @@
 # Awesome-ML-SYS-Tutorial
+
 ## [English README](./README-eng.md) | [简体中文](./README.md)
 
 My learning notes/codes for ML SYS.
@@ -43,6 +44,7 @@ $$
 
 ## SGLang 学习笔记
 
+- [浅析 SGLang 框架的量化设计与思路](./sglang/quantization/quantization_architecture.md)：同样刊载于[知乎：浅析 SGLang 框架的量化设计与思路](https://zhuanlan.zhihu.com/p/1971183020338832111)还有[英文版本](./sglang/quantization/quantization_architecture_en.md)。
 - [查看 HuggingFace 模型结构](https://zhuanlan.zhihu.com/p/9912733791)
 - [Constraint Decoding 的概念、方法与优化](./sglang/constraint-decoding/readme.md)：同样刊载于[知乎：一文理解 Constraint Decoding 的概念、方法与优化](https://zhuanlan.zhihu.com/p/18336995950)。
 - [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)：一个请求被 SGLang Engine 处理的全过程，还有一些 part 没有完成，但是大多地方已经 okay，也让很多 SGLang begginer 就此开始。这里还有[中文版本](./sglang/code-walk-through/readme-CN.md)。
