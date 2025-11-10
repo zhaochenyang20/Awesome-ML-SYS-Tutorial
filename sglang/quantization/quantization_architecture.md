@@ -157,9 +157,9 @@ if quant_algo == "MIXED_PRECISION":
   
 ```python
 if isinstance(layer, LinearBase):
-return Fp8LinearMethod(self)  # 普通层用 Fp8LinearMethod
+    return Fp8LinearMethod(self)  # 普通层用 Fp8LinearMethod
 elif isinstance(layer, FusedMoE):
-return W4AFp8MoEMethod(self)  # MoE 层用 W4AFp8MoEMethod
+    return W4AFp8MoEMethod(self)  # MoE 层用 W4AFp8MoEMethod
 ```
 
 ### W4AFp8MoEMethod 具体流程
