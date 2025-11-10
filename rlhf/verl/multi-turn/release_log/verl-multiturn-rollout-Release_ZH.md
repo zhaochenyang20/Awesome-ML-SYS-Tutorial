@@ -85,7 +85,8 @@ python3 -m uv pip install -e ".[sglang]"
 # 手动安装 flash-attn
 python3 -m uv pip install wheel
 python3 -m uv pip install packaging
-python3 -m uv pip install flash-attn --no-build-isolation --no-deps
+# 实际上我发现 torch 2.6.0 最好搭配 flash-attn 2.7.4.post1
+python3 -m uv pip install flash-attn==2.7.4.post1 --no-build-isolation --no-deps
 
 # 安装 verl
 python3 -m uv pip install .

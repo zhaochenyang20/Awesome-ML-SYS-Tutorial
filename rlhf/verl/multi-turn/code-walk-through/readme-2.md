@@ -21,7 +21,7 @@ B1 --> Workers
     end
     
     Workers --> C1[Hybrid Engine]
-end
+end 
 
 subgraph W3["Train Loop"]
     direction TB
@@ -368,11 +368,11 @@ class RLHFDataset(Dataset):
 
 </details>
 
-1. 支持从远程存储（如 HDFS）下载 Parquet 文件到本地缓存，支持共享内存（shared memory）加速文件访问，自动管理文件路径，支持检查点恢复。
+1. 支持从远程存储下载 Parquet 文件到本地缓存，支持共享内存加速文件访问，自动管理文件路径，支持检查点恢复。
 2. 使用 HuggingFace `datasets` 库读取 Parquet 文件，支持多个数据文件的合并，自动处理数据格式转换。
 3. 根据最大长度过滤过长的 prompts，支持多进程并行处理，可配置的过滤策略。
 4. 支持图像和视频的多模态输入，解析 `<image>` 和 `<video>` 标签，将多模态内容转换为结构化格式。
-5. 添加 chat template 来格式化对话，将文本转换为 token IDs，生成注意力掩码和位置编码。
+5. 添加 chat template 来格式化对话，将文本转换为 token IDs，生成 attn mask 和 position ids。
 6. padding 到指定长度，支持多种截断策略（left, right, middle, error），生成位置编码。
 7. 支持训练中断后的恢复，可以从原始文件重新构建数据集，兼容序列化/反序列化。
 8. 返回包含以下关键字段的字典：`input_ids`, `attention_mask`, `position_ids`, `raw_prompt_ids`, `multi_modal_data`, `multi_modal_inputs`, `index`, `tools_kwargs`。
@@ -788,220 +788,13 @@ def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataPro
 
 现在来看，`asyncio.gather(*[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],)` 就显得无比清晰了。
 
+## 数据流管理
 
+我们继续去理解 `RayPPOTrainer.fit()` 函数，从数据流管理开始。这里我认为最重要的两个类是 `DataProto` 和 `RLHFDataset`。
 
-## 数据管理
+### `DataProto`
 
-解释完了 Async Rollout 之后，我们继续拆解 `.fit()` 函数，从数据管理开始。首先，我们来解析 
-
-
-我来帮你分析一下 `DataProto` 和 `RLHFDataset` 的关系，以及为什么 `RayPPOTrainer` 中可能没有直接使用 `RLHFDataset`。
-
-Search files...
-Search files...
-Search files...
-Read file: verl/trainer/ppo/ray_trainer.py
-现在我来分析一下 `DataProto` 和 `RLHFDataset` 的关系，以及为什么 `RayPPOTrainer` 中可能没有直接使用 `RLHFDataset`。
-
-## DataProto 和 RLHFDataset 的关系分析
-
-### 1. **DataProto 的作用和设计**
-
-`DataProto` 是 verl 框架中的**核心数据交换协议**，它定义了一个标准的数据结构用于在不同组件之间传递数据：
-
-```python
-@dataclass
-class DataProto:
-    batch: TensorDict = None          # 存储张量数据
-    non_tensor_batch: Dict = field(default_factory=dict)  # 存储非张量数据
-    meta_info: Dict = field(default_factory=dict)         # 存储元信息
-```
-
-`DataProto` 的主要特点：
-- **统一的数据格式**：所有 worker 之间都使用 `DataProto` 进行数据交换
-- **支持张量和非张量数据**：可以同时处理 `torch.Tensor` 和 `numpy.ndarray` 等
-- **丰富的操作方法**：提供 `union`、`select`、`chunk`、`concat` 等操作
-- **序列化支持**：支持 Ray 分布式环境下的数据传输
-
-### 2. **RLHFDataset 的作用**
-
-`RLHFDataset` 是一个**数据加载和预处理类**，继承自 `torch.utils.data.Dataset`：
-
-```python
-class RLHFDataset(Dataset):
-    def __init__(self, data_files, tokenizer, config, processor=None):
-        # 加载 parquet 文件
-        # 进行 tokenization
-        # 处理多模态数据（图像/视频）
-        # 过滤过长序列
-```
-
-`RLHFDataset` 的主要功能：
-- **数据加载**：从 parquet 文件读取原始数据
-- **预处理**：tokenization、长度过滤、多模态处理
-- **标准化输出**：返回包含 `input_ids`、`attention_mask`、`position_ids` 等的字典
-
-### 3. **两者的关系和数据流**
-
-让我查看一下数据是如何从 `RLHFDataset` 转换到 `DataProto` 的：
-
-Search files...
-现在我明白了！让我总结一下 `DataProto` 和 `RLHFDataset` 的关系：
-
-## 数据流转换过程
-
-### 1. **数据流转换链路**
-
-```
-RLHFDataset → DataLoader → collate_fn → DataProto → RayPPOTrainer
-```
-
-具体流程：
-
-1. **RLHFDataset** 负责数据加载和预处理：
-   - 从 parquet 文件读取原始数据
-   - 进行 tokenization
-   - 返回包含 `input_ids`、`attention_mask` 等的字典
-
-2. **DataLoader + collate_fn** 负责批处理：
-   ```python
-   def collate_fn(data_list: list[dict]) -> dict:
-       tensors = defaultdict(list)
-       non_tensors = defaultdict(list)
-       
-       for data in data_list:
-           for key, val in data.items():
-               if isinstance(val, torch.Tensor):
-                   tensors[key].append(val)
-               else:
-                   non_tensors[key].append(val)
-       
-       # 将张量堆叠成批次
-       for key, val in tensors.items():
-           tensors[key] = torch.stack(val, dim=0)
-       
-       # 将非张量数据转换为 numpy 数组
-       for key, val in non_tensors.items():
-           non_tensors[key] = np.array(val, dtype=object)
-       
-       return {**tensors, **non_tensors}
-   ```
-
-3. **DataProto.from_single_dict()** 将字典转换为 DataProto：
-   ```python
-   # 在 RayPPOTrainer 的训练循环中
-   test_batch = DataProto.from_single_dict(test_data)
-   ```
-
-### 2. **为什么 RayPPOTrainer 不直接使用 RLHFDataset**
-
-**RayPPOTrainer 确实使用了 RLHFDataset**，但它是通过以下方式间接使用的：
-
-1. **在 `_create_dataloader` 方法中**：
-   ```python
-   def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
-       from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
-       
-       if train_dataset is None:
-           train_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
-       # ...
-       
-       self.train_dataloader = StatefulDataLoader(
-           dataset=self.train_dataset,  # 这里就是 RLHFDataset
-           batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
-           collate_fn=collate_fn,
-           sampler=train_sampler,
-       )
-   ```
-
-2. **在训练循环中**：
-   ```python
-   for test_data in self.val_dataloader:  # 从 DataLoader 获取数据
-       test_batch = DataProto.from_single_dict(test_data)  # 转换为 DataProto
-   ```
-
-### 3. **设计原因**
-
-这种设计有几个重要原因：
-
-1. **抽象层次分离**：
-   - `RLHFDataset`：负责数据加载和预处理（数据层）
-   - `DataProto`：负责分布式环境下的数据交换（协议层）
-   - `RayPPOTrainer`：负责训练逻辑（训练层）
-
-2. **分布式兼容性**：
-   - `DataProto` 专门为 Ray 分布式环境设计
-   - 支持序列化、反序列化、跨节点传输
-   - 提供丰富的批处理操作（`union`、`select`、`chunk` 等）
-
-3. **灵活性**：
-   - 可以轻松替换数据源（不仅仅是 `RLHFDataset`）
-   - 支持自定义 `collate_fn`
-   - 支持不同的数据格式
-
-### 4. **实际使用示例**
-
-从测试代码可以看到完整的数据流：
-
-```python
-# 1. 创建 RLHFDataset
-dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config)
-
-# 2. 创建 DataLoader
-dataloader = DataLoader(dataset=dataset, batch_size=16, collate_fn=collate_fn)
-
-# 3. 获取批次数据
-batch_dict = next(iter(dataloader))
-
-# 4. 转换为 DataProto
-tensors = {}
-non_tensors = {}
-for key, val in batch_dict.items():
-    if isinstance(val, torch.Tensor):
-        tensors[key] = val
-    else:
-        non_tensors[key] = val
-
-data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
-```
-
-## 总结
-
-`DataProto` 和 `RLHFDataset` 的关系是**数据源和数据协议**的关系：
-
-- **RLHFDataset**：提供标准化的数据加载和预处理功能
-- **DataProto**：提供分布式环境下的数据交换协议
-- **RayPPOTrainer**：通过 DataLoader 使用 RLHFDataset，然后将数据转换为 DataProto 进行分布式训练
-
-这种设计使得 verl 框架既保持了数据加载的标准化，又实现了高效的分布式训练。
-
-数据分离的设计原理在于将用于生成的数据（如`input_ids`、`attention_mask`、`position_ids`等）从主批次中弹出，同时动态检测并处理多模态数据（`multi_modal_data`），支持工具调用的配置参数（`tools_kwargs`）和交互式训练的配置参数（`interaction_kwargs`），并保留原始提示数据（`raw_prompt_ids`、`raw_prompt`）用于生成。这种数据分离的必要性源于RL训练中不同阶段对数据格式的差异化需求：在生成阶段，模型只需要prompts用于推理，不包含回答；而在训练阶段，则需要完整的prompt+response序列用于策略更新。通过这种数据分离设计，veRL能够灵活处理不同长度的序列，同时保持数据的一致性和完整性，为后续的序列生成和模型训练提供高质量的数据基础。
-
-数据加载阶段的核心实现在 [`RayPPOTrainer.fit()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/trainer/ppo/ray_trainer.py#L957) 方法中：
-
-```python
-# 从DataLoader获取原始批次数据
-batch: DataProto = DataProto.from_single_dict(batch_dict)
-
-# 弹出用于生成的数据键
-batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-if "multi_modal_data" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("multi_modal_data")
-if "raw_prompt" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("raw_prompt")
-if "tools_kwargs" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("tools_kwargs")
-if "interaction_kwargs" in batch.non_tensor_batch:
-    non_tensor_batch_keys_to_pop.append("interaction_kwargs")
-gen_batch = batch.pop(
-    batch_keys=batch_keys_to_pop,
-    non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-)
-```
-
-
-`DataProto` 是veRL中用于统一处理数据的核心数据结构，定义在 [`protocol.py`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L201)：
+`DataProto` 是 verl 的数据交换协议，定义在 [`protocol.py`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L202)：
 
 ```python
 @dataclass
@@ -1016,95 +809,16 @@ class DataProto:
     batch: TensorDict = None
     non_tensor_batch: Dict = field(default_factory=dict)
     meta_info: Dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        # perform necessary checking
-        self.check_consistency()
 ```
 
-`DataProto`提供标准化的数据交换协议，基于PyTorch的TensorDict，支持张量的批量操作，同时通过`non_tensor_batch`字典来处理NumPy数组等非张量数据。`meta_info`存储额外的元信息。其中几个关键都是关于`DataProto`的创建，包括:
+`DataProto` 提供标准化的数据交换协议，基于 PyTorch 的 TensorDict，支持张量的批量操作，同时通过 `non_tensor_batch` 字典来处理 NumPy 数组等非张量数据。`meta_info` 存储额外的元信息。本身支持的操作挺基础的，典型的比如数据创建、切片、选择、合并、重命名、重复、填充、分块、以及分布式环境下的数据集合与分发。除此之外，`DataProto` 还通过数据验证 `check_consistency()` 确保在数据分离和合并过程的一致性。
 
-**[`from_single_dict()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L331) - 从字典创建DataProto**：
-```python
-@classmethod
-def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None, auto_padding=False):
-    """Create a DataProto from a dict of tensors and non_tensors"""
-    tensors = {}
-    non_tensors = {}
+### `RLHFDataset`
 
-    for key, val in data.items():
-        if isinstance(val, torch.Tensor):
-            tensors[key] = val
-        elif isinstance(val, np.ndarray):
-            non_tensors[key] = val
-        else:
-            raise ValueError(f"Unsupported type in data {type(val)}")
+[`RLHFDataset`]((https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L68)) 是 verl 中用于 RLHF 数据加载的数据集类，继承自 `datasets.Dataset`，主要用于处理 Parquet 文件中的数据，包括数据下载、tokenize、过滤、预处理等。
 
-    return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
-```
-
-**[`pop()`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/protocol.py#L517) - 弹出数据子集**：
-```python
-def pop(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None) -> "DataProto":
-    """Pop a subset of the DataProto via `batch_keys` and `meta_info_keys`
-
-    Args:
-        batch_keys (list, optional): a list of strings indicating the keys in batch to pop
-        meta_info_keys (list, optional): a list of keys indicating the meta info to pop
-
-    Returns:
-        DataProto: the DataProto with the poped batch_keys and meta_info_keys
-    """
-    if batch_keys is None:
-        batch_keys = []
-    if meta_info_keys is None:
-        meta_info_keys = []
-    if non_tensor_batch_keys is None:
-        non_tensor_batch_keys = []
-
-    tensors = {}
-    # tensor batch
-    for key in batch_keys:
-        assert key in self.batch.keys()
-        tensors[key] = self.batch.pop(key)
-    non_tensors = {}
-    # non tensor batch
-    for key in non_tensor_batch_keys:
-        assert key in self.non_tensor_batch.keys()
-        non_tensors[key] = self.non_tensor_batch.pop(key)
-    meta_info = {}
-    for key in meta_info_keys:
-        assert key in self.meta_info.keys()
-        meta_info[key] = self.meta_info.pop(key)
-    return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info)
-```
-
-**`union()` - 合并数据**：
-```python
-def union(self, other: "DataProto") -> "DataProto":
-    """Union with another DataProto. Union batch and meta_info separately.
-    Throw an error if
-
-    - there are conflict keys in batch and they are not equal
-    - the batch size of two data batch is not the same
-    - there are conflict keys in meta_info and they are not the same.
-
-    Args:
-        other (DataProto): another DataProto to union
-
-    Returns:
-        DataProto: the DataProto after union
-    """
-    self.batch = union_tensor_dict(self.batch, other.batch)
-    self.non_tensor_batch = union_numpy_dict(self.non_tensor_batch, other.non_tensor_batch)
-    self.meta_info = union_two_dict(self.meta_info, other.meta_info)
-    return self
-```
-除此之外，`DataProto`还能通过数据验证`check_consistency()`确保在数据分离和合并过程中不会出现不一致的情况，同时支持在CPU和GPU之间高效移动数据（`to()`），这对于分布式训练中的参数卸载和加载至关重要，索引操作和批处理操作则提供了灵活的数据处理能力，使得veRL能够高效地处理不同长度序列的批处理、多模态数据的组合以及复杂的训练数据流。这些特性共同构成了veRL数据流处理的技术基础，为后续的序列生成、经验处理和模型更新阶段提供了可靠的数据管理保障。
-
-#### 2.1.3 `RLHFDataset` 数据集类：高效的数据加载与预处理
-
-[`RLHFDataset`]((https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L68)) 是veRL中专门用于RLHF数据加载的数据集类：
+<details>
+<summary>RLHFDataset 源码</summary>
 
 ```python
 class RLHFDataset(Dataset):
@@ -1161,1490 +875,601 @@ class RLHFDataset(Dataset):
         self._read_files_and_tokenize()
 ```
 
-这一块可以讲的东西不多，和算法相关的主要就是数据的下载和tokenize：
+</details>
+
+有了 `DataProto` 和 `RLHFDataset` 后，我们来观察数据流：
+
+```text
+A：Parquet 文件 --> B：RLHFDataset --> C：DataLoader + collate_fn --> D：DataProto 原始数据 --> E：pop 提取生成数据 --> F：Rollout 生成 --> G：union 合并数据 --> H：奖励计算 --> I：优势计算 --> J：重新计算 log_probs --> K：计算参考 log_probs --> L：计算价值函数 --> M1：更新 critic --> M2：更新 actor --> N：返回训练指标
+```
+
+事实上，只有最初的三步不是 `DataProto`，其他都是通过 `DataProto` 进行数据交换的。具体每步的数据流向如下：
+
+<details>
+<summary>数据流详细分析</summary>
+
+A：`Parquet` 文件
 
 ```python
-def _download(self, use_origin_parquet=False):
-    from verl.utils.fs import copy_to_local
-
-    data_files = self.data_files if not use_origin_parquet else self.original_data_files
-    for i, parquet_file in enumerate(data_files):
-        self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
-
-# tokenize
-def _read_files_and_tokenize(self):
-    dataframes = []
-    for parquet_file in self.data_files:
-        # read parquet files and cache
-        dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
-        dataframes.append(dataframe)
-    self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
-
-    print(f"dataset len: {len(self.dataframe)}")
-
-    # filter out too long prompts
-    if self.filter_overlong_prompts:
-        tokenizer = self.tokenizer
-        processor = self.processor
-        prompt_key = self.prompt_key
-        image_key = self.image_key
-        video_key = self.video_key
-
-        if processor is not None:
-            from verl.utils.dataset.vision_utils import process_image, process_video
-
-            def doc2len(doc) -> int:
-                messages = self._build_messages(doc)
-                raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                images = [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
-                videos = [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
-
-                return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
-
-        else:
-
-            def doc2len(doc) -> int:
-                return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
-
-        self.dataframe = self.dataframe.filter(
-            lambda doc: doc2len(doc) <= self.max_prompt_length,
-            num_proc=self.num_workers,
-            desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
-        )
-
-        print(f"filter dataset len: {len(self.dataframe)}")
-
-# 数据获取与预处理
-def __getitem__(self, item):
-    """
-    Note that we also return the raw_input_ids so that it can be combined with other chat template
-    """
-    row_dict: dict = self.dataframe[item]
-    messages = self._build_messages(row_dict)
-    model_inputs = {}
-
-    if self.processor is not None:
-        from verl.utils.dataset.vision_utils import process_image, process_video
-
-        raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        multi_modal_data = {}
-
-        images = None
-        if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-            images = [process_image(image) for image in row_dict.pop(self.image_key)]
-            multi_modal_data["image"] = images
-
-        videos = None
-        if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
-            videos = [process_video(video) for video in row_dict.pop(self.video_key)]
-            multi_modal_data["video"] = [video.numpy() for video in videos]
-
-        model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
-
-        input_ids = model_inputs.pop("input_ids")
-        attention_mask = model_inputs.pop("attention_mask")
-
-        if "second_per_grid_ts" in model_inputs:
-            model_inputs.pop("second_per_grid_ts")
-
-        # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
-        row_dict["multi_modal_data"] = multi_modal_data
-        row_dict["multi_modal_inputs"] = dict(model_inputs)
-
-        # second_per_grid_ts isn't used for training, just for mrope
-        row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
-
-    else:
-        raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
-        input_ids = model_inputs.pop("input_ids")
-        attention_mask = model_inputs.pop("attention_mask")
-
-    input_ids, attention_mask = verl_F.postprocess_data(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        max_length=self.max_prompt_length,
-        pad_token_id=self.tokenizer.pad_token_id,
-        left_pad=True,
-        truncation=self.truncation,
-    )
-
-    if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-        from verl.models.transformers.qwen2_vl import get_rope_index
-
-        position_ids = [
-            get_rope_index(
-                self.processor,
-                input_ids=input_ids[0],
-                image_grid_thw=model_inputs.get("image_grid_thw"),
-                video_grid_thw=model_inputs.get("video_grid_thw"),
-                second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                attention_mask=attention_mask[0],
-            )
-        ]  # (1, 3, seq_len)
-
-    else:
-        position_ids = compute_position_id_with_mask(attention_mask)
-
-    row_dict["input_ids"] = input_ids[0]
-    row_dict["attention_mask"] = attention_mask[0]
-    row_dict["position_ids"] = position_ids[0]
-
-    raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-    if len(raw_prompt_ids) > self.max_prompt_length:
-        if self.truncation == "left":
-            raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
-        elif self.truncation == "right":
-            raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
-        elif self.truncation == "middle":
-            left_half = self.max_prompt_length // 2
-            right_half = self.max_prompt_length - left_half
-            raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
-        elif self.truncation == "error":
-            raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
-
-    row_dict["raw_prompt_ids"] = raw_prompt_ids
-    # encode prompts without chat template
-    if self.return_raw_chat:
-        row_dict["raw_prompt"] = messages
-
-    # get prompts with chat template
-    if self.return_full_prompt:
-        row_dict["full_prompts"] = raw_prompt  # array of strings
-
-    # add index for each prompt
-    index = row_dict.get("extra_info", {}).get("index", 0)
-    tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
-    interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
-    need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
-    if need_tools_kwargs and not tools_kwargs:
-        logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
-    row_dict["index"] = index
-    row_dict["tools_kwargs"] = tools_kwargs
-    row_dict["interaction_kwargs"] = interaction_kwargs
-    return row_dict
+data_files = "~/data/rlhf/gsm8k/train.parquet"
 ```
 
-[`collate_fn`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L37) 可以将张量数据和非张量数据分别收集并且使用`torch.stack`将张量数据堆叠成批次。这里统一将将非张量数据转换为NumPy数组。具体的实现如下：
+B：RLHFDataset
 
 ```python
-def collate_fn(data_list: list[dict]) -> dict:
-    """
-    Collate a batch of sample dicts into batched tensors and arrays.
-
-    Args:
-        data_list: List of dicts mapping feature names to torch.Tensor or other values.
-
-    Returns:
-        Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, *dims) and non-tensor entries are converted to
-        np.ndarray of dtype object with shape (batch_size,).
-    """
-    tensors = defaultdict(list)
-    non_tensors = defaultdict(list)
-
-    for data in data_list:
-        for key, val in data.items():
-            if isinstance(val, torch.Tensor):
-                tensors[key].append(val)
-            else:
-                non_tensors[key].append(val)
-
-    for key, val in tensors.items():
-        tensors[key] = torch.stack(val, dim=0)
-
-    for key, val in non_tensors.items():
-        non_tensors[key] = np.array(val, dtype=object)
-
-    return {**tensors, **non_tensors}
-```
-
-
-#### 2.1.4 FAQ
-
-**Q1: 为什么需要将数据分离为生成数据和训练数据？**
-
-A1: 在RLHF训练中，不同阶段需要不同的数据格式：
-- **生成阶段**：只需要输入prompt，用于模型推理生成响应
-- **训练阶段**：需要完整的prompt+response序列，用于计算损失和更新策略
-
-这种分离设计避免了数据冗余，提高了内存效率，同时保持了数据的一致性。
-
-**Q2: DataProto和普通的字典有什么区别？**
-
-A2: DataProto提供了更强大的功能：
-- **类型安全**：自动区分张量数据和非张量数据
-- **批量操作**：支持索引、切片、连接等批量操作
-- **设备管理**：支持设备间数据移动
-- **一致性检查**：自动验证数据的一致性
-
-**Q3: 如何处理超长序列？**
-
-A3: veRL提供了多种截断策略：
-- [**left**](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L280)：从左侧截断，保留序列末尾
-- [**right**](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L282)：从右侧截断，保留序列开头
-- [**middle**](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L284)：从中间截断，保留开头和结尾
-- **error**：抛出错误，要求用户处理
-
-**Q4: 多模态数据是如何处理的？**
-
-A4: veRL通过ProcessorMixin支持多模态数据：
-- **图像处理**：支持图像编码和网格化处理
-- **视频处理**：支持视频帧提取和时间编码 ([images/video](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/utils/dataset/rl_dataset.py#L90))
-- **位置编码**：为多模态数据生成特殊的位置编码
-- **注意力掩码**：处理多模态数据的注意力机制
-
-
-**Q5: tool use data是如何处理的？**
-
-A7: veRL支持工具调用的数据处理：
-- **工具参数**：通过`tools_kwargs`传递工具调用参数
-- **交互参数**：通过`interaction_kwargs`传递交互式训练参数
-- [SGLang Rollout的tool use kwargs 处理](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L1082-1099) - 工具参数处理
-- [veRL自己的base tool类](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/tools/base_tool.py) - 基础工具类实现
-
-### 2.2 Rollout
-
-数据准备完成后，进入序列生成阶段。这是RL训练中的"环境交互"环节，让当前策略生成响应序列，为后续的经验收集提供基础数据。
-
-#### 2.2.1 核心类架构
-
-veRL的rollout系统采用了模块化设计，主要包含以下几个重要类：
-
-**类层次结构：**
-```
-BaseRollout (抽象基类)
-├── SGLangRollout (SGLang推理引擎)
-├── HFRollout (HuggingFace推理引擎)
-├── VLLMRollout (vLLM推理引擎)
-└── NaiveRollout (简单推理引擎)
-```
-
-#### 2.2.2 `BaseRollout` 抽象基类
-
-**文件**: `verl/workers/rollout/base.py`
-
-```python
-class BaseRollout(ABC):
-    """Rollout系统的抽象基类，定义了所有rollout引擎必须实现的接口"""
-    
-    @abstractmethod
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """生成序列的核心抽象方法
-        
-        Args:
-            prompts: 包含输入提示的DataProto对象
-            
-        Returns:
-            DataProto: 包含生成序列的DataProto对象
-        """
-        pass
-```
-
-**设计理念：**
-- **统一接口**：所有rollout引擎都实现相同的`generate_sequences`接口
-- **可扩展性**：支持不同的推理后端（SGLang、vLLM、HF等）
-- **数据一致性**：使用`DataProto`作为统一的数据容器
-
-#### 2.2.3 `SGLangRollout` 核心实现
-
-**文件**: `verl/workers/rollout/sglang_rollout/sglang_rollout.py`
-
-`SGLangRollout`是veRL中最核心的rollout实现，支持高效的多轮对话和工具调用。
-
-**初始化流程**：
-```python
-class SGLangRollout(BaseRollout):
-    def __init__(self, actor_module, config, tokenizer, model_hf_config, 
-                 port=None, trust_remote_code=False, device_mesh=None, **kwargs):
-        """SGLang Rollout引擎的初始化
-        
-        核心组件：
-        1. 工具系统初始化 - 支持多轮对话中的工具调用
-        2. 分布式环境设置 - 支持多节点推理
-        3. 推理引擎初始化 - SGLang AsyncEngine
-        4. 采样参数配置 - 控制生成行为
-        """
-        super().__init__()
-        self.config = config
-        self._device_mesh_cpu = device_mesh
-        
-        # 1. 工具系统初始化
-        (self._tool_schemas, self._tool_map, self._tool_call_parser_type,
-         self._sgl_tools, self._function_call_parser) = self._initialize_tools(config, tokenizer)
-        
-        # 2. 分布式环境初始化
-        self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
-        
-        # 3. 推理引擎初始化
-        self._init_inference_engine(trust_remote_code, actor_module, port)
-        
-        # 4. 采样参数初始化
-        self._init_sampling_params(**kwargs)
-```
-
-**关键方法实现**：
-
-**`generate_sequences()` - 主入口方法**：
-```python
-def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """序列生成的主入口方法
-    
-    根据配置选择不同的生成模式：
-    - 多轮对话模式：使用异步请求级生成
-    - 单轮对话模式：使用批处理级生成
-    """
-    if self.config.multi_turn.enable:
-        return self._req_level_generate_sequences(prompts, **kwargs)
-    else:
-        return self._batch_level_generate_sequences(prompts, **kwargs)
-```
-
-**`_batch_level_generate_sequences()` - 批处理生成**：
-```python
-def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """批处理级序列生成 - 适用于单轮对话
-    
-    核心步骤：
-    1. 数据预处理：提取token IDs和图像数据
-    2. 采样参数配置：根据验证/训练模式设置不同参数
-    3. SGLang引擎调用：异步生成序列
-    4. 结果后处理：构建完整的序列数据
-    5. 内存管理：清理KV缓存
-    """
-    # 1. 数据预处理
-    idx = prompts.batch["input_ids"]  # (bs, prompt_length)
-    attention_mask = prompts.batch["attention_mask"]
-    position_ids = prompts.batch["position_ids"]
-    
-    # 2. 多模态数据处理
-    if "multi_modal_data" in prompts.non_tensor_batch:
-        sglang_inputs = []
-        for raw_prompt_ids, multi_modal_data in zip(
-            prompts.non_tensor_batch.pop("raw_prompt_ids"),
-            prompts.non_tensor_batch.pop("multi_modal_data"),
-        ):
-            sglang_inputs.append({
-                "prompt_token_ids": raw_prompt_ids,
-                "multi_modal_data": multi_modal_data,
-                "image_data": multi_modal_data.get("image", None),
-            })
-    
-    # 3. 采样参数配置
-    do_sample = prompts.meta_info.get("do_sample", True)
-    is_validate = prompts.meta_info.get("validate", False)
-    
-    if not do_sample:
-        # 确定性生成（贪婪解码）
-        kwargs = dict(
-            n=1, temperature=0, top_p=1, top_k=-1,
-            max_new_tokens=self.config.response_length,
-        )
-    elif is_validate:
-        # 验证模式参数
-        kwargs = dict(
-            top_k=self.config.val_kwargs.top_k,
-            top_p=self.config.val_kwargs.top_p,
-            temperature=self.config.val_kwargs.temperature,
-            n=1,
-        )
-    
-    # 4. SGLang引擎调用
-    with self.update_sampling_params(**kwargs):
-        if self._tp_rank == 0:  # 只在主进程中调用引擎
-            loop = asyncio.get_event_loop()
-            output = loop.run_until_complete(
-                self._engine.async_generate(
-                    prompt=None,
-                    sampling_params=self.sampling_params,
-                    return_logprob=True,
-                    input_ids=idx_list,
-                    image_data=image_list,
-                )
-            )
-        else:
-            output = None
-        
-        # 5. 结果广播到所有TP rank
-        [output] = broadcast_pyobj(
-            data=[output],
-            rank=self._rank,
-            dist_group=self._device_mesh_cpu["tp"].get_group(),
-            src=self._device_mesh_cpu["tp"].mesh[0].item(),
-        )
-    
-    # 6. 结果后处理
-    out = _post_process_outputs(self.tokenizer, output)
-    response = out[0].to(idx.device)
-    rollout_log_probs = out[1].to(idx.device)
-    
-    # 7. 序列构建
-    seq = torch.cat([idx, response], dim=-1)
-    response_length = response.size(1)
-    
-    # 8. 位置ID和注意力掩码更新
-    delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-    delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
-    response_position_ids = position_ids[:, -1:] + delta_position_id
-    position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-    
-    # 9. 构建返回数据
-    batch = TensorDict({
-        "prompts": idx,
-        "responses": response,
-        "input_ids": seq,
-        "rollout_log_probs": rollout_log_probs,
-        "attention_mask": attention_mask,
-        "position_ids": position_ids,
-    }, batch_size=batch_size)
-    
-    # 10. 内存清理
-    if self.config.free_cache_engine and self._engine is not None:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self._engine.flush_cache())
-    
-    return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
-```
-
-#### 2.2.4 `AsyncRolloutRequest` 异步请求模型
-
-**文件**: `verl/workers/rollout/schemas.py`
-
-`AsyncRolloutRequest`是多轮对话中的核心数据结构，管理单个对话请求的完整生命周期。
-
-**核心属性**：
-```python
-class AsyncRolloutRequest(BaseModel):
-    """异步rollout请求的数据模型"""
-    
-    # 基础标识
-    batch_data_id: int = 0          # 批次中的数据索引
-    rollout_offset: int = 0         # 同一数据的多次采样偏移
-    request_id: str                 # 唯一请求ID
-    state: AsyncRolloutRequestStateEnum  # 请求状态
-    
-    # 对话内容
-    messages: List[Message]         # 对话消息列表
-    tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None  # 工具模式
-    tools_kwargs: Dict[str, Any] = {}  # 工具参数
-    
-    # Token序列
-    input_ids: List[int]            # 完整输入token序列
-    prompt_ids: List[int]           # 提示部分token序列
-    response_ids: List[int]         # 响应部分token序列
-    
-    # 掩码和位置信息
-    attention_mask: List[int]       # 注意力掩码
-    position_ids: List[int]         # 位置ID
-    loss_mask: List[int]            # 损失计算掩码
-    
-    # 奖励和指标
-    reward_scores: Dict[str, float] # 工具奖励分数
-    metrics: Dict[str, List[Any]]   # 性能指标
-    
-    # 配置参数
-    max_prompt_len: int             # 最大提示长度
-    max_response_len: int = 8192    # 最大响应长度
-    max_model_len: int = 32768      # 最大模型长度
-```
-
-**状态管理**：
-```python
-class AsyncRolloutRequestStateEnum(str, Enum):
-    """异步rollout请求的状态枚举"""
-    PENDING = "pending"      # 等待处理
-    RUNNING = "running"      # 正在运行
-    COMPLETED = "completed"  # 已完成
-    FAILED = "failed"        # 失败
-    TOOL_CALLING = "tool_calling"  # 工具调用中
-```
-
-**关键方法**：
-
-**`add_assistant_message()` - 添加助手消息**：
-```python
-def add_assistant_message(self, tokenizer: PreTrainedTokenizer, content: str, 
-                         tool_calls: Optional[List[ToolCall]] = None) -> None:
-    """添加助手的回复消息
-    
-    Args:
-        tokenizer: 分词器
-        content: 文本内容
-        tool_calls: 工具调用列表（可选）
-    """
-    # 创建助手消息
-    assistant_message = Message(
-        role="assistant",
-        content=content,
-        tool_calls=tool_calls,
-    )
-    self.messages.append(assistant_message)
-    
-    # 计算新消息的token
-    if tool_calls is not None:
-        # 包含工具调用的消息
-        content = tokenizer.apply_chat_template(
-            [*BASE_CHAT_HISTORY, *self.messages[-2:]],  # 用户消息 + 助手消息
-            tools=[tool.model_dump() for tool in self.tool_schemas],
-            add_generation_prompt=False,
-            tokenize=False
-        )
-    else:
-        # 普通文本消息
-        content = tokenizer.apply_chat_template(
-            [*BASE_CHAT_HISTORY, *self.messages[-2:]],
-            tools=None,
-            add_generation_prompt=False,
-            tokenize=False
-        )
-    
-    # 计算新增的token
-    content_ids = tokenizer.encode(
-        content[self.base_conv_wo_gen_prompt_end_pos:],
-        add_special_tokens=False
-    )
-    
-    # 更新输入序列
-    self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
-```
-
-**`add_tool_response_messages()` - 添加工具响应**：
-```python
-def add_tool_response_messages(self, tokenizer: PreTrainedTokenizer, 
-                              contents: list[str]) -> None:
-    """添加工具响应消息
-    
-    Args:
-        tokenizer: 分词器
-        contents: 工具响应内容列表
-    """
-    if not contents:
-        return
-    
-    # 添加工具响应消息
-    self.messages.extend([
-        Message(role="tool", content=content) 
-        for content in contents
-    ])
-    
-    # 计算工具响应的token
-    content = tokenizer.apply_chat_template(
-        [*BASE_CHAT_HISTORY, *self.messages[-len(contents):]],
-        tools=[tool.model_dump() for tool in self.tool_schemas],
-        add_generation_prompt=False,
-        tokenize=False
-    )
-    content_ids = tokenizer.encode(
-        content[self.base_conv_wo_gen_prompt_end_pos:],
-        add_special_tokens=False
-    )
-    
-    # 更新输入序列（工具响应不参与损失计算）
-    self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
-```
-
-#### 2.2.5 `_req_level_generate_sequences()` 请求级生成
-
-**多轮对话的核心实现**：
-```python
-def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """请求级序列生成 - 适用于多轮对话和工具调用
-    
-    核心特点：
-    1. 每个对话独立处理，支持不同的轮数
-    2. 支持工具调用和异步执行
-    3. 动态长度管理，避免等待最慢的对话
-    4. 完整的对话状态跟踪
-    """
-    # 1. 预处理：将批处理数据转换为独立请求
-    if self._tp_rank == 0:
-        req_list = self._preprocess_prompt_to_async_rollout_requests(
-            prompts,
-            n=1 if is_validate else self.config.n,  # 验证时只生成1个候选，训练时生成n个
-        )
-        
-        # 2. 并发处理所有请求
-        loop = asyncio.get_event_loop()
-        output_req_list = loop.run_until_complete(
-            asyncio.gather(*[
-                self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) 
-                for req in req_list
-            ])
-        ) # 最后生成候选的response list
-        
-def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-    """批量生成序列"""
-    
-    # 获取输入数据
-    idx = prompts.batch["input_ids"]
-    attention_mask = prompts.batch["attention_mask"]
-    position_ids = prompts.batch["position_ids"]
-    eos_token_id = prompts.meta_info["eos_token_id"]
-    
-    batch_size = idx.size(0)
-    
-    # 处理非张量数据
-    non_tensor_batch = prompts.non_tensor_batch
-    if "raw_prompt_ids" not in non_tensor_batch:
-        non_tensor_batch["raw_prompt_ids"] = [self._pre_process_inputs(idx[i]) for i in range(batch_size)]
-    
-    # 准备输入数据
-    sglang_inputs = [{"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch["raw_prompt_ids"]]
-    
-    # 调用生成引擎
-    output = self._engine.async_generate(input_ids=sglang_inputs, **kwargs)
-    
-    # 处理生成的输出
-    batched_output_token_ids, batched_logprobs = self._post_process_outputs(output)
-    
-    # 拼接生成的输出与原始输入
-    response = torch.cat([idx, batched_output_token_ids], dim=-1)
-    
-    # 更新注意力掩码和位置编码
-    response_attention_mask = self.get_response_mask(response, eos_token_id)
-    attention_mask = torch.cat([attention_mask, response_attention_mask], dim=-1)
-    position_ids = self.update_position_ids(position_ids, response)
-    
-    # 返回生成的批次数据
-    batch = TensorDict({
-        "prompts": idx,
-        "responses": response,
-        "input_ids": response,
-        "attention_mask": attention_mask,
-        "position_ids": position_ids
-    }, batch_size=batch_size)
-    
-    return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
-
-```
-
-**并发处理的优势：**
-- **资源利用率高**: 不需要等待最慢的请求
-- **支持复杂交互**: 每个对话可以有不同的工具调用序列
-- **内存效率**: 避免为所有可能的轮数预分配内存
-
-### 2.3 经验处理阶段 (Make Experience)
-
-序列生成完成后，进入经验处理阶段。这一阶段将生成的序列转换为强化学习算法所需的训练数据，包括重新计算概率、计算奖励、评估参考策略等关键步骤。
-
-**什么是Experience？**
-在强化学习中，experience指的是智能体与环境交互产生的数据，包括状态、动作、奖励、下一状态等。在LLM训练中，experience包括输入prompt、生成的response、获得的reward，以及用于策略更新的各种概率和优势值。
-
-**重新计算 log_prob**
-这是对应的重新计算log_prob代码，在 `verl/trainer/ppo/ray_trainer.py:995-1030`：
-
-**为什么要重新计算log_prob？**
-在生成阶段，我们得到的log_prob是用于采样的，不够精确（通常是fp16/bf16），这是因为在rollout我们的目标是"快"，快速生成old_log_prob。而在训练阶段，我们需要更精确的概率计算用于PPO等RL算法，如果ratio = exp(new_log_prob - old_log_prob)差别太大，就会导致clip和KL约束失真，从而破坏训练的稳定性。此外，生成和训练可能使用不同的数值精度或计算图，重新计算确保一致性。
-
-```python
-# 重新计算 old_log_probs - 这是PPO算法的关键输入
-with _timer("old_log_prob", timing_raw):
-    # 使用当前策略重新计算生成序列的概率
-    # 这个概率将作为PPO中的"old policy"概率
-    old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-    batch = batch.union(old_log_prob)  # 将结果合并到batch中
-```
-
-**Reward compute**
-veRL 支持灵活的奖励计算策略，可以结合 model-based reward 和 rule-based reward，适应不同类型的任务需求。对应的代码，在 `verl/trainer/ppo/ray_trainer.py:980-993`。
-
-```python
-with _timer("reward", timing_raw):
-    # 方式1：奖励模型计算（可选）- 使用训练好的奖励模型评估响应质量
-    if self.use_rm:
-        reward_tensor = self.rm_wg.compute_rm_score(batch)
-        batch = batch.union(reward_tensor)
-    
-    # 方式2：规则/函数奖励计算 - 使用任务特定的评估函数
-    if self.config.reward_model.launch_reward_fn_async:
-        # 异步计算：适合耗时的奖励函数（如代码执行、数学验证）
-        future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
-    else:
-        # 同步计算：适合简单快速的奖励函数
-        reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-```
-
-veRL提供了多种reward计算方式，可以根据任务需求灵活选择：
-
-1. **内置Reward函数**
-
-veRL内置了多种预定义的reward函数，支持常见的数据集和任务类型：
-
-#### 数学推理任务
-```python
-# 在配置中指定数据源
-data:
-  reward_fn_key: "data_source"  # 用于标识数据源类型的键
-
-# 支持的数据源包括：
-# - "openai/gsm8k": GSM8K数学问题
-# - "hendrycks_math": 数学推理数据集
-# - "hiyouga/geometry3k": 几何问题
-```
-
-#### 代码生成任务
-```python
-# 代码执行reward
-data:
-  reward_fn_key: "data_source"
-  
-# 支持的数据源：
-# - "mbpp": Python代码执行
-# - "humaneval": HumanEval代码评估
-```
-
-#### 多模态任务
-```python
-# 视觉-语言任务
-data:
-  reward_fn_key: "data_source"
-  
-# 支持的数据源：
-# - "llava_v1_5_mix": LLaVA多模态对话
-```
-
-* **自定义Reward函数**
-
-veRL支持完全自定义的reward函数，这是最灵活的方式：
-
-#### 配置文件设置
-```yaml
-# 在配置文件中指定自定义reward函数
-custom_reward_function:
-  # 自定义reward函数文件的路径
-  path: "/path/to/your/custom_reward.py"
-  
-  # reward函数在文件中的名称（默认为compute_score）
-  name: "my_custom_reward"
-  
-  # 传递给reward函数的额外参数
-  reward_kwargs:
-    threshold: 0.8
-    penalty_factor: 0.5
-```
-
-#### 自定义Reward函数实现
-
-**基本格式**：
-```python
-# /path/to/your/custom_reward.py
-def my_custom_reward(data_source, solution_str, ground_truth, extra_info=None, **kwargs):
-    """
-    自定义reward函数
-    
-    Args:
-        data_source (str): 数据源标识符
-        solution_str (str): 模型生成的响应文本
-        ground_truth (str): 标准答案
-        extra_info (dict, optional): 额外的信息
-        **kwargs: 从配置文件中传递的额外参数
-    
-    Returns:
-        float: reward分数 (0.0-1.0)
-    """
-    # 你的reward计算逻辑
-    score = compute_custom_score(solution_str, ground_truth)
-    return score
-```
-
-**复杂Reward函数示例**：
-```python
-def advanced_reward_function(data_source, solution_str, ground_truth, extra_info=None, 
-                           threshold=0.8, penalty_factor=0.5):
-    """
-    高级自定义reward函数示例
-    
-    功能：
-    1. 基础准确性评分
-    2. 格式规范性检查
-    3. 逻辑一致性验证
-    4. 可配置的惩罚机制
-    """
-    
-    # 1. 基础准确性评分
-    accuracy_score = compute_accuracy(solution_str, ground_truth)
-    
-    # 2. 格式规范性检查
-    format_score = check_format_correctness(solution_str, data_source)
-    
-    # 3. 逻辑一致性验证
-    logic_score = verify_logic_consistency(solution_str, extra_info)
-    
-    # 4. 综合评分
-    final_score = (accuracy_score * 0.6 + 
-                   format_score * 0.2 + 
-                   logic_score * 0.2)
-    
-    # 5. 应用惩罚机制
-    if final_score < threshold:
-        final_score *= penalty_factor
-    
-    return final_score
-
-def compute_accuracy(solution, ground_truth):
-    """计算答案准确性"""
-    # 实现你的准确性计算逻辑
-    if solution.strip().lower() == ground_truth.strip().lower():
-        return 1.0
-    return 0.0
-
-def check_format_correctness(solution, data_source):
-    """检查格式正确性"""
-    if data_source == "openai/gsm8k":
-        # GSM8K特定的格式检查
-        if "\\boxed" in solution:
-            return 1.0
-        return 0.5
-    return 1.0
-
-def verify_logic_consistency(solution, extra_info):
-    """验证逻辑一致性"""
-    # 实现逻辑一致性检查
-    return 1.0
-```
-
-**返回字典格式的Reward函数**：
-```python
-def detailed_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """
-    返回详细信息的reward函数
-    
-    Returns:
-        dict: 包含多个评分维度的字典
-    """
-    accuracy = compute_accuracy(solution_str, ground_truth)
-    format_score = check_format(solution_str)
-    logic_score = check_logic(solution_str)
-    
-    return {
-        "score": accuracy * 0.7 + format_score * 0.2 + logic_score * 0.1,
-        "accuracy": accuracy,
-        "format_score": format_score,
-        "logic_score": logic_score,
-        "detailed_feedback": generate_feedback(solution_str, ground_truth)
-    }
-```
-
-* **Reward Manager类型**
-
-veRL提供了多种Reward Manager来处理不同的计算需求：
-
-#### NaiveRewardManager（默认）
-```yaml
-reward_model:
-  reward_manager: "naive"  # 默认的reward管理器
-```
-
-#### BatchRewardManager
-```yaml
-reward_model:
-  reward_manager: "batch"  # 批处理reward管理器
-```
-
-#### PrimeRewardManager
-```yaml
-reward_model:
-  reward_manager: "prime"  # Prime算法专用reward管理器
-```
-
-#### DAPORewardManager
-```yaml
-reward_model:
-  reward_manager: "dapo"  # DAPO算法专用reward管理器
-```
-
-* **异步Reward计算**
-
-对于耗时的reward计算（如代码执行、数学验证），veRL支持异步计算：
-
-```yaml
-reward_model:
-  # 启用异步reward计算
-  launch_reward_fn_async: True
-  
-  # 沙箱融合配置（用于代码执行等）
-  sandbox_fusion:
-    url: "http://localhost:8000"  # 沙箱服务URL
-    max_concurrent: 64  # 最大并发数
-```
-
-**异步Reward函数示例**：
-```python
-def async_code_execution_reward(data_source, solution_str, ground_truth, extra_info=None):
-    """
-    异步代码执行reward函数
-    
-    适用于需要执行代码验证的任务
-    """
-    import asyncio
-    import aiohttp
-    
-    async def execute_code(code):
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://localhost:8000/execute",
-                json={"code": code, "test_cases": extra_info.get("test_cases", [])}
-            ) as response:
-                result = await response.json()
-                return result["passed_tests"] / result["total_tests"]
-    
-    # 提取代码部分
-    code = extract_code_from_solution(solution_str)
-    
-    # 异步执行代码
-    loop = asyncio.get_event_loop()
-    score = loop.run_until_complete(execute_code(code))
-    
-    return score
-```
-
-* **混合Reward策略**
-
-veRL支持结合多种reward来源的混合策略：
-
-```python
-def hybrid_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """
-    混合reward函数示例
-    
-    结合：
-    1. 规则基础评分
-    2. 模型评分（如果可用）
-    3. 人工标注评分（如果可用）
-    """
-    
-    # 1. 规则基础评分
-    rule_score = compute_rule_based_score(solution_str, ground_truth)
-    
-    # 2. 模型评分（从extra_info中获取）
-    model_score = extra_info.get("model_score", 0.0)
-    
-    # 3. 人工标注评分（从extra_info中获取）
-    human_score = extra_info.get("human_score", 0.0)
-    
-    # 4. 加权组合
-    weights = {
-        "rule": 0.4,
-        "model": 0.4,
-        "human": 0.2
-    }
-    
-    final_score = (rule_score * weights["rule"] + 
-                   model_score * weights["model"] + 
-                   human_score * weights["human"])
-    
-    return final_score
-```
-
-* **Reward函数调试和监控**
-
-#### 调试输出
-```python
-def debug_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """带调试信息的reward函数"""
-    
-    print(f"[DEBUG] Data source: {data_source}")
-    print(f"[DEBUG] Solution: {solution_str}")
-    print(f"[DEBUG] Ground truth: {ground_truth}")
-    print(f"[DEBUG] Extra info: {extra_info}")
-    
-    score = compute_score(solution_str, ground_truth)
-    print(f"[DEBUG] Computed score: {score}")
-    
-    return score
-```
-
-#### 性能监控
-```python
-import time
-
-def monitored_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """带性能监控的reward函数"""
-    
-    start_time = time.time()
-    
-    # 执行reward计算
-    score = compute_complex_reward(solution_str, ground_truth)
-    
-    end_time = time.time()
-    computation_time = end_time - start_time
-    
-    # 记录性能指标
-    print(f"[PERF] Reward computation time: {computation_time:.4f}s")
-    
-    return score
-```
-
-* **Reward最佳实践**
-
-#### 配置管理
-```yaml
-# 推荐的项目结构
-project/
-├── configs/
-│   ├── reward_functions/
-│   │   ├── math_reward.py
-│   │   ├── code_reward.py
-│   │   └── custom_reward.py
-│   └── training_config.yaml
-├── scripts/
-│   └── run_training.sh
-└── README.md
-```
-
-#### 错误处理
-```python
-def robust_reward_function(data_source, solution_str, ground_truth, extra_info=None):
-    """健壮的reward函数，包含错误处理"""
-    
-    try:
-        # 输入验证
-        if not solution_str or not ground_truth:
-            print(f"[WARNING] Invalid input: solution='{solution_str}', ground_truth='{ground_truth}'")
-            return 0.0
-        
-        # 执行reward计算
-        score = compute_score(solution_str, ground_truth)
-        
-        # 输出验证
-        if not isinstance(score, (int, float)) or score < 0 or score > 1:
-            print(f"[WARNING] Invalid score: {score}")
-            return 0.0
-        
-        return score
-        
-    except Exception as e:
-        print(f"[ERROR] Reward computation failed: {e}")
-        return 0.0  # 返回默认分数
-```
-
-#### 测试验证
-```python
-def test_reward_function():
-    """测试reward函数"""
-    
-    # 测试用例
-    test_cases = [
-        {
-            "data_source": "openai/gsm8k",
-            "solution": "The answer is \\boxed{42}",
-            "ground_truth": "42",
-            "expected_score": 1.0
-        },
-        {
-            "data_source": "openai/gsm8k", 
-            "solution": "The answer is 42",
-            "ground_truth": "42",
-            "expected_score": 0.5  # 格式不正确
-        }
-    ]
-    
-    for i, test_case in enumerate(test_cases):
-        score = my_custom_reward(**test_case)
-        assert abs(score - test_case["expected_score"]) < 0.01, \
-            f"Test case {i} failed: expected {test_case['expected_score']}, got {score}"
-    
-    print("All tests passed!")
-```
-
-通过以上方式，你可以根据具体任务需求灵活选择和实现reward函数，充分利用veRL提供的reward计算框架。
-
-**奖励设计的考虑：**
-- **模型奖励**: 通用但可能有偏差，适合对话、摘要等主观任务
-- **规则奖励**: 准确但覆盖有限，适合数学、代码等客观任务
-- **混合奖励**: 结合两者优势，在实际应用中很常见
-
-**reference策略评估**
-这是对应的reference策略评估代码，在 `verl/trainer/ppo/ray_trainer.py:1031-1038`：
-
-**为什么需要参考策略？**
-参考策略（Reference Policy）通常是训练前的原始模型，用于计算KL散度约束，防止新策略偏离原始行为太远。这在RLHF中特别重要，确保模型在获得高奖励的同时保持合理的语言行为。
-
-```python
-if self.use_reference_policy:
-    with _timer("ref", timing_raw):
-        if not self.ref_in_actor:
-            # 独立的参考策略模型 - 需要额外的GPU内存，但更精确
-            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch) # 计算reference model的log_prob
-        else:
-            # 使用Actor中的LoRA基模型作为参考 - 内存高效，适合LoRA微调
-            ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
-        batch = batch.union(ref_log_prob)
-```
-
-
-**Advantage函数计算**
-Advantage函数衡量某个动作相对于平均水平的好坏程度。正值表示该动作比平均好，负值表示比平均差。这是策略梯度算法的核心，帮助模型学习更好的行为。这是对应的advantage函数计算代码，在 `verl/trainer/ppo/ray_trainer.py:1062-1076`：
-
-```python
-batch = compute_advantage(
-    batch,
-    adv_estimator=self.config.algorithm.adv_estimator,    # 优势估计方法：GAE、GRPO等
-    gamma=self.config.algorithm.gamma,                    # 折扣因子：未来奖励的权重
-    lam=self.config.algorithm.lam,                        # GAE参数：偏差vs方差的权衡
-    num_repeat=self.config.actor_rollout_ref.rollout.n,   # 每个prompt的采样数
-    norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,     # GRPO特殊归一化
-    multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable, # 多轮对话支持
-    config=self.config.algorithm,
+dataset = RLHFDataset(
+    data_files=data_files,
+    tokenizer=tokenizer,
+    config=config,
+    processor=processor
 )
 ```
 
-**不同优势估计方法：**
-- **GAE**: 使用价值函数估计，偏差小但需要额外的Critic网络
-- **GRPO**: 使用群组统计，无需价值函数，适合数学推理任务
-- **REINFORCE**: 直接使用奖励，简单但方差大
-
-### 2.4 模型更新阶段 (Train)
-
-经验处理完成后，进入最终的模型更新阶段。这一阶段使用收集到的经验数据来改进策略，是强化学习训练的核心环节。
-
-**训练阶段的设计理念：**
-veRL 采用分阶段训练策略。在训练初期，可以只训练 Critic 来稳定价值估计，然后再开始 Actor 训练。这种预热策略在复杂任务中特别有效。
-
-#### 2.4.1 Critic 更新 (仅GAE算法)
-
-**为什么需要Critic？**
-Critic网络负责估计状态价值，这个估计的准确性直接影响优势函数的质量。通过独立更新Critic，可以使用更多的训练步骤和不同的学习率，提高价值估计的准确性。
-
-**主控制流程**
-这是对应的Critic更新代码，在 `verl/trainer/ppo/ray_trainer.py:1078-1083`：
+C：DataLoader + collate_fn
 
 ```python
-if self.use_critic:  # 只有GAE算法需要Critic
-    with _timer("update_critic", timing_raw):
-        # Critic更新使用回归损失，目标是准确预测累积奖励
-        critic_output = self.critic_wg.update_critic(batch)
+dataloader = DataLoader(
+    dataset=dataset,
+    batch_size=16,
+    shuffle=True,
+    drop_last=True,
+    collate_fn=collate_fn
+)
+```
+
+D：`DataProto` 原始数据
+
+```python
+batch_dict = next(iter(dataloader))  # 返回 dict
+batch: DataProto = DataProto.from_single_dict(batch_dict)
+```
+
+E：`pop` 提取生成数据
+
+```python
+gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
+```
+
+F：`Rollout` 生成
+
+```python
+gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+```
+
+G：`union` 合并数据
+
+```python
+batch = batch.union(gen_batch_output)
+```
+
+H：奖励计算
+
+```python
+rewards = self.reward_fn(batch)
+batch.batch["token_level_rewards"] = rewards
+```
+
+I：优势计算
+
+```python
+batch = compute_advantage(batch, adv_estimator=self.config.algorithm.adv_estimator)
+```
+
+J：重新计算 `log_probs`
+
+```python
+old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+batch = batch.union(old_log_prob)
+```
+
+K：计算 reference model 的 `log_probs`
+
+```python
+if self.use_reference_policy:
+    ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+    batch = batch.union(ref_log_prob)
+```
+
+L：计算 value function
+
+```python
+if self.use_critic:
+    values = self.critic_wg.compute_values(batch)
+    batch = batch.union(values)
+```
+
+M1：更新 critic
+
+```python
+if self.use_critic:
+    critic_output = self.critic_wg.update_critic(batch)
     critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
     metrics.update(critic_output_metrics)
 ```
 
-**Critic训练细节：**
-- **损失函数**: 通常使用MSE回归损失
-- **目标值**: 实际获得的累积奖励
-- **更新频率**: 可能比Actor更频繁，以提高估计准确性
-
-#### 2.4.2 Actor 更新
-
-**Critic warmup机制：**
-在训练初期，Critic的价值估计可能不准确，导致Actor更新的方向错误。通过设置预热期，让Critic先稳定下来，再开始Actor训练。
-
-**主控制流程**
-这是对应的Actor更新代码，在 `verl/trainer/ppo/ray_trainer.py:1085-1092`：
+M2：更新 actor
 
 ```python
-if self.config.trainer.critic_warmup <= self.global_steps:  # 预热期检查
-    with _timer("update_actor", timing_raw):
-        # 添加多轮对话的元信息，用于特殊处理
-        batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
-        # 执行PPO策略更新
-        actor_output = self.actor_rollout_wg.update_actor(batch)
-    actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
-    metrics.update(actor_output_metrics)
+actor_output = self.actor_rollout_wg.update_actor(batch)
 ```
 
-**PPO更新过程：**
-1. 计算新旧策略的概率比值
-2. 使用advantage加权策略梯度
-3. 应用PPO的clip机制防止更新过大
-4. 可选地添加KL散度惩罚
-
-#### 2.4.3 FSDP Actor 更新实现
-
-**内存管理的复杂性：**
-大模型训练的一个挑战是内存管理。veRL支持参数卸载（offloading），将暂时不用的参数移到CPU或存储，需要时再加载回GPU。这个过程需要精心协调以避免性能损失。
-
-**FSDP Actor 更新实现**
-这是对应的FSDP Actor更新实现代码，在 `verl/workers/fsdp_workers.py:575-625`：
+N：返回训练指标
 
 ```python
-def update_actor(self, data: DataProto):
-    # 数据预处理：移动到CPU以支持各种硬件配置
-    data = data.to('cpu')
-    
-    # 内存优化：按需加载模型参数
-    if self._is_offload_param:
-        # 将FSDP模型参数从CPU/存储加载到GPU
-        load_fsdp_model_to_gpu(self.actor_module_fsdp)
-    if self._is_offload_optimizer:
-        # 将优化器状态加载到GPU
-        load_fsdp_optimizer(optimizer=self.actor_optimizer, 
-                           device_id=get_torch_device().current_device())
-    
-    # 执行实际的策略更新
-    output = self.actor.update_policy(data=data)
+actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
+metrics.update(actor_output_metrics)
+logger.log(data=metrics, step=self.global_steps)
 ```
 
-**FSDP的优势：**
-- **内存效率**: 参数分片减少单GPU内存需求
-- **计算效率**: 避免不必要的参数复制
-- **可扩展性**: 支持任意数量的GPU
+</details>
 
-## 多轮对话特殊处理
+## Rollout
 
-### 配置文件
+在 part 1 已经讲过了 SGLang 的几个关键函数：
 
-**文件**: `examples/sglang_multiturn/config/tool_config/`
+1. [`ActorRolloutRefWorker._build_rollout()`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#actorrolloutrefworker_build_rollout)
+2. [`SGLangRollout.__init__()`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrollout__init__)
+3. [`SGLangRollout.AsyncEngine`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrolloutasyncengine)
+4. [`SGLangRollout._init_inference_engine()`](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrollout_init_inference_engine)
 
-多轮对话需要特殊的工具配置和状态管理：
+此外，我们还介绍了在[“我们究竟在异步什么？“](#我们究竟在异步什么)里面介绍了 SGLang 对 multi-turn 场景下的 `_req_level_generate_sequences` 的特殊实现。我们接着继续分析 SGLang rollout 对 multi-turn 的处理，包括状态机和 tool 调用。
 
-1. **工具集成**: 支持计算器、搜索等工具调用
-2. **状态保持**: SGLang 引擎维护多轮对话状态
-3. **掩码处理**: 使用 `loss_mask` 进行多轮损失计算
-4. **异步处理**: 支持并发的多轮对话生成
+### [`_req_level_generate_sequences`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L853)
 
-### 关键实现
+接着上文的讨论，我们继续来看看源代码。
 
-**文件**: `verl/trainer/ppo/ray_trainer.py:129-178`
+1. 如果当前是 tp rank 0，则将一整个 batch 的 prompts 预处理成单个异步请求，并并发执行这些请求以生成序列。rollout 的返回顺序是乱序的，因此需要按照 batch ID 和在 batch 内的 offset 来对返回值重新排序。
+2. 如果不是 tp rank 0，则将输出请求列表设置为 `None`。这里其实也是之前提到过的 [mock SPMD 的体现](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/multi-turn/code-walk-through/readme.md#sglangrollout_init_inference_engine)。
+3. 使用分布式通信，将 tp rank 0 生成的排序后的请求列表广播给所有其他 rank。
+4. 提取 prompt IDs、response IDs、attention masks、position IDs、loss masks、原始消息和 reward scores。
+5. 使用 padding token 对 prompt IDs 和 response IDs 进行填充，使其长度一致。
+6. 将填充后的 prompt 和 response 的 IDs、attention masks 等在最后一个维度上进行拼接，形成完整的序列数据。
+7. 将处理后的 prompts 和 responses 存储到 `TensorDict` 对象中，并设置批次大小。
+8. 将包含批次化张量数据的 `TensorDict` 和包含原始消息及奖励分数的字典封装到 `DataProto` 对象中并返回。
 
-```python
-def apply_kl_penalty(data: DataProto, kl_ctrl, kl_penalty="kl", multi_turn=False):
-    if multi_turn:
-        # 多轮对话使用 loss_mask 而不是 response_mask
-        loss_mask = data.batch["loss_mask"]
-        response_mask = loss_mask[:, -response_length:]
-    else:
-        attention_mask = data.batch["attention_mask"]
-        response_mask = attention_mask[:, -response_length:]
+这里有个比较有趣的地方，注意到 2 中我们强调了，SGLang 并不是严格的 SPMD，但是 3 中，我们仍旧将 tp 0 得到的 response broadcast 给了所有 rank。但是，为了保持 SGLang 外部的训练循环仍旧得到的是一个 SPMD 的返回结果，我们需要让每个 tp randk 都构造并返回相同的 batch，这就需要通过 broadcast 让其他 tp rank 获得 tp 0 的计算结果。这导致了一定的计算冗余，但是相比推理本身的开销，仍旧是可以负担的。
 
-```
-
-## 性能优化点
-
-### 1. 异步Rollout
-
-**文件**: `verl/workers/rollout/async_server.py`
-
-- 支持异步推理，提高GPU利用率
-- 并发处理多个生成请求
-
-### 2. 权重分片管理
-
-**文件**: `verl/workers/sharding_manager/`
-
-- 在推理和训练引擎间高效转换模型权重
-- 减少内存占用和传输开销
-
-### 3. 序列长度平衡
-
-**文件**: `verl/trainer/ppo/ray_trainer.py:862-875`
-
-- 自动平衡不同GPU间的token数量
-- 提高训练效率
-
----
-
-## GRPO 算法示例: 无价值函数的群组相对策略优化
-
-### GRPO 工作原理
-
-**文件**: `verl/trainer/ppo/core_algos.py:166-196`
-
-GRPO (Group Relative Policy Optimization) 是一种无需价值函数的强化学习算法，特别适用于数学推理等需要多次采样的任务：
-
-1. **群组采样**: 对每个prompt生成多个响应（如n=5）
-2. **相对奖励**: 计算每组内响应的平均奖励作为基线
-3. **优势计算**: `advantage = reward - group_mean`
-4. **无Critic**: 不需要训练独立的价值网络
-
-### 核心算法实现
-
-**GRPO优势计算**: `verl/trainer/ppo/core_algos.py:166-196`
+<details>
+<summary>_req_level_generate_sequences 源码</summary>
 
 ```python
-def compute_grpo_outcome_advantage(
-    token_level_rewards: torch.Tensor,
-    response_mask: torch.Tensor,
-    index: np.ndarray,
-    epsilon: float = 1e-6,
-    norm_adv_by_std_in_grpo: bool = True,
-):
-    """GRPO优势计算 - 基于群组相对奖励"""
-    scores = token_level_rewards.sum(dim=-1)  # 序列级奖励
+@GPUMemoryLogger(role="sglang rollout", logger=logger)
+    @torch.no_grad()
+    def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
 
-    # 按prompt索引分组计算统计量
-    id2score = defaultdict(list)
-    id2mean = {}
-    id2std = {}
-
-    for i in range(scores.shape[0]):
-        id2score[index[i]].append(scores[i])
-
-    # 计算每组的均值和标准差
-    for idx in id2score:
-        if len(id2score[idx]) > 1:
-            id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
-            id2std[idx] = torch.std(torch.tensor(id2score[idx]))
+        do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
+        tgt_device = prompts.batch["input_ids"].device
+        if self._tp_rank == 0:
+            req_list = self._preprocess_prompt_to_async_rollout_requests(
+                prompts,
+                n=1 if is_validate else self.config.n, 
+            )
+            loop = asyncio.get_event_loop()
+            output_req_list = loop.run_until_complete(
+                asyncio.gather(
+                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                )
+            )
+            sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
-            id2mean[idx] = torch.tensor(0.0)
-            id2std[idx] = torch.tensor(1.0)
+            sorted_output_req_list = None
 
-    # 计算相对优势
-    for i in range(scores.shape[0]):
-        if norm_adv_by_std_in_grpo:
-            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-        else:
-            scores[i] = scores[i] - id2mean[index[i]]
+        dist.barrier()
+        [sorted_output_req_list] = broadcast_pyobj(
+            data=[sorted_output_req_list],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
+        )
 
-    scores = scores.unsqueeze(-1) * response_mask
-    return scores, scores
+        prompt_ids, response_ids = [], []
+        prompt_attention_mask, response_attention_mask = [], []
+        prompt_position_ids, response_position_ids = [], []
+        prompt_loss_mask, response_loss_mask = [], []
+        messages = []
+        reward_scores = []
+        for req in sorted_output_req_list:
+            assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
+            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), f"""Request {req.request_id} has different length of
+                {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"""
+            error_message_lines = [
+                f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
+                    greater than max_model_len {self.config.max_model_len}""",
+                f"Decoded input_ids: {self.tokenizer.decode(req.input_ids)}",
+                f"Decoded prompt_ids: {self.tokenizer.decode(req.prompt_ids)}",
+                f"Decoded response_ids: {self.tokenizer.decode(req.response_ids)}",
+                f"Messages: {req.messages}",
+                f"Max model length: {req.max_model_len}",
+            ]
+            error_message = "\n".join(error_message_lines)
+            assert len(req.input_ids) <= self.config.max_model_len, error_message
 
+            prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int, device=tgt_device))
+            response_ids.append(torch.tensor(req.response_ids, dtype=torch.int, device=tgt_device))
+            if len(req.response_ids) > self.config.response_length:
+                logger.warning(
+                    f"""{req.request_id=} has response_ids length {len(req.response_ids)}
+                    greater than max_response_len {self.config.response_length},\n{req=}"""
+                )
+            prompt_attention_mask.append(torch.tensor(req.prompt_attention_mask, dtype=torch.int, device=tgt_device))
+            response_attention_mask.append(torch.tensor(req.response_attention_mask, dtype=torch.int, device=tgt_device))
+            prompt_position_ids.append(torch.tensor(req.prompt_position_ids, dtype=torch.int, device=tgt_device))
+            response_position_ids.append(torch.tensor(req.response_position_ids, dtype=torch.int, device=tgt_device))
+            prompt_loss_mask.append(torch.tensor(req.prompt_loss_mask, dtype=torch.int, device=tgt_device))
+            response_loss_mask.append(torch.tensor(req.response_loss_mask, dtype=torch.int, device=tgt_device))
+            messages.append({"messages": req.messages})
+            reward_scores.append(req.reward_scores)
+
+        prompt_ids = pad_sequence(
+            prompt_ids,
+            batch_first=True,
+            padding_value=self.pad_token_id,
+            padding_side="left",
+        )
+        if prompt_ids.shape[1] < self.config.prompt_length:
+            prompt_ids = pad_sequence_to_length(prompt_ids, self.config.prompt_length, self.pad_token_id, left_pad=True)
+        response_ids = pad_sequence(response_ids, batch_first=True, padding_value=self.pad_token_id)
+        if response_ids.shape[1] < self.config.response_length:
+            response_ids = pad_sequence_to_length(response_ids, self.config.response_length, self.pad_token_id)
+        prompt_attention_mask = pad_sequence(
+            prompt_attention_mask,
+            batch_first=True,
+            padding_value=0,
+            padding_side="left",
+        )
+        if prompt_attention_mask.shape[1] < self.config.prompt_length:
+            prompt_attention_mask = pad_sequence_to_length(prompt_attention_mask, self.config.prompt_length, 0, left_pad=True)
+        response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
+        if response_attention_mask.shape[1] < self.config.response_length:
+            response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
+        prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0, padding_side="left")
+        if prompt_position_ids.shape[1] < self.config.prompt_length:
+            prompt_position_ids = pad_sequence_to_length(prompt_position_ids, self.config.prompt_length, 0, left_pad=True)
+        response_length = response_ids.size(1)
+        delta_position_id = torch.arange(1, response_length + 1, device=response_ids.device)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(len(sorted_output_req_list), 1)
+        response_position_ids = prompt_position_ids[:, -1:] + delta_position_id
+        prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0, padding_side="left")
+        if prompt_loss_mask.shape[1] < self.config.prompt_length:
+            prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
+        response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
+        if response_loss_mask.shape[1] < self.config.response_length:
+            response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
+
+        input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
+        attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)
+        position_ids = torch.cat((prompt_position_ids, response_position_ids), dim=-1)
+        loss_mask = torch.cat((prompt_loss_mask, response_loss_mask), dim=-1)
+
+        batch = TensorDict(
+            {
+                "prompts": prompt_ids,
+                "responses": response_ids,
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "loss_mask": loss_mask,
+            },
+            batch_size=len(sorted_output_req_list),
+        )
+
+        if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
+
+        return DataProto(
+            batch=batch,
+            non_tensor_batch={
+                "messages": np.array(messages),
+                "reward_scores": np.array(reward_scores),
+            },
+        )
 ```
 
-### 配置差异对比
+</details>
 
-### PPO vs GRPO 关键配置
+显然，`_req_level_generate_sequences` 的核心在于这两个函数：
 
-| 配置项 | PPO | GRPO |
-| --- | --- | --- |
-| `algorithm.adv_estimator` | `gae` | `grpo` |
-| `actor_rollout_ref.rollout.n` | `1` | `5` (或更大) |
-| `actor_rollout_ref.actor.use_kl_loss` | `false` | `true` |
-| `algorithm.use_kl_in_reward` | `true` | `false` |
-| Critic 组件 | **需要** | **不需要** |
+1. `_preprocess_prompt_to_async_rollout_requests`
+2. `_async_rollout_a_request`
 
-### 算法选择逻辑
+我们分别展开。
 
-**文件**: `verl/trainer/ppo/ray_trainer.py:323-346`
+### [`_preprocess_prompt_to_async_rollout_requests`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L987)
+
+1. 将 prompts 展开，首先拆开 batch 中的每个 prompt，内层循环为每个 prompt 生成 `n` 个不同的序列。每个生成的请求都有唯一的 `batch_data_id` 和 `rollout_offset` 标识。
+2. 当配置了工具时，`_input_ids` 和 `_attention_mask` 被设为 `None`，因为工具调用需要动态构建输入。而没有配置工具的话，使用 `_pre_process_inputs` 函数处理预处理的 token IDs，去除左填充。
+3. 每个请求对象包含状态管理、工具配置、序列长度限制、tokenizer 配置等元数据，为后续的异步处理提供完整信息。
+
+<details>
+<summary>_preprocess_prompt_to_async_rollout_requests 源码</summary>
 
 ```python
-if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-    self.use_critic = True  # 使用价值函数
-elif self.config.algorithm.adv_estimator in [
-    AdvantageEstimator.GRPO,
-    AdvantageEstimator.GRPO_PASSK,
-    AdvantageEstimator.REINFORCE_PLUS_PLUS,
-    # ...
-]:
-    self.use_critic = False  # 无价值函数
+def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int) -> list[AsyncRolloutRequest]:
+    assert "raw_prompt" in prompts.non_tensor_batch, "need data.return_raw_chat=True, due to no official way do parse_messages"
+    req_list = []
+    for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
+        for rollout_offset in range(n):
+            if self._tool_schemas:
+                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
+                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                _input_ids = None
+                _attention_mask = None
+            else:
+                _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
+                _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
+                _tools_kwargs = {}
+                _tool_schemas = None
 
+            req = AsyncRolloutRequest(
+                batch_data_id=data_idx,
+                rollout_offset=rollout_offset,
+                request_id=str(uuid4()),
+                state=AsyncRolloutRequestStateEnum.PENDING,
+                messages=raw_prompt.tolist(),
+                tool_schemas=_tool_schemas,
+                tools_kwargs=_tools_kwargs,
+                input_ids=_input_ids,
+                response_ids=[],
+                attention_mask=_attention_mask,
+                response_attention_mask=[],
+                response_position_ids=[],
+                response_loss_mask=[],
+                reward_scores={},
+                max_prompt_len=self.config.prompt_length,
+                max_response_len=self.config.response_length,
+                max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+                use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
+                enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
+                tokenizer=self.tokenizer,
+            )
+
+            error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
+            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), error_message
+
+            req_list.append(req)
+
+    return req_list
 ```
 
-### GRPO 性能优势
+</details>
 
-1. **内存节省**: 无需训练Critic网络
-2. **训练稳定**: 基于群组统计，减少方差
-3. **适用场景**: 特别适合数学推理、代码生成等需要多次采样的任务
-4. **实现简单**: 避免value function的复杂调参
+这里其实重要的在于整个 `AsyncRolloutRequest`，或者说我们用于管理 tool calling 的整个状态机 [schema](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py)。
 
-### 高级扩展: DrGRPO
+### schema 状态机
 
-**文件**: `docs/algo/grpo.md`
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> RUNNING : _handle_pending_state()
 
-DrGRPO 解决了GRPO的长度偏差问题：
+    RUNNING --> TOOL_CALLING : detect_tool_call
+    TOOL_CALLING --> RUNNING : tool_call_executed
+    TOOL_CALLING --> COMPLETED : tool_call_decode_failed
 
-```bash
-# DrGRPO配置差异
-actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-sum-norm  # 关闭序列维度平均
-actor_rollout_ref.actor.use_kl_loss=false                      # 不使用KL loss
-algorithm.norm_adv_by_std_in_grpo=false                        # 关闭标准差归一化
+    RUNNING --> COMPLETED : stop_reason == STOP
+    RUNNING --> [Exit] : finish_reason == LENGTH
 
+    COMPLETED --> [Exit]
+
+    note right of TOOL_CALLING
+        if tool_calls == None:
+        raise ValueError
+    end note
+
+    note right of RUNNING
+        if exceeds max length:
+        finish_reason = LENGTH
+    end note
+```   
+
+这些状态机挺抽象的，需要到了和 SGLang rollout 的交互部分才能真的理解到用法，不过我们还是先列举出来。
+
+1. [`FinishReasonTypeEnum`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L33)
+
+- `LENGTH`：达到最大长度限制
+- `STOP`：正常停止（如生成 EOS token）
+- `TOOL_CALL`：检测到工具调用
+
+2. [`Message`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L52)
+
+- `role`：消息角色（user/assistant/tool）
+- `content`：消息内容
+- `tool_calls`：可选的工具调用列表，每个工具调用包含 `name` 和 `args` 字段
+
+目前的实现只支持单个工具的调用，但是魔改玩家太多了，甚至可以做一个 tool manager。
+
+3. [`AsyncRolloutRequestStateEnum`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L58)
+
+- `PENDING`：等待处理
+- `RUNNING`：正在运行
+- `TOOL_CALLING`：正在调用工具
+- `COMPLETED`：已完成
+- `FAILED`：失败
+
+4. [`AsyncRolloutRequest`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/schemas.py#L68)
+
+- `initialize_request`：验证必需字段（messages、max_prompt_len、tokenizer），使用 tokenizer 的 chat_template 处理消息，初始化所有序列相关字段（input_ids、attention_mask、position_ids、loss_mask），计算生成提示的位置信息
+- `_update_input_ids`：以增量方式更新序列信息，自动计算新的 position_ids，维护数据一致性验证
+- `get_generation_prompt_ids`：根据配置决定是否使用推理时的 chat_template，动态添加生成提示到输入序列
+- `add_assistant_message`：添加助手回复到消息历史，更新输入序列以包含新的回复内容，支持工具调用信息
+- `add_tool_response_messages`：添加工具响应到消息历史，更新输入序列但不标记为损失计算部分
+- `finalize`：完成请求处理，执行 tokenization 一致性检查，清理生成提示，截断输出序列到合理长度
+- `truncate_output_ids`：确保所有序列长度不超过限制，分别处理 input_ids、attention_mask、position_ids、loss_mask
+
+### [`_async_rollout_a_request`](https://github.com/volcengine/verl/blob/76f63cffa5081564d8fea93a1cb3ce8bd5bdcc39/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L681)
+
+文档写的很详尽了，容易 lost in the middle。不过，我们回到主线，先前通过 `_preprocess_prompt_to_async_rollout_requests` 构造了 `AsyncRolloutRequest` 后，返回给 `_req_level_generate_sequences`，接着进一步通过 `_async_rollout_a_request` 根据 `AsyncRolloutRequest` 的状态来 rollout 到底。
+
+1. 通过一个 `while` 循环来处理多轮对话，循环次数上限由 `self.config.multi_turn.max_turns` 控制，或者 requests 返回 `FinishReasonTypeEnum.STOP`。
+2. 在循环内部，函数根据 `_req` 的当前状态 (`AsyncRolloutRequestStateEnum`) 执行不同的操作（这块儿逻辑确实很复杂）：
+    - `PENDING` 状态：如果请求处于 `PENDING` 状态，则调用 `self._handle_pending_state(_req)` 初始化，然后将状态更新为 `RUNNING`。
+    - `TOOL_CALLING` 状态：检查最后一条消息的工具调用信息 (`_req.messages[-1].tool_calls`)。解析工具调用信息，并通过 `asyncio.gather` 并发地执行每个工具调用。工具的执行逻辑封装在 `self._tool_map` 中，通过工具的名称进行调用。在 tool call 返回后，通过 `_req.add_tool_response_messages` 将工具的响应添加到消息历史中。遍历每个工具调用及其结果，通过 `_req.update_metrics` 更新请求的指标信息。检查当前输入序列长度是否超过模型最大长度限制，如果超过，则设置 `finish_reason_type` 为 `STOP` 并跳出循环。最后，将请求状态更新回 `RUNNING`，以便进行下一轮的生成。
+    - `RUNNING` 状态：SGLang engine 需要进行 rollout。检查当前 prompt 的长度加上生成一个 token 的长度是否会超过 model context length。调用 `self._handle_engine_call` 来实际调用 SGLang engine；得到输出后，将 finish reason 从字符串转换为 `FinishReasonTypeEnum`，并递增当前对话轮数 `current_turns`。如果完成原因是达到最大长度限制 (`LENGTH`)，则将生成的内容添加到消息历史中，并结束循环。如果没有到达最大长度，则判断 SGLang engine 生成的内容是否包含工具调用，通过 `self._function_call_parser` 来解析生成的内容。如果检测到工具调用，则将 `finish_reason_type` 设置为 `TOOL_CALL`，并将请求状态更新为 `TOOL_CALLING`。然后，使用 `self._function_call_parser.parse_non_stream` 解析出工具调用，转换为 `OpenAIFunctionToolCall`。如果存在有效的工具调用，则通过 `_req.add_assistant_message` 将工具调用信息添加到消息历史中。否则，只添加生成的内容，并将 `finish_reason_type` 设置为 `STOP`，请求状态设置为 `COMPLETED`，并结束循环。如果生成的内容不包含工具调用，则直接通过 `_req.add_assistant_message` 将生成的内容添加到消息历史中，并结束循环。
+4. 如果循环达到 `self.config.multi_turn.max_turns` 上限，则将 `finish_reason_type` 设置为 `STOP`。
+5. 在对话循环结束后，为每个调用的工具计算奖励。遍历 `_req.tools_kwargs` 中的每个工具，调用工具的 `calc_reward` 方法来计算奖励，以及 `release` 方法来释放工具占用的·资源。计算结果以字典形式存储在 `tool_reward_scores` 中。
+6. 调用 `_req.finalize` 方法，完成请求的最终处理，包括执行 tokenization 一致性检查、清理生成提示、截断输出序列到合理长度等。`tool_reward_scores` 和最终的 `finish_reason_type` 会传递给 `finalize` 方法。最后，函数最终返回处理完成的 `AsyncRolloutRequest` 对象 `_req`。
+
+<details>
+<summary>_async_rollout_a_request 源码</summary>
+
+```python
+async def _async_rollout_a_request(
+    self,
+    req: AsyncRolloutRequest,
+    do_sample: bool = True,
+    is_validate: bool = False,
+    **kwargs,
+) -> AsyncRolloutRequest:
+    assert self._tp_rank == 0, "only the master process can call this function"
+    _req = deepcopy(req)
+    finish_reason_type = None
+    output = None
+
+    current_turns = 0
+    while current_turns < self.config.multi_turn.max_turns:
+        if _req.state == AsyncRolloutRequestStateEnum.PENDING:
+            await self._handle_pending_state(_req)
+            _req.state = AsyncRolloutRequestStateEnum.RUNNING
+        elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
+            if _req.messages[-1].tool_calls is not None:
+                parsed_tool_calls = _req.messages[-1].tool_calls
+                tool_call_results = await asyncio.gather(
+                    *[
+                        self._tool_map[tool_call.function.name].execute(
+                            _req.request_id,
+                            tool_call.function.arguments,
+                            **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
+                        )
+                        for tool_call in parsed_tool_calls
+                    ]
+                )
+                _req.add_tool_response_messages(self.tokenizer, [resp for resp, _, _ in tool_call_results])
+                for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
+                    _req.update_metrics(metrics, tool_call.function.name)
+                if len(_req.input_ids) >= self.config.max_model_len:
+                    finish_reason_type = FinishReasonTypeEnum.STOP
+                    break
+                _req.state = AsyncRolloutRequestStateEnum.RUNNING
+            else:
+                raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
+        elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
+            # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
+            # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
+            if len(_req.get_generation_prompt_ids(self.tokenizer)) + 1 >= self.config.max_model_len:
+                finish_reason_type = FinishReasonTypeEnum.LENGTH
+                break
+            output = await self._handle_engine_call(_req, do_sample, is_validate, **kwargs)
+            content = output["text"]
+            finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+            current_turns += 1
+            if finish_reason_type == FinishReasonTypeEnum.LENGTH:
+                _req.add_assistant_message(self.tokenizer, content)
+                break
+            else:
+                if self._function_call_parser and self._function_call_parser.has_tool_call(content):
+                    finish_reason_type = FinishReasonTypeEnum.TOOL_CALL
+                    _req.state = AsyncRolloutRequestStateEnum.TOOL_CALLING
+                    try:
+                        normed_content, tool_calls = self._function_call_parser.parse_non_stream(content)
+                    except JSONDecodeError:
+                        normed_content = content
+                        tool_calls = []
+                    except AttributeError:
+                        normed_content = content
+                        tool_calls = []
+                    parsed_tool_calls = []
+                    for tool_call in tool_calls:
+                        function, has_decode_error = OpenAIFunctionCallSchema.from_openai_function_parsed_schema(
+                            OpenAIFunctionParsedSchema(
+                                name=tool_call.name,
+                                arguments=tool_call.parameters,
+                            )
+                        )
+                        # Drop the tool call if its arguments has decode error
+                        if has_decode_error:
+                            continue
+                        parsed_tool_calls.append(
+                            OpenAIFunctionToolCall(
+                                id=str(tool_call.tool_index),
+                                function=function,
+                            )
+                        )
+                    if len(parsed_tool_calls) > 0:
+                        _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls)
+                    else:
+                        _req.add_assistant_message(self.tokenizer, content)
+                        finish_reason_type = FinishReasonTypeEnum.STOP
+                        _req.state = AsyncRolloutRequestStateEnum.COMPLETED
+                        break
+                else:
+                    _req.add_assistant_message(self.tokenizer, content)
+                    break
+
+    if current_turns >= self.config.multi_turn.max_turns:
+        finish_reason_type = FinishReasonTypeEnum.STOP
+
+    # Calculate the reward for each tool
+    async def calc_reward_and_release_fn(name: str, tool: BaseTool):
+        reward = await tool.calc_reward(_req.request_id, **_req.tools_kwargs[name].get("calc_reward_kwargs", {}))
+        await tool.release(_req.request_id, **_req.tools_kwargs[name].get("release_kwargs", {}))
+        return name, reward
+
+    tool_reward_tasks = []
+    for name in _req.tools_kwargs.keys():
+        tool = self._tool_map[name]
+        tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
+    tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
+    tool_reward_scores = dict(tool_reward_scores)
+    _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
+
+    return _req
 ```
 
-## 总结
+</details>
 
-veRL 的 VLM multi-turn RL 工作流程通过模块化设计实现了：
+### pop and union
 
-1. **高效推理**: SGLang 提供快速的多轮对话生成
-2. **分布式训练**: FSDP 支持大模型的并行训练
-3. **灵活奖励**: 支持多种奖励函数组合
-4. **异步处理**: 提高GPU利用率和训练效率
-5. **多模态支持**: 原生支持视觉-语言模型
-6. **算法多样性**: 支持PPO、GRPO、RLOO等多种RL算法
+经过艰难深挖，我们终于完成了 Rollout 的理解，现在回到 `RayPPOTrainer.fit()` 上。我们来看看 rollout 部分的实现逻辑：
 
-整个系统设计既保证了性能，又维持了良好的可扩展性和易用性。
+```python
+with marked_timer("step", timing_raw):
+    # generate a batch
+    with marked_timer("gen", timing_raw, color="red"):
+        if not self.async_rollout_mode:
+            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+        else:
+            self.async_rollout_manager.wake_up()
+            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+            self.async_rollout_manager.sleep()
+        timing_raw.update(gen_batch_output.meta_info["timing"])
+        gen_batch_output.meta_info.pop("timing", None)
 
-flowchart TB
-subgraph Init["初始化阶段"]
-direction TB
-A[启动RayPPOTrainer] --> B1[创建资源池]
-B1 --> B2[初始化分布式Workers]
-B2 --> C1[构建Hybrid Engine]
-C1 --> D1[数据预处理]
-end
+    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+        with marked_timer("gen_max", timing_raw, color="purple"):
+            gen_baseline_batch = deepcopy(gen_batch)
+            gen_baseline_batch.meta_info["do_sample"] = False
+            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
-```
-subgraph TrainLoop["训练循环"]
-    direction TB
-    E[数据加载] --> F[序列生成Rollout]
-    F --> G[经验处理]
-    G --> H[模型更新]
-    H --> E
-end
+            batch = batch.union(gen_baseline_output)
+            reward_baseline_tensor = self.reward_fn(batch)
+            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-Init --> TrainLoop
+            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
 
-subgraph Detail["详细流程"]
-    direction LR
-    subgraph Workers["Workers初始化详情"]
-        direction TB
-        W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
-        W2[CriticWorker] --> W4
-        W3[RewardModelWorker] --> W4
-        W4 --> W5[SGLang推理引擎]
-    end
+            batch.batch["reward_baselines"] = reward_baseline_tensor
 
-    subgraph Rollout["序列生成详情"]
-        direction TB
-        F1[准备生成数据] --> F2[SGLang异步生成]
-        F2 --> F3[多轮对话处理]
-    end
+            del gen_baseline_batch, gen_baseline_output
 
-    subgraph Experience["经验处理详情"]
-        direction TB
-        G1[重新计算Log Prob] --> G2[计算Reward]
-        G2 --> G3[GRPO优势计算]
-    end
-
-    subgraph Update["模型更新详情"]
-        direction TB
-        H1[加载FSDP模型参数] --> H2[计算策略梯度]
-        H2 --> H3[应用GRPO更新]
-        H3 --> H4[参数分片保存]
-    end
-end
-
-B2 --> Workers
-F --> Rollout
-G --> Experience
-H --> Update
-
+    batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+    # repeat to align with repeated responses in rollout
+    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+    batch = batch.union(gen_batch_output)
 ```
 
-flowchart TB
-subgraph Init["初始化阶段"]
-direction TB
-A[启动RayPPOTrainer] --> B1[创建资源池]
-B1 --> B2[初始化分布式Workers]
-B2 --> C1[构建Hybrid Engine]
-C1 --> D1[数据预处理]
-end
+值得一提的是，我自己写了代码才理解到在 verl 当中，发给 rollout engine 的并不是整个完整的从 dataset 读取的 batch，而是通过 pop 构造的 `gen_batch`。pop 是一个就地操作，完成后 batch 里面的 key 当然就没了。为此，如果想让 pop 前后都有一些需要的 key，得留一手考虑。比如说，我希望通过 uid 来把 `gen_batch` 和 `batch` 重新 union 起来，得[反复添加 uid](https://github.com/volcengine/verl/pull/2258)。
 
-```
-subgraph TrainLoop["训练循环"]
-    direction TB
-    E[数据加载] --> F1[准备生成数据]
-    F1 --> F2[SGLang异步生成]
-    F2 --> F3[多轮对话处理]
-    F3 --> G1[重新计算Log Prob]
-    G1 --> G2[计算Reward]
-    G2 --> G3[GRPO优势计算]
-    G3 --> H1[加载FSDP模型参数]
-    H1 --> H2[计算策略梯度]
-    H2 --> H3[应用GRPO更新]
-    H3 --> H4[参数分片保存]
-    H4 --> E
-end
 
-Init --> TrainLoop
 
-subgraph Workers["Workers初始化详情"]
-    direction TB
-    W1[ActorRolloutWorker] --> W4[FSDP训练引擎]
-    W2[CriticWorker] --> W4
-    W3[RewardModelWorker] --> W4
-    W4 --> W5[SGLang推理引擎]
-end
-
-B2 --> Workers
-
-```
