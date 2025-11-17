@@ -247,10 +247,6 @@ To achieve this, we explicitly cut the gradient paths from the MTP branch to the
 
    * We also detach the tied embedding weight (`output_weight`) to ensure it is not updated by the MTP loss.
 
-3. Keep MTP layers trainable
-
-   With the gradient paths to the main model's embedding and LM head cut, the only trainable parameters on this branch are those belonging to the MTP layers themselves. Gradients from the MTP CE loss flow into the MTP layers (via `hidden_states_list[...]`), so the draft model can still learn, while the main model's shared components remain driven solely by the primary RL / LM objectives.
-
 ### Mimo-7B-RL Model Support
 
 Megatron's default MTP input concatenation is `[target_token_embed, hidden_state]`, which works for DeepSeek and GLM. However, when testing the feature, due to limited computing resources and for rapid validation, we used the Mimo-7B-RL small model (possibly the only small model with MTP). Unfortunately, we found that when training Mimo directly with Megatron, the loss was particularly high.
