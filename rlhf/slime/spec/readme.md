@@ -12,9 +12,11 @@
 
 Speculative Decoding 大名远扬，它是一种巧妙的推理加速技术。具体来说，推理过程中不再让昂贵的 Target Model 逐个 token 进行 decode，而是先由一个轻量级的 draft model 先进行 decode，生成多个 token 后，再由大模型进行批量验证。验证通过的 token 直接作为最终的推理结果，而验证失败的 token 重新用大模型进行采样。理想情况下，如果 draft model 生成的 token 都通过验证，系统就能一次性接受这 k 个 token，显著提高了推理效率。然而，如果 draft model 和 target model 的差异过大，能通过验证的 token 过少，反而可能会产生负面效果。
 
-Speculative Decoding 这把双刃剑在工业级的推理引擎上已经得到了显著的应用，在 On-Policy RL 中也有着诱人的潜力。一方面，speculative decoding 能显著加速 Rollout 采样过程，并且采样得到的 token 在概率上和 target model 是完全一致的；此外，rollout 过程中的 batch size 往往不大，这天然符合 speculative decoding 对 batch size 的要求。当然，这一切的前提是 draft model 和 target model 的采样概率差异在合理范围内——如果两者策略差异过大，draft model 推测出的 token 接受率会暴跌。
+Speculative Decoding 这把双刃剑在工业级的推理引擎上已经得到了显著的应用，在 On-Policy RL 中也有着诱人的潜力。一方面，speculative decoding 能显著加速 Rollout 采样过程，并且采样得到的 token 在概率上和 target model 是完全一致的；此外，长尾轨迹会显著拉低 RL rollout 过程中的有效并发度，难以打满硬件的计算瓶颈，而这天然地适应了 speculative decoding 的应用场景。当然，这一切的前提是 draft model 和 target model 的采样概率差异在合理范围内——如果两者策略差异过大，draft model 推测出的 token 接受率会暴跌。
 
 这就是本文解决的问题——我们将 speculative decoding 引入到了 RL 的采样流程中，并且随着训练的进行同步更新 draft model，稳定提高了采样速度。
+
+目前已经合入 slime 主干，一键使用，[参考文档](https://github.com/THUDM/slime/blob/main/docs/zh/advanced/speculative-decoding.md)
 
 ## Online SFT for Draft Model
 
@@ -65,43 +67,47 @@ mtp_loss = cross_entropy(labels, mtp_logits)
 
 我们在 H200 集群上基于 Mimo-7B-RL 模型进行测试，所用数据集为 DAPO-Math-17k，max response length = 24k。
 
-实验组：启用 MTP layer 进行 speculative decoding，并且对 MTP 层进行训练
+实验组：启用 MTP 层进行 speculative decoding，并且对 MTP 层进行训练
 
-baseline：不启用 speculative decoding
+baseline 1：启用 MTP 层进行 speculative decoding 推理，但不训练 MTP 层
+
+baseline 2：不启用 speculative decoding
 
 得到的效果如下：
 
-|  | 实验组 | baseline |
-| --- | --- | --- |
-| rollout 吞吐 (tokens/s) | 1580 | 1300 |
-| 长尾效率 (tokens/s) | 62 | 52 |
-| 训练耗时 (s) | 148 | 138 |
+|  | 实验组 Online SFT spec | baseline 1 Frozen spec | baseline 2 No spec |
+| --- | --- | --- | --- |
+| rollout 吞吐 (tokens/s) | 1667 | 1464 | 1219 |
+| 长尾效率 (tokens/s) | 65 | 57 | 47 |
+| 训练耗时 (s) | 148 | 143 | 141 |
 
-1. 开启对 MTP 的训练后，accept length 稳步上涨，mtp loss 下降；rollout 性能，对比 baseline 有 20% 左右的提升。
+1. 开启对 MTP 的训练后，accept length 稳步上涨，mtp loss 下降。
 
 <div align="center">
-  <img src="./pic/accept-length.png" width="50%">
+  <img src="./pic/spec-acc-len.png" width="50%">
 </div>
 
 <div align="center">
   <img src="./pic/mtp-loss.png" width="50%">
 </div>
 
+2. rollout 性能，训练 spec 对比不开启 spec 整体有 35% 左右的提升，对比冻结 spec 有 14% 的提升。这一差距在训练后期愈发明显，训练 spec 对比冻结 spec 效率提升达到 25%。
+
 <div align="center">
-  <img src="./pic/perf.png" width="50%">
+  <img src="./pic/overall-throughput.png" width="50%">
 </div>
 
 <div align="center">
-  <img src="./pic/perf-2.png" width="50%">
+  <img src="./pic/long-throughput.png" width="50%">
 </div>
 
-1. 在训练时间上：由于额外训练了 mtp layer，增加了一定的训练消耗；但是相比采样节省的时间，整体速度仍然有显著收益。
+3. 在训练时间上：由于额外训练了 mtp layer，增加了极少量的训练消耗；但是相比采样节省的时间，整体速度仍然有显著收益。
 
 <div align="center">
   <img src="./pic/train-time.png" width="50%">
 </div>
 
-1. 训练效果上：如理论预期一样，采样过程中引入 speculative decoding 并不会影响主模型的采样和训练效果，如下图所示：
+4. 训练效果上：如理论预期一样，采样过程中引入 speculative decoding 并不会影响主模型的采样和训练效果，如下图所示：
 
 <div align="center">
   <img src="./pic/reward.png" width="50%">
@@ -141,7 +147,7 @@ loss mask 涉及到两个问题：
 
 1. loss mask 如何传递到 Megatron
 
-刚刚我们提到 MTP training 新增了一条 MTP CE Loss Flow，而 CE loss 是在 Megatron 里算的。slime 原来（不考虑 MTP 时）只需要调用 Megatron 算 logits，因此不需要在 Megatron 中考虑 loss mask。而现在要在 Megatron 里算 MTP 的 CE Loss ——这是需要 loss mask 的。
+刚刚我们提到 MTP training 新增了一条 MTP CE Loss Flow，而 CE loss 是在 Megatron 里算的。slime 原来（不考虑 MTP 时）只需要调用 Megatron 算 logits，因此不需要在 Megatron 中考虑 loss mask。而现在要在 Megatron 里算 MTP 的 CE Loss ——**这是需要 loss mask 的**。
 
 因此，我们要处理一下原本的 loss mask：补齐 prompt 部分，按照 CP 规则切分，padding 末尾跟 input ids 对齐，再传给 Megatron。做 CP 切分可以直接沿用 slime 里的 `slice_with_cp()` API。
 
@@ -149,11 +155,11 @@ loss mask 涉及到两个问题：
   <img src="./pic/loss-flow.png" width="50%">
 </div>
 
-1. loss mask 的交集问题
+2. loss mask 的交集问题
 
 首先，CE 的 loss mask 要跟 labels 的平移对齐，要转两次。如果输入的 loss mask 是 `[1, 0, 1, 1, 0]` ，那么转两次后应该是 `[1, 1, 0, ❌, ❌]` 。
 
-但我们在训练中已经 assume 了 `[b, c, d, e, ❌]` 是 `[a, b, c, d, e]` 生成的，然后根据 `[Ha, Hb, Hc, Hd, He]` 和 `[Eb, Ec, Ed, Ee, ❌]` 去预测 `[c, d, e, ❌, ❌]`，如图。但如果 b 的 mask 是 0，那么 b 一定不是模型需要生成的 token，b 不可能是由 a 生成的，更不可能让 MTP 根据 Ha 和 Eb 生成 c。
+但我们在训练中已经 assume 了 `[b, c, d, e, ❌]` 是 `[a, b, c, d, e]` 生成的，然后根据 `[Ha, Hb, Hc, Hd, He]` 和 `[Eb, Ec, Ed, Ee, ❌]` 去预测 `[c, d, e, ❌, ❌]`，如图。但如果 b 的 mask 是 0，那么 b 一定不是模型需要生成的 token，b 不可能是由 a 生成的，**更不可能让 MTP 根据 Ha 和 Eb 生成 c**。
 
 <div align="center">
   <img src="./pic/mtp-head.png" width="50%">
@@ -174,6 +180,58 @@ mtp_loss_mask = loss_mask_2 * loss_mask_1
 <div align="center">
   <img src="./pic/final-state.png" width="50%">
 </div>
+
+### 截断 lm_head 和 embedding
+
+在 MTP 训练中，我们希望复用主模型的 LM Head 和 Embedding，但又不想让 MTP 的辅助 loss 去更新这两层参数——只应该由主 LM loss 来驱动。同时，MTP 输出的 hidden states 仍需要正常反向传播，否则 MTP 层本身学不到东西。为了解决这个问题，我们显式把 MTP 分支和主模型参数的梯度路径切开，只保留对 MTP 自己那部分参数的更新。工程实现上，我们具体做了三件事：
+
+1. 切断流向主模型和 Embedding 层的梯度：
+
+```jsx
+decoder_input = embedding(input_ids=input_ids, position_ids=position_ids)
+decoder_input = decoder_input.detach()
+hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=False)
+```
+
+这里先正常做一次 embedding，然后立刻对 `decoder_input` 做 `detach()`。前向数值不变，还是用主模型的 embedding。但从 MTP loss 往回反传时，梯度不会再传回 embedding 权重，embedding 在 MTP 分支上是只读的常量。`hidden_states` 也是一样的效果，只是额外处理了 view 场景。
+
+2. 切断流向 LM Head 的梯度
+
+```jsx
+for mtp_layer_number in range(self.config.mtp_num_layers):
+    # 1. 拿到 output_layer 所有参数并 detach
+    output_layer_params = {
+        k: v.detach() for k, v in self.output_layer.named_parameters()
+    }
+    # 2. 拿到所有 buffer（例如 LayerNorm 的 running stats）
+    output_layer_buffers = dict(self.output_layer.named_buffers())
+
+    # 3. 用 functional_call 以“纯函数”的方式调用 output_layer
+    mtp_logits, _ = torch.func.functional_call(
+        self.output_layer,
+        {**output_layer_params, **output_layer_buffers},
+        (hidden_states_list[mtp_layer_number + 1],),
+        {
+            # tied embedding 也要 detach，避免被 MTP loss 更新
+            "weight": output_weight.detach() if output_weight else None,
+            "runtime_gather_output": runtime_gather_output,
+        },
+    )
+```
+
+这里的关键点有三个：
+
+1. 仅在参数层面 `detach()`，而不是输出层面 `detach()` 。`output_layer_params` 和 `output_weight` 都被 `detach()` 了一次。计算图在 LM Head 参数那里被“截断”了，MTP loss 对 `self.output_layer` 的参数梯度是0 。
+2. 用 `torch.func.functional_call` 做“函数式调用“。`functional_call(module, params_and_buffers, args, kwargs)` 的语义可以理解为：
+    
+    > 把一个 nn.Module 当成形如 f(params, buffers, inputs) 的纯函数，这次调用显式传入一份参数字典，而不是用模块内部挂着的那一份。
+    > 
+    
+    这有两个好处：
+    
+    - 我们不会修改 `self.output_layer` 本身的参数对象，也不会动它的 `requires_grad` 状态。主 LM loss 仍然可以正常更新同一个 LM Head
+    - 在 MTP 这条分支上，我们临时“换成”一份 `detach()` 过的参数视图，只影响这一次前向
+3. 切断 tied embedding，避免被 MTP loss 更新
 
 ### Mimo-7B-RL 模型支持
 
