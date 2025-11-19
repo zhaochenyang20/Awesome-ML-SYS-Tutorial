@@ -8,7 +8,7 @@ SGLang RL 团队与 slime 社区近期在强化学习的训练稳定性与加速
 
 - 在**训练稳定性**方面，我们通过[对齐 SGLang 与 FSDP 后端](https://github.com/THUDM/slime/tree/main/examples/true_on_policy)，在 Dense 模型上实现了 Rollout 与 Training 过程 **KL 散度严格为零**，达成了完美的训推一致。
 
-- 在**训练加速**方面，我们将 [](https://github.com/THUDM/slime/tree/main/examples/true_on_policy)[**Speculative Decoding**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/slime/spec/readme-en.md) [](https://github.com/THUDM/slime/tree/main/examples/true_on_policy)技术引入 RL 采样流程，在合适配置下显著提升了采样速度。
+- 在**训练加速**方面，我们将[**Speculative Decoding**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/slime/spec/readme-en.md)技术引入 RL 采样流程，在合适配置下显著提升了采样速度。
 
 在此基础上，我们进一步向大家分享兼顾稳定性与性能的新进展——**在 RL 中实现全流程的 FP8 训练与采样**。 Qwen3-4B 与 Qwen3-30B-A3B 模型的 FP8 RL 训练已在 slime 中全面支持，开箱即用。
 
