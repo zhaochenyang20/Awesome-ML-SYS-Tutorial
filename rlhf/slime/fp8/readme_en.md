@@ -1,8 +1,8 @@
 # Unified FP8: Moving Beyond Mixed Precision for Stable and Accelerated MoE RL
 
-**TL;DR:**
-
-**We have implemented fully FP8-based sampling and training in RL. Experiments show that for MoE models, the larger the model, the more severe the train–inference discrepancy becomes when using BF16 training with FP8 rollout. In contrast, using unified FP8 for both training and rollout effectively eliminates train–inference inconsistency caused by quantization error, improving both the speed and stability of RL training.**
+> **TL;DR:**
+> 
+> **We have implemented fully FP8-based sampling and training in RL. Experiments show that for MoE models, the larger the model, the more severe the train–inference discrepancy becomes when using BF16 training with FP8 rollout. In contrast, using unified FP8 for both training and rollout effectively eliminates train–inference inconsistency caused by quantization error, improving both the speed and stability of RL training.**
 
 The SGLang RL Team and the slime community have recently conducted some interesting explorations around RL training stability and acceleration:
 
@@ -47,7 +47,9 @@ FP8 is a floating-point format that uses 8 bits to represent values. Compared wi
 - **E4M3**: 4-bit exponent + 3-bit mantissa. Smaller dynamic range but higher precision.
 - **E5M2**: 5-bit exponent + 2-bit mantissa. Larger dynamic range but lower precision.
 
-![FP8 E4M3 vs E5M2](./pic/1_E4vsE5.png)
+<p align="center">
+  <img src="./pic/1_E4vsE5.png" alt="FP8 E4M3 vs E5M2" width="80%" />
+</p>
 
 > Figure source: [OCP whitepaper](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)
 
@@ -78,7 +80,9 @@ Therefore, under current H-series clusters, forcing the use of E8M0 not only fai
 
 Common quantization strategies include **per-tensor**, **per-block**, and **per-token**. Regardless of granularity, quantization usually follows two simple steps:
 
-![FP8 quantization flow](./pic/2_size.png)
+<p align="center">
+  <img src="./pic/2_size.png" alt="FP8 quantization flow" width="80%" />
+</p>
 
 > Figure source: [InfiR2: A Comprehensive FP8 Training Recipe for Reasoning-Enhanced Language Models](https://arxiv.org/html/2509.22536v4)
 
@@ -104,7 +108,9 @@ Because FP8 has lower precision than FP16/BF16, we must trade off between traini
 - **Weights**: Typically use per-block quantization. After convergence, weight distributions are usually smooth (close to Gaussian) with few outliers, but are highly sensitive to quantization error. Blockwise quantization (e.g., block_size × block_size) maintains precision while working well with hardware optimizations, balancing compute efficiency and memory savings.
 - **Gradients**: Typically use per-token quantization. Gradients have large dynamic-range variation but relatively low absolute precision requirements. Historically, most schemes used **per-tensor E5M2** to ensure dynamic range, but DeepSeek-V3 shows that fine-grained E4M3 can also balance precision and range.
 
-![Mixed-granularity FP8 quantization in Megatron](./pic/3_Megatron.png)
+<p align="center">
+  <img src="./pic/3_Megatron.png" alt="Mixed-granularity FP8 quantization in Megatron" width="80%" />
+</p>
 
 > Figure source: [InfiR2: A Comprehensive FP8 Training Recipe for Reasoning-Enhanced Language Models](https://arxiv.org/html/2509.22536v4)
 
@@ -124,7 +130,9 @@ In practice, the memory savings and speedups brought by FP8 are often less signi
 - **Compute-efficiency bottlenecks**:
   - **Performance degradation with small batch sizes**: When batch_size is small, FP8 training may fail to fully utilize GPU compute units and can even underperform BF16. The root cause is that FP8 introduces extra quantization and dequantization operations, which add CPU overhead. In Agentic RL scenarios, which typically use small batch sizes (e.g., batch_size=4), this issue is particularly pronounced—frequent CPU overhead can make FP8 training slower than BF16. (As shown below, GPU kernels are not densely scheduled; often the GPU has already finished the previous work but the next kernel launch is delayed because the system is CPU-bound.)
 
-    ![CPU bound for FP8 training](./pic/4_cpu_bound.png)
+<p align="center">
+  <img src="./pic/4_cpu_bound.png" alt="CPU bound for FP8 training" width="80%" />
+</p>
 
 > Figure: CPU-bound behavior in FP8 training
 
@@ -153,7 +161,9 @@ The **InfiXAI Team** has already successfully run full FP8 training on **pre-tra
 
 When we directly switched from BF16 to FP8 and started training, we observed a striking phenomenon: compared with BF16 training, FP8 training has a significantly higher KL loss at the first step. As shown below, the initial KL loss for **FP8-TI** is significantly higher than that of BF16 training with FP8 inference (T denotes Training, I denotes Inference):
 
-![Initial KL loss comparison](./pic/5_KLloss.png)
+<p align="center">
+  <img src="./pic/5_KLloss.png" alt="Initial KL loss comparison" width="80%" />
+</p>
 
 ### **Locating the Source of Error**
 
@@ -200,7 +210,9 @@ Based on these modes, we run two comparisons:
 
 The figure below visualizes the error distribution of all GEMM outputs over one full forward + backward pass, in execution order:
 
-![FP8 quantization error distribution](./pic/6_FP8_quant_error.png)
+<p align="center">
+  <img src="./pic/6_FP8_quant_error.png" alt="FP8 quantization error distribution" width="80%" />
+</p>
 
 > The figure shows how GEMM output errors evolve over one full iteration.
 >
@@ -233,13 +245,17 @@ To validate these hypotheses, we modified Transformer Engine (TE) and designed t
 
 The figure below shows KL-loss curves for the four cases. We see that Case 2, Case 3, and Case 4 (FP8-TI) have nearly identical KL loss at step 1, all significantly higher than Case 1:
 
-![KL-loss comparison under different cases](./pic/7_KLloss2.png)
+<p align="center">
+  <img src="./pic/7_KLloss2.png" alt="KL-loss comparison under different cases" width="80%" />
+</p>
 
 **Validating hypothesis 3 — TIS-clipfrac analysis**
 
 We introduce **clipfrac** from **Truncated Importance Sampling (TIS)** to validate hypothesis 3. This metric reflects the degree of off-policy training, i.e., the consistency between the model used for training and for generating experience. Higher clipfrac generally indicates more severe train–inference inconsistency.
 
-![TIS-clipfrac comparison under different cases](./pic/8_TIS.png)
+<p align="center">
+  <img src="./pic/8_TIS.png" alt="TIS-clipfrac comparison under different cases" width="80%" />
+</p>
 
 From the figure we see that Case 2, Case 3, and Case 4 (FP8-TI) have clipfrac values of roughly the same order, all significantly lower than Case 1. This confirms:
 

@@ -1,8 +1,8 @@
 # Unified FP8: Moving Beyond Mixed Precision for Stable and Accelerated MoE RL
 
-**TL;DR:**
-
-**我们实现了在 RL 中完全使用 FP8 进行采样（Rollout）和训练（Training）。实验表明 MoE 模型越大，BF16 训练  FP8 采样的训推差异越明显，而统一使用 FP8 有效消除了量化误差导致的训推不一致性，提升了 RL 训练的速度和稳定性。**
+> **TL;DR:**
+> 
+> **我们实现了在 RL 中完全使用 FP8 进行采样（Rollout）和训练（Training）。实验表明，MoE 模型规模越大，BF16 训练 FP8 采样的训推差异越明显，而统一使用 FP8 有效消除了量化误差导致的训推不一致性，提升了 RL 训练的速度和稳定性。**
 
 SGLang RL 团队与 slime 社区近期在强化学习的训练稳定性与加速方面，做出了一些有意思的探索与工作：
 
@@ -12,7 +12,7 @@ SGLang RL 团队与 slime 社区近期在强化学习的训练稳定性与加速
 
 在此基础上，我们进一步向大家分享兼顾稳定性与性能的新进展——**在 RL 中实现全流程的 FP8 训练与采样**。 Qwen3-4B 与 Qwen3-30B-A3B 模型的 FP8 RL 训练已[在 slime 中**全面支持**](https://github.com/THUDM/slime/tree/main/examples/low_precision)，开箱即用。
 
-本次工作由 **InfiXAI 团队、蚂蚁集团 AQ 团队、SGLang RL 团队及 slime 团队**联合完成。特别感谢 **DataCrunch** 为本工作提供的算力赞助，以及 **NVIDIA** 在 Transformer Engine (TE) 方面给予的技术支持。
+本次工作由 **InfiXAI 团队、蚂蚁集团 AQ 团队、SGLang RL 团队及 slime 团队**联合完成。特别感谢 **DataCrunch** 为本工作提供的算力赞助，以及 **NVIDIA** 在 Transformer Engine（TE）方面给予的技术支持。
 
 ## FP8 训练的硬件基础
 
@@ -53,7 +53,9 @@ FP8 是一种采用 8 位比特进行数值表达的浮点数格式。与 FP32�
 
 - **E5M2**：5 位指数位 + 2 位尾数位。特点是动态范围更大，但精度相对较低。
 
-![FP8 E4M3 vs E5M2](./pic/1_E4vsE5.png)
+<p align="center">
+  <img src="./pic/1_E4vsE5.png" alt="FP8 E4M3 vs E5M2" width="80%" />
+</p>
 
 > 图表来源：[OCP白皮书](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)
 
@@ -89,7 +91,9 @@ FP8 是一种采用 8 位比特进行数值表达的浮点数格式。与 FP32�
 
 常见的量化策略有：**per-tensor**（逐张量）、**per-block**（逐块）和 **per-token**（逐 Token）。无论采用哪种粒度，量化通常都遵循以下简单的两步流程：
 
-![FP8 量化流程](./pic/2_size.png)
+<p align="center">
+  <img src="./pic/2_size.png" alt="FP8 量化流程" width="80%" />
+</p>
 
 > 图表来源：[InfiR2: A Comprehensive FP8 Training Recipe for Reasoning-Enhanced Language Models](https://arxiv.org/html/2509.22536v4)
 
@@ -119,7 +123,9 @@ $$
 
 - **梯度(Gradients)**：通常选择 per-token 量化。梯度数值的动态范围变化很大，但对精度的绝对值要求较低。过去大部分方案会使用 **per-tensor E5M2** 精度来保证动态范围，但是 DeepSeek-V3 证明了细粒度 E4M3 量化能够兼顾精度和动态范围。
 
-![Megatron 中使用 FP8 的混合粒度量化策略](./pic/3_Megatron.png)
+<p align="center">
+  <img src="./pic/3_Megatron.png" alt="Megatron 中使用 FP8 的混合粒度量化策略" width="80%" />
+</p>
 
 > 图表来源：[InfiR2: A Comprehensive FP8 Training Recipe for Reasoning-Enhanced Language Models](https://arxiv.org/html/2509.22536v4)
 
@@ -145,7 +151,9 @@ $$
 
     - **小批量（Small Batch Size）下的性能衰退**：当 batch_size 较小时，FP8 训练可能无法充分利用 GPU 的计算单元，导致其性能甚至劣于 BF16。其根本原因在于，FP8 引入了额外的量化（Quantization）和反量化（Dequantization）操作，这些操作增加了 CPU 的计算负担。考虑到 Agentic RL 场景通常采用较小批量（例如 batch_size=4），上述问题尤为突出——频繁的 CPU 开销甚至会导致 FP8 训练速度慢于传统的 BF16 训练。（详情见下图，GPU kernel并不密集，很多时候 GPU已经完成了上一个工作，但由于 CPU bound 导致下一个 kernel launch 还没发出来）
 
-    ![CPU bound for FP8 training](./pic/4_cpu_bound.png)
+<p align="center">
+  <img src="./pic/4_cpu_bound.png" alt="CPU bound for FP8 training" width="80%" />
+</p>
 
 > 图表所示：CPU Bound for FP8 Training
 
@@ -175,13 +183,15 @@ FP8 的低精度特性天然带来了与 BF16 之间的数值差异，这种差�
 
 ## **FP8 ➕ RL：KL Loss 异常归因**
 
-**InfiXAI 团队**此前已经成功在[Pre-training 任务和 Fine-tuning 任务](https://arxiv.org/html/2509.22536v4)上将 FP8 训练完整运行。在此基础上，我们将 FP8 训练技术应用于 RL。得益于 slime 框架对 Megatron FP8 训练的良好支持，我们顺利展开一系列 FP8 RL 的实验。
+**InfiXAI 团队**此前已经成功在 [Pre-training 任务和 Fine-tuning 任务](https://arxiv.org/html/2509.22536v4)上将 FP8 训练完整运行。在此基础上，我们将 FP8 训练技术应用于 RL。得益于 slime 框架对 Megatron FP8 训练的良好支持，我们顺利展开一系列 FP8 RL 的实验。
 
 ### **初始 KL Loss 异常**
 
 直接将 BF16 切换到 FP8 并启动训练后，我们观察到一个显著现象：与 BF16 训练相比，FP8 训练在第一个 step 的 KL loss 明显更高。如下图所示：FP8 训推（训练和推理均使用 FP8）的初始 KL loss 显著大于 BF16 训练、FP8 推理模式下的初始 KL loss。（图中 T 代表 Training，I 代表 Inference）
 
-![初始 KL loss 对比](./pic/5_KLloss.png)
+<p align="center">
+  <img src="./pic/5_KLloss.png" alt="初始 KL loss 对比" width="80%" />
+</p>
 
 ### **定位误差来源**
 
@@ -236,7 +246,9 @@ FP8 的低精度特性天然带来了与 BF16 之间的数值差异，这种差�
 
     下图按执行顺序可视化了一次完整 Forward + Backward 过程中，各层 GEMM 输出的误差分布：
 
-    ![FP8 量化误差分布](./pic/6_FP8_quant_error.png)
+<p align="center">
+  <img src="./pic/6_FP8_quant_error.png" alt="FP8 量化误差分布" width="80%" />
+</p>
 
 > 上图展示了模型在一次完整迭代中 GEMM 输出的误差变化
 > - **灰色/高数值点（Baseline vs. FP8 Fake Quant）**：代表量化本身引入的误差。可以看出，BF16 Baseline 与模拟量化（Fake Quant）之间存在显著差异
@@ -276,7 +288,9 @@ FP8 的低精度特性天然带来了与 BF16 之间的数值差异，这种差�
 
 下图展示了四种情况下 KL loss 的变化。可以看到，Case 2、Case 3 和 Case 4 (FP8-TI) 在 step 1 的 KL loss 基本一致，并且都显著高于 Case 1。
 
-![不同方案 KL loss 对比](./pic/7_KLloss2.png)
+<p align="center">
+  <img src="./pic/7_KLloss2.png" alt="不同方案 KL loss 对比" width="80%" />
+</p>
 
 **验证推测 3 ——TIS-clipfrac 分析**
 
