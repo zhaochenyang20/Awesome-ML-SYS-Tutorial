@@ -73,11 +73,11 @@ FP8 是一种采用 8 位比特进行数值表达的浮点数格式。与 FP32�
 
 经过综合评估，我们最终决定采用 **FP32** 作为训练时的 Scale 精度。决策依据如下：
 
-1. **精度对齐与训练稳定性：**FP32 Scale 提供了精细的数值缩放，能够捕捉 Tensor 的动态范围，确保 FP8 训练的 Loss 曲线能够最大限度地贴近 **BF16** 基线。
+1. **精度对齐与训练稳定性**：FP32 Scale 提供了精细的数值缩放，能够捕捉 Tensor 的动态范围，确保 FP8 训练的 Loss 曲线能够最大限度地贴近 **BF16** 基线。
 
-2.  **推理生态的一致性：**目前主流的推理模型都使用的 FP32 作为推理 scale
+2.  **推理生态的一致性**：目前主流的推理模型都使用的 FP32 作为推理 scale
 
-3. **硬件加速的实际收益：**
+3. **硬件加速的实际收益**：
 
     - **Hopper 架构 (H100/H800)**：虽然支持 FP8 Tensor Core 计算，但并无针对 E8M0 Scale 的计算单元。
 
@@ -117,13 +117,13 @@ $$
 
 - **权重(Weights)**：通常选择 per-block 量化。训练收敛后的权重分布通常较为平稳（接近高斯分布），极少出现异常值，但对量化误差十分敏感，按块量化（如 block_size × block_size）在保证精度的同时能更好地配合硬件优化，兼顾计算效率与存储节省。
 
-- **梯度(Gradients)**：通常选择 per-token 量化。梯度数值的动态范围变化很大，但对精度的绝对值要求较低。过去大部分方案会使用 **per-tensor E5M2 精度来保证动态范围，但是 DeepSeek-V3 证明了细粒度 E4M3 量化能够兼顾精度和动态范围。
+- **梯度(Gradients)**：通常选择 per-token 量化。梯度数值的动态范围变化很大，但对精度的绝对值要求较低。过去大部分方案会使用 **per-tensor E5M2** 精度来保证动态范围，但是 DeepSeek-V3 证明了细粒度 E4M3 量化能够兼顾精度和动态范围。
 
 ![Megatron 中使用 FP8 的混合粒度量化策略](./pic/3_Megatron.png)
 
 > 图表来源：[InfiR2: A Comprehensive FP8 Training Recipe for Reasoning-Enhanced Language Models](https://arxiv.org/html/2509.22536v4)
 
-上图展示了 Megatron 中使用 FP8 的混合粒度量化策略，并与标准的 BF16 流水线进行了比较。在 FP8 流水线中，应用了不同的量化方法：权重采用 per-block **量化（蓝色），激活值采用 per-token 量化（紫色）。该图展示了完整的训练过程，包括前向传播 (FProp)、权重梯度计算 (Wgrad) 和输入梯度计算 (Dgrad)，并详细展示了 FProp 的工作流程。
+上图展示了 Megatron 中使用 FP8 的混合粒度量化策略，并与标准的 BF16 流水线进行了比较。在 FP8 流水线中，应用了不同的量化方法：权重采用 per-block 量化（蓝色），激活值采用 per-token 量化（紫色）。该图展示了完整的训练过程，包括前向传播 (FProp)、权重梯度计算 (Wgrad) 和输入梯度计算 (Dgrad)，并详细展示了 FProp 的工作流程。
 
 > 
 
@@ -165,7 +165,7 @@ FP8 的低精度特性天然带来了与 BF16 之间的数值差异，这种差�
 
 ### **框架适配挑战：TransformerEngine 的版本兼容性问题**
 
-除了算法层面的挑战，Megatron-Core 与  ****Transformer Engine (TE) 框架的结合也有一定的改进空间，尤其是 TE 的版本迭代带来了一定的不稳定性。
+除了算法层面的挑战，Megatron-Core 与 Transformer Engine (TE) 框架的结合也有一定的改进空间，尤其是 TE 的版本迭代带来了一定的不稳定性。
 
 - **版本依赖与迁移成本**：TransformerEngine 的持续快速迭代带来了新特性，但也意味着严格的版本依赖。我们在项目实践中发现，即便是相同模型的训练脚本，在不同版本的 TE 上运行时，也可能观察到数值结果的差异，甚至需要对代码进行适应性调整才能避免如 NaN (非数值）错误。
 
@@ -268,13 +268,13 @@ FP8 的低精度特性天然带来了与 BF16 之间的数值差异，这种差�
 
 - **实验变量**：
 
-    - **Case 1：**BF16 训练、FP8 推理（Rollout）
+    - **Case 1**：BF16 训练、FP8 推理（Rollout）
 
-    - **Case 2：**BF16 训练、FP8 推理；在训练的 Forward 阶段，对 BF16 的权重和激活值进行“FP8 量化 -> 反量化回 BF16”操作，然后执行 BF16 GEMM
+    - **Case 2**：BF16 训练、FP8 推理；在训练的 Forward 阶段，对 BF16 的权重和激活值进行“FP8 量化 -> 反量化回 BF16”操作，然后执行 BF16 GEMM
 
-    - **Case 3：**BF16 训练、FP8 推理；在训练的 Forward 和 Backward 阶段，都对输入矩阵 A 和 B 进行“FP8 量化 -> 反量化回 BF16”操作，然后执行 BF16 GEMM
+    - **Case 3**：BF16 训练、FP8 推理；在训练的 Forward 和 Backward 阶段，都对输入矩阵 A 和 B 进行“FP8 量化 -> 反量化回 BF16”操作，然后执行 BF16 GEMM
 
-    - **Case 4 (FP8-TI)：**FP8 训练，FP8 推理
+    - **Case 4 (FP8-TI)**：FP8 训练，FP8 推理
 
 **验证推测 2——KL-loss 分析**
 

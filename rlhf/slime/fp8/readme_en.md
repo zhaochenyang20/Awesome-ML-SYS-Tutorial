@@ -112,7 +112,7 @@ The figure shows the mixed-granularity FP8 strategy used in Megatron compared to
 
 ## Challenges of FP8 Training
 
-Although FP8 shows great potential, in real engineering practice—especially when combining Megatron-Core and TransformerEngine (TE)—we encounter three main challenges: **memory/efficiency not meeting expectations, difficulty aligning precision, and stability issues in the framework itself.**
+Although FP8 shows great potential, in real engineering practice—especially when combining Megatron-Core and TransformerEngine (TE)—we encounter three main challenges: **memory/efficiency not meeting expectations, difficulty aligning precision, and stability issues in the framework itself.** We refer to our unified FP8 training-and-inference setup as **FP8-TI (FP8 Training & Inference)**.
 
 ### **Memory and Compute Efficiency: Theory vs. Reality**
 
@@ -151,7 +151,7 @@ The **InfiXAI Team** has already successfully run full FP8 training on **pre-tra
 
 ### **Abnormal Initial KL Loss**
 
-When we directly switched from BF16 to FP8 and started training, we observed a striking phenomenon: compared with BF16 training, FP8 training has a significantly higher KL loss at the first step. As shown below, the initial KL loss for this FP8 scheme is significantly higher than that of BF16 training with FP8 inference (T denotes Training, I denotes Inference):
+When we directly switched from BF16 to FP8 and started training, we observed a striking phenomenon: compared with BF16 training, FP8 training has a significantly higher KL loss at the first step. As shown below, the initial KL loss for **FP8-TI** is significantly higher than that of BF16 training with FP8 inference (T denotes Training, I denotes Inference):
 
 ![Initial KL loss comparison](./pic/5_KLloss.png)
 
@@ -244,12 +244,12 @@ We introduce **clipfrac** from **Truncated Importance Sampling (TIS)** to valida
 From the figure we see that Case 2, Case 3, and Case 4 (FP8-TI) have clipfrac values of roughly the same order, all significantly higher than Case 1. This confirms:
 
 1. The root cause of the elevated initial KL loss is quantization error.
-2. **Unified FP8 training and inference (Case 4)** can significantly alleviate train–inference inconsistency compared with the hybrid BF16 training + FP8 rollout (Case 1).
+2. **FP8-TI (Case 4)** can significantly alleviate train–inference inconsistency compared with the hybrid BF16 training + FP8 rollout (Case 1).
 3. For training bias, quantization error in the forward pass matters more than in the backward pass (as shown by the similarity between Case 2 and Case 3). Similarly, for train–inference consistency, forward quantization error is the primary factor.
 
 ## **Applying FP8 to MoE RL: Experiments and Validation**
 
-Dense-model experiments demonstrate that using unified FP8 for training and inference effectively suppresses train–inference inconsistency. Building on this, the **Ant Group AQ Team** extended the study to MoE models in RL to evaluate whether this unified FP8 scheme works well for more complex architectures. We find that this FP8 scheme:
+Dense-model experiments demonstrate that **FP8-TI** effectively suppresses train–inference inconsistency. Building on this, the **Ant Group AQ Team** extended the study to MoE models in RL to evaluate whether **FP8-TI** works well for more complex architectures. We find that **FP8-TI**:
 
 1. **Reduces TIS clip fraction**: Its TIS-clipfrac is significantly lower than that of BF16 Train / FP8 Rollout, meaning fewer clipped updates and higher training stability.
 2. **Narrows the train–rollout log-probability gap**: Compared with BF16 Train / FP8 Rollout, this FP8 scheme yields smaller and more stable differences between training and rollout log probabilities.
@@ -272,10 +272,10 @@ To isolate variables for clean comparison, we set up two experimental schemes:
 
 - **Setup**: 2× H20 servers.
 
-On a 30B-scale MoE model, the results clearly show the advantages of this FP8 scheme:
+On a 30B-scale MoE model, the results clearly show the advantages of **FP8-TI**:
 
-- **Lower TIS-clipfrac**: This FP8 scheme achieves significantly lower TIS-clipfrac than the BF16 Train / FP8 Rollout baseline, indicating fewer clipped updates and more stable training.
-- **Smaller train–rollout log-probability gap**: This scheme produces a narrower and more stable range for Train_rollout_logprob_abs_diff, indicating more consistent behavior between training and inference.
+- **Lower TIS-clipfrac**: **FP8-TI** achieves significantly lower TIS-clipfrac than the BF16 Train / FP8 Rollout baseline, indicating fewer clipped updates and more stable training.
+- **Smaller train–rollout log-probability gap**: **FP8-TI** produces a narrower and more stable range for Train_rollout_logprob_abs_diff, indicating more consistent behavior between training and inference.
 
 <p align="center">
   <img src="./pic/9_1_TIS.png" alt="Qwen3-30B-A3B TIS-clipfrac" width="49%" />
@@ -288,7 +288,7 @@ On a 30B-scale MoE model, the results clearly show the advantages of this FP8 sc
 
 To evaluate scalability, we replicated the experiments on a 235B-scale model and obtained consistent conclusions:
 
-- **Consistent improvements in TIS-clipfrac and train–rollout discrepancy**: As shown below, even at 235B scale, this FP8 scheme continues to reduce TIS-clipfrac and Train_rollout_logprob_abs_diff compared with BF16 Train / FP8 Rollout, demonstrating good scalability.
+- **Consistent improvements in TIS-clipfrac and train–rollout discrepancy**: As shown below, even at 235B scale, **FP8-TI** continues to reduce TIS-clipfrac and Train_rollout_logprob_abs_diff compared with BF16 Train / FP8 Rollout, demonstrating good scalability.
 
 <p align="center">
   <img src="./pic/10_1_TIS.png" alt="Qwen3-235B-A22B TIS-clipfrac" width="49%" />
@@ -301,7 +301,7 @@ To evaluate scalability, we replicated the experiments on a 235B-scale model and
 
 We further investigate how MoE model size affects train–inference inconsistency under the mixed-precision setting (BF16 Train / FP8 Rollout). Experiments show that **as MoE model size increases, train–inference inconsistency becomes more severe**.
 
-As shown below, from 30B up to 1T, both **TIS-clipfrac** and **Train_rollout_logprob_abs_diff** increase significantly. This suggests that for BF16 Train / FP8 Rollout, larger models tend to suffer more severe train–inference inconsistency, indirectly highlighting the importance of unified-precision schemes such as unified FP8 training and inference.
+As shown below, from 30B up to 1T, both **TIS-clipfrac** and **Train_rollout_logprob_abs_diff** increase significantly. This suggests that for BF16 Train / FP8 Rollout, larger models tend to suffer more severe train–inference inconsistency, indirectly highlighting the importance of unified-precision schemes such as **FP8-TI**.
 
 <p align="center">
   <img src="./pic/11_1_TIS.png" alt="TIS-clipfrac under different model scales" width="49%" />
