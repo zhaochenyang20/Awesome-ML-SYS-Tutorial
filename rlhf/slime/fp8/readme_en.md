@@ -10,7 +10,7 @@ The SGLang RL Team and the slime community have recently conducted some interest
 
 - In terms of **training acceleration**, we introduce [**Speculative Decoding**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/slime/spec/readme-en.md) into the RL sampling pipeline, which can significantly speed up sampling under suitable configurations.
 
-Building on this, we now share a new progress that balances both stability and performance—**implementing an end-to-end FP8 pipeline for RL training and sampling**. FP8 RL training for Qwen3-4B and Qwen3-30B-A3B has been fully supported in slime and is ready to use out of the box.
+Building on this, we now share a new progress that balances both stability and performance—**implementing an end-to-end FP8 pipeline for RL training and sampling**. FP8 RL training for Qwen3-4B and Qwen3-30B-A3B has been [fully supported in slime](https://github.com/THUDM/slime/tree/main/examples/low_precision) and is ready to use out of the box.
 
 This work is jointly completed by the **InfiXAI Team, Ant Group AQ Team, SGLang RL Team, and slime Team**. Special thanks to **DataCrunch** for compute sponsorship and to **NVIDIA** for technical support on Transformer Engine (TE).
 
