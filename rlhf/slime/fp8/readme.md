@@ -239,11 +239,7 @@ FP8 的低精度特性天然带来了与 BF16 之间的数值差异，这种差�
     ![FP8 量化误差分布](./pic/6_FP8_quant_error.png)
 
 > 上图展示了模型在一次完整迭代中 GEMM 输出的误差变化
-
-> 
-
 > - **灰色/高数值点（Baseline vs. FP8 Fake Quant）**：代表量化本身引入的误差。可以看出，BF16 Baseline 与模拟量化（Fake Quant）之间存在显著差异
-
 > - **绿色/低数值点（FP8 Real Quant vs. FP8 Fake Quant）**：代表算子实现引入的误差。可以看出，真实 FP8 计算与模拟量化之间的差异极小，几乎为零。
 
 由此可见：
