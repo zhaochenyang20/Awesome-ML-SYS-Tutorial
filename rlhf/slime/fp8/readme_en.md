@@ -241,7 +241,7 @@ We introduce **clipfrac** from **Truncated Importance Sampling (TIS)** to valida
 
 ![TIS-clipfrac comparison under different cases](./pic/8_TIS.png)
 
-From the figure we see that Case 2, Case 3, and Case 4 (FP8-TI) have clipfrac values of roughly the same order, all significantly higher than Case 1. This confirms:
+From the figure we see that Case 2, Case 3, and Case 4 (FP8-TI) have clipfrac values of roughly the same order, all significantly lower than Case 1. This confirms:
 
 1. The root cause of the elevated initial KL loss is quantization error.
 2. **FP8-TI (Case 4)** can significantly alleviate train–inference inconsistency compared with the hybrid BF16 training + FP8 rollout (Case 1).
