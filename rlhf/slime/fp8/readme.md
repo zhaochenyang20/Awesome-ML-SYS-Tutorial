@@ -10,7 +10,7 @@ SGLang RL 团队与 slime 社区近期在强化学习的训练稳定性与加速
 
 - 在**训练加速**方面，我们将[**Speculative Decoding**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/slime/spec/readme-en.md)技术引入 RL 采样流程，在合适配置下显著提升了采样速度。
 
-在此基础上，我们进一步向大家分享兼顾稳定性与性能的新进展——**在 RL 中实现全流程的 FP8 训练与采样**。 Qwen3-4B 与 Qwen3-30B-A3B 模型的 FP8 RL 训练已在 slime 中全面支持，开箱即用。
+在此基础上，我们进一步向大家分享兼顾稳定性与性能的新进展——**在 RL 中实现全流程的 FP8 训练与采样**。 Qwen3-4B 与 Qwen3-30B-A3B 模型的 FP8 RL 训练已[在 slime 中**全面支持**](https://github.com/THUDM/slime/tree/main/examples/low_precision)，开箱即用。
 
 本次工作由 **InfiXAI 团队、蚂蚁集团 AQ 团队、SGLang RL 团队及 slime 团队**联合完成。特别感谢 **DataCrunch** 为本工作提供的算力赞助，以及 **NVIDIA** 在 Transformer Engine (TE) 方面给予的技术支持。
 
