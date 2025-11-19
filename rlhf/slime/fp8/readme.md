@@ -81,7 +81,7 @@ FP8 是一种采用 8 位比特进行数值表达的浮点数格式。与 FP32�
 
     - **Hopper 架构 (H100/H800)**：虽然支持 FP8 Tensor Core 计算，但并无针对 E8M0 Scale 的计算单元。
 
-    - **Blackwell 架构 (B100/B200)**：引入了对 MXFP8 (Micro-scaling) 的支持，才真正针对 E8M0 这种块级缩放提供了硬件加速（参考论文 [**arXiv:2506.08027**](https://www.google.com/url?sa=E&q=https%3A%2F%2Farxiv.org%2Fabs%2F2506.08027)）。
+    - **Blackwell 架构 (B100/B200)**：引入了对 MXFP8 (Micro-scaling) 的支持，才真正针对 E8M0 这种块级缩放提供了硬件加速（参考论文 [**arXiv:2506.08027**](https://arxiv.org/abs/2506.08027)）。
 
 因此，在现有的 H 卡集群环境下，强行使用 E8M0 不仅无法带来显著的加速收益，反而可能引入额外的软件模拟开销和精度风险。
 
