@@ -70,7 +70,7 @@ After a comprehensive evaluation, we ultimately chose **FP32** as the scale prec
 2. **Consistency with inference ecosystems**: Mainstream inference models also use FP32 as the quantization scale format.
 3. **Real-world hardware benefits**:
    - **Hopper (H100/H800)**: Although it supports FP8 Tensor Cores, it has no dedicated compute units for E8M0 scaling.
-   - **Blackwell (B100/B200)**: Introduces support for MXFP8 (micro-scaling), which provides hardware acceleration for block-level scaling like E8M0 (see [**arXiv:2506.08027**](https://www.google.com/url?sa=E&q=https%3A%2F%2Farxiv.org%2Fabs%2F2506.08027)).
+   - **Blackwell (B100/B200)**: Introduces support for MXFP8 (micro-scaling), which provides hardware acceleration for block-level scaling like E8M0 (see [**arXiv:2506.08027**](https://arxiv.org/abs/2506.08027)).
 
 Therefore, under current H-series clusters, forcing the use of E8M0 not only fails to deliver clear speedups, but may also introduce additional software-emulation overhead and precision risks.
 
