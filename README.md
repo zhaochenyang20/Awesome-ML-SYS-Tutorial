@@ -18,7 +18,7 @@ $$
 
 ## 未公开部分
 
-之前的笔记大多写于 2024 年年底，经过了半年时间，我的仓库已略年久失修。一方面我自己更多在项目中负责推动 + delivery，反而自己很少写代码；另一方面，多多少少不少朋友向我们的仓库贡献了笔记，但我完全没有来得及整理。这段时间会不断完成整理并发布。下方文章列表中标记为[Pending Review]的文章尚未review，欢迎大家一起review！
+之前的笔记大多写于 2024 年年底，经过了半年时间，我的仓库已略年久失修。一方面我自己更多在项目中负责推动 + delivery，反而自己很少写代码；另一方面，多多少少不少朋友向我们的仓库贡献了笔记，但我完全没有来得及整理。这段时间会不断完成整理并发布。下方文章列表中标记为 [Pending Review] 的文章尚未 review，欢迎大家一起 review！
 
 ## RLHF System 开发笔记
 
@@ -56,8 +56,8 @@ $$
 - [Pending Review] [RL 系统深思：Megatron](./rlhf/sys-design/readme-3.md)：Megatron 的基本特性浅析，重点分析 Megatron 在 RL 框架中的使用。
 - [扩展 OpenRLHF 的推理引擎](./rlhf/OpenRLHF/develop-log.md)：将 SGLang 接入到 OpenRLHF 的开发笔记，整个过程非常痛苦，而且目前还有 nccl hang error，已经直接联系了 deepspeed core contributor 在修复了。
 - [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md)：介绍如何将 SGLang 作为 TRL 中 GRPO Trainer 的推理后端，GRPO 是 PPO 的变体，在优化数学推理能力的同时优化 PPO 的内存使用。
-- [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshort/readme.md)：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshort/readme-en.md)。
-- [Latency optimization for weight updates](./sglang/latency-accelerte-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
+- [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshot/readme.md)：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshot/readme-en.md)。
+- [Latency optimization for weight updates](./sglang/latency-accelerate-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
 
 ### 算法与理论
 
@@ -85,8 +85,8 @@ $$
 - [Constraint Decoding 的概念、方法与优化](./sglang/constraint-decoding/readme.md)：同样刊载于[知乎：一文理解 Constraint Decoding 的概念、方法与优化](https://zhuanlan.zhihu.com/p/18336995950)。
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md)：介绍 SGLang 中 `online_update_weights` 接口的实现，区别于从磁盘读取权重的 `update_weights`，该接口从训练 engine 中直接通过 nccl 广播新的权重。
 - [Pending Review] [SGLang Verl Engine 优化解析](./sglang/sglang-verl-engine/readme.md)：解析 SGLang 中 verl engine 的优化，包括 `update_weights_from_tensor` 等接口的实现。
-- [Latency Accelerate For Weight Updates](./sglang/latency-accelerte-for-weight-updates/readme-CN.md)
-- **[🔥相关调试] [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshort/readme.md)**：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshort/readme-en.md)。
+- [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
+- **[🔥相关调试] [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshot/readme.md)**：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshot/readme-en.md)。
 
 ### 使用与实践
 

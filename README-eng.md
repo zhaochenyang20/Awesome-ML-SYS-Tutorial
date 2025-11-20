@@ -26,7 +26,7 @@ My learning notes/codes for ML SYS.  English version is under development and on
   Also see [RLHF 的计算流](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/OpenRLHF#rlhf-%E7%9A%84%E8%AE%A1%E7%AE%97%E6%B5%81).
 
 - **Latency Optimization for Weight Updates**  
-  [English TODO] | [[中文版](./sglang/latency-accelerte-for-weight-updates/readme.md)]：An experience of debugging loading efficiency.
+  [English TODO] | [[中文版](./sglang/latency-accelerate-for-weight-updates/readme.md)]：An experience of debugging loading efficiency.
 
 - **Intro to Alignment Algorithms and NeMo-Aligner Framework**  
   [[中文版](https://zhuanlan.zhihu.com/p/5220718268)] 
@@ -48,7 +48,7 @@ My learning notes/codes for ML SYS.  English version is under development and on
   [[English version](./sglang/sglang-scheduler/readme.md)] | [[中文版](./sglang/sglang-scheduler/readme-CN.md)] : Demystifying the SGLang Scheduler.
 
 - **Latency Accelerate For Weight Updates**
-  [[English version](./sglang/latency-accelerte-for-weight-updates/readme.md)] | [[中文版](./sglang/latency-accelerte-for-weight-updates/readme-CN.md)] : A detailed debugging investigation of weight update latency in a distributed system.
+  [[English version](./sglang/latency-accelerate-for-weight-updates/readme.md)] | [[中文版](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)] : A detailed debugging investigation of weight update latency in a distributed system.
 
 - **Reward / Embed Model Server Engine**  
   [English TODO] | [[中文版](https://zhuanlan.zhihu.com/p/4148050391)] 
