@@ -31,6 +31,8 @@ $$
 
 ### verl 框架
 
+- [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshot/readme.md)：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshot/readme-en.md)。
+- [Latency optimization for weight updates](./sglang/latency-accelerate-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
 - [深入浅出理解 verl 源码（初始化）](./rlhf/verl/multi-turn/code-walk-through/readme.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1920751852749849692)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme_EN.md)。
 - [深入浅出理解 verl 源码（Rollout）](./rlhf/verl/multi-turn/code-walk-through/readme-2.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1923349757566388159)，还有[英文版本](./rlhf/verl/multi-turn/code-walk-through/readme-2-EN.md)。
 - [Pending Review] [深入浅出理解 verl 源码（Make Experience）](./rlhf/verl/multi-turn/code-walk-through/readme-3.md)：分析 verl 中 make experience 部分的逻辑。
@@ -56,8 +58,6 @@ $$
 - [Pending Review] [RL 系统深思：Megatron](./rlhf/sys-design/readme-3.md)：Megatron 的基本特性浅析，重点分析 Megatron 在 RL 框架中的使用。
 - [扩展 OpenRLHF 的推理引擎](./rlhf/OpenRLHF/develop-log.md)：将 SGLang 接入到 OpenRLHF 的开发笔记，整个过程非常痛苦，而且目前还有 nccl hang error，已经直接联系了 deepspeed core contributor 在修复了。
 - [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md)：介绍如何将 SGLang 作为 TRL 中 GRPO Trainer 的推理后端，GRPO 是 PPO 的变体，在优化数学推理能力的同时优化 PPO 的内存使用。
-- [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshot/readme.md)：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshot/readme-en.md)。
-- [Latency optimization for weight updates](./sglang/latency-accelerate-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
 
 ### 算法与理论
 
