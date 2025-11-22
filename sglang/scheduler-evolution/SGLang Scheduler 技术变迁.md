@@ -80,7 +80,7 @@ class ScheduleBatch:
     # 批处理相关
     input_ids: torch.Tensor  # 输入token IDs
     seq_lens: torch.Tensor  # 序列长度
-    extend_lens: List[int]  # 扩展长度(sel_len - prefix_len)
+    extend_lens: List[int]  # 扩展长度(seq_len - prefix_len)
     prefix_lens: List[int]  # 前缀长度
 ```
 
@@ -120,7 +120,7 @@ class ForwardBatch:
     extend_prefix_lens: Optional[torch.Tensor]
 ```
 
-#### Transpose
+#### Batch Transformation
 
 ```python
 # 1. Scheduler创建ScheduleBatch
@@ -249,30 +249,30 @@ req_to_token_pool.write(
 
 ```python
 class PrefillAdder:
-    def __init__(self, ...):
-	    self.page_size = page_size # 内存页大小
-		self.tree_cache = tree_cache  # radix kv cache
-		self.token_to_kv_pool_allocator = token_to_kv_pool_allocator # kv cache pool
-		self.running_batch = running_batch # 当前正在运行的 decode batch
-		self.new_token_ratio = new_token_ratio # 新 token 生成比例
-        self.can_run_list = []        # 可以运行的请求列表
-        self.preempt_list = []        # 被抢占的请求列表  
-        self.new_chunked_req = None   # 新的分块请求
-        self.log_hit_tokens = 0       # 缓存命中的token数
-        self.log_input_tokens = 0     # 输入token统计
-       
-	@property
-	def rem_total_tokens(self):
-	    """计算剩余可用的总token数"""
+    def __init__(self, ...):
+        self.page_size = page_size # memory page size
+        self.tree_cache = tree_cache  # radix kv cache
+        self.token_to_kv_pool_allocator = token_to_kv_pool_allocator # kv cache pool
+        self.running_batch = running_batch # currently running decode batch
+        self.new_token_ratio = new_token_ratio # new token generation ratio
+        self.can_run_list = []      # list of runnable requests
+        self.preempt_list = []      # list of preempted requests
+        self.new_chunked_req = None   # new chunked request
+        self.log_hit_tokens = 0     # number of cache hit tokens
+        self.log_input_tokens = 0   # input token statistics
+        
+    @property
+    def rem_total_tokens(self):
+        """Calculate total remaining available tokens"""
 
-	def add_one_req(self, req: Req, has_chunked_req: bool, truncation_align_size: Optional[int]):
-	    """添加一个请求到批次中"""
+    def add_one_req(self, req: Req, has_chunked_req: bool, truncation_align_size: Optional[int]):
+        """Add a request to the batch"""
 
-	def add_chunked_req(self, req: Req):
-	    """处理分块预填充请求"""
-	   
-	def preempt_to_schedule(self, req: Req, server_args: ServerArgs) -> bool:
-	    """抢占低优先级请求为高优先级请求让路"""
+    def add_chunked_req(self, req: Req):
+        """Handle chunked prefill request"""
+        
+    def preempt_to_schedule(self, req: Req, server_args: ServerArgs) -> bool:
+        """Preempt low-priority requests to make way for high-priority ones"""
 ```
 
 ### GenerationBatchResult
@@ -382,7 +382,7 @@ Req -> Pre Schedule(CPU) -> Compute Batch -> Sample(GPU) -> Post Schedule(CPU) -
        - allocate kv cache
        - 将 req 与 kv cache 的映射写入到 `req_to_token_pool`
 
-3. `run_batch()`：执行 Prefill 推理，调用 `TpModelWorker::forward_batch_generation()` -> `ModelRunner::forward()` -> `ModelRunner::_foward_raw()` -> `ModelRunner::forward_extend()`，后面执行 backend 的算子等待返回结果
+3. `run_batch()`：执行 Decode 推理，调用 `TpModelWorker::forward_batch_generation()` -> `ModelRunner::forward()` -> `ModelRunner::_forward_raw()` -> `ModelRunner::forward_decode()`后面执行 backend 的算子等待返回结果
 
 ##### Decode Schedule
 
@@ -406,18 +406,18 @@ Req -> Pre Schedule(CPU) -> Compute Batch -> Sample(GPU) -> Post Schedule(CPU) -
   sampling_info.update_regex_vocab_mask()
     sampling_info.apply_logits_bias(logits_output.next_token_logits)
     next_token_ids = self.sampler(
-              logits_output,
-              forward_batch.sampling_info,
-              forward_batch.return_logprob,
-              forward_batch.top_logprobs_nums,
-              forward_batch.token_ids_logprobs,
-              # For prefill, we only use the position of the last token.
-              (
-                  forward_batch.positions
-                  if forward_batch.forward_mode.is_decode()
-                  else forward_batch.seq_lens - 1
-              ),
-          )
+        logits_output,
+        forward_batch.sampling_info,
+        forward_batch.return_logprob,
+        forward_batch.top_logprobs_nums,
+        forward_batch.token_ids_logprobs,
+        # For prefill, we only use the position of the last token.
+        (
+            forward_batch.positions
+            if forward_batch.forward_mode.is_decode()
+            else forward_batch.seq_lens - 1
+        ),
+    )
   ```
 
 #### Post Schedule
@@ -628,7 +628,7 @@ Compute batch 和 Sample 这两个挨在一起的阶段是 GPU heavy 的，而 s
 
 我们通过使用 Forward CUDA Stream 的方式来实现 overlap，具体来说：
 
-- Run Batch 中将两个操作提交到 forward_stream 队列：一个是从 FutureMap **获取上一次 batch 的 next token**；一个用这个 token 作为 `intput_id` 进行下一次计算
+- Run Batch 中将两个操作提交到 forward_stream 队列：一个是从 FutureMap **获取上一次 batch 的 next token**；一个用这个 token 作为 `input_id` 进行下一次计算
 - Sample 中也把两个操作提交到 forward_stream 队列：一个是进行采样；一个是将得**到的 next token 写回 FutureMap**
 - 我们需要在 Post Schedule 处理数据前对 CPU 和 GPU 做一个同步，保证可以处理到 CPU 的 `next_token_ids`
   - 我们**在 Post Schedule 中进行同步操作**，确保后续的处理可以正常运行且不影响 GPU 的流水线工作
@@ -682,15 +682,15 @@ def init_overlap(self):
 
 ```python
 class FutureMap:
-    def __init__(
-        self,
-        max_running_requests: int,
-    ):
-        self.future_ct = 0
-        # A factor of 3 is used to avoid collision in the circular buffer.
-        self.future_limit = max_running_requests * 3
-        # A factor of 5 is used to ensure the buffer is large enough.
-        self.future_buffer_len = max_running_requests * 5
+    def __init__(
+        self,
+        max_running_requests: int,
+    ):
+        self.future_ct = 0
+        # A factor of 3 is used to avoid collision in the circular buffer.
+        self.future_limit = max_running_requests * 3
+        # A factor of 5 is used to ensure the buffer is large enough.
+        self.future_buffer_len = max_running_requests * 5
 ```
 
 ### Overlap 事件循环
@@ -747,7 +747,7 @@ def event_loop_overlap(self):
   - CPU 侧使用负数占位符实现，等待 GPU 进行真正 token 的填充
 
 ```python
-# previos batch output is negative indices
+# previous batch output is negative indices
 batch.output_ids = -self.future_map.alloc_future_indices(bs).indices
 with self.forward_stream_ctx:
 	self.forward_stream.wait_stream(self.default_stream)

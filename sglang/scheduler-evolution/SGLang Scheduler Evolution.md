@@ -120,7 +120,7 @@ class ForwardBatch:
     extend_prefix_lens: Optional[torch.Tensor]
 ```
 
-#### Transpose
+#### Batch Transformation
 
 ```python
 # 1. Scheduler creates ScheduleBatch
@@ -252,30 +252,30 @@ It is the core component in SGLang Scheduler responsible for **batching prefill 
 
 ```python
 class PrefillAdder:
-    def __init__(self, ...):
-	    self.page_size = page_size # memory page size
-		self.tree_cache = tree_cache  # radix kv cache
-		self.token_to_kv_pool_allocator = token_to_kv_pool_allocator # kv cache pool
-		self.running_batch = running_batch # currently running decode batch
-		self.new_token_ratio = new_token_ratio # new token generation ratio
-        self.can_run_list = []        # list of runnable requests
-        self.preempt_list = []        # list of preempted requests
-        self.new_chunked_req = None   # new chunked request
-        self.log_hit_tokens = 0       # number of cache hit tokens
-        self.log_input_tokens = 0     # input token statistics
-       
-	@property
-	def rem_total_tokens(self):
-	    """Calculate total remaining available tokens"""
+    def __init__(self, ...):
+        self.page_size = page_size # memory page size
+        self.tree_cache = tree_cache  # radix kv cache
+        self.token_to_kv_pool_allocator = token_to_kv_pool_allocator # kv cache pool
+        self.running_batch = running_batch # currently running decode batch
+        self.new_token_ratio = new_token_ratio # new token generation ratio
+        self.can_run_list = []      # list of runnable requests
+        self.preempt_list = []      # list of preempted requests
+        self.new_chunked_req = None   # new chunked request
+        self.log_hit_tokens = 0     # number of cache hit tokens
+        self.log_input_tokens = 0   # input token statistics
+        
+    @property
+    def rem_total_tokens(self):
+        """Calculate total remaining available tokens"""
 
-	def add_one_req(self, req: Req, has_chunked_req: bool, truncation_align_size: Optional[int]):
-	    """Add a request to the batch"""
+    def add_one_req(self, req: Req, has_chunked_req: bool, truncation_align_size: Optional[int]):
+        """Add a request to the batch"""
 
-	def add_chunked_req(self, req: Req):
-	    """Handle chunked prefill request"""
-	   
-	def preempt_to_schedule(self, req: Req, server_args: ServerArgs) -> bool:
-	    """Preempt low-priority requests to make way for high-priority ones"""
+    def add_chunked_req(self, req: Req):
+        """Handle chunked prefill request"""
+        
+    def preempt_to_schedule(self, req: Req, server_args: ServerArgs) -> bool:
+        """Preempt low-priority requests to make way for high-priority ones"""
 ```
 
 ### GenerationBatchResult
@@ -409,18 +409,18 @@ New requests enter the Prefill phase, and after Prefill ends, they enter the Dec
   sampling_info.update_regex_vocab_mask()
     sampling_info.apply_logits_bias(logits_output.next_token_logits)
     next_token_ids = self.sampler(
-              logits_output,
-              forward_batch.sampling_info,
-              forward_batch.return_logprob,
-              forward_batch.top_logprobs_nums,
-              forward_batch.token_ids_logprobs,
-              # For prefill, we only use the position of the last token.
-              (
-                  forward_batch.positions
-                  if forward_batch.forward_mode.is_decode()
-                  else forward_batch.seq_lens - 1
-              ),
-          )
+        logits_output,
+        forward_batch.sampling_info,
+        forward_batch.return_logprob,
+        forward_batch.top_logprobs_nums,
+        forward_batch.token_ids_logprobs,
+        # For prefill, we only use the position of the last token.
+        (
+            forward_batch.positions
+            if forward_batch.forward_mode.is_decode()
+            else forward_batch.seq_lens - 1
+        ),
+    )
   ```
 
 #### Post Schedule
@@ -686,15 +686,15 @@ def init_overlap(self):
 
 ```python
 class FutureMap:
-    def __init__(
-        self,
-        max_running_requests: int,
-    ):
-        self.future_ct = 0
-        # A factor of 3 is used to avoid collision in the circular buffer.
-        self.future_limit = max_running_requests * 3
-        # A factor of 5 is used to ensure the buffer is large enough.
-        self.future_buffer_len = max_running_requests * 5
+    def __init__(
+        self,
+        max_running_requests: int,
+    ):
+        self.future_ct = 0
+        # A factor of 3 is used to avoid collision in the circular buffer.
+        self.future_limit = max_running_requests * 3
+        # A factor of 5 is used to ensure the buffer is large enough.
+        self.future_buffer_len = max_running_requests * 5
 ```
 
 ### Overlap Event Loop
