@@ -1,11 +1,8 @@
----
-title: SGLang Scheduler 技术变迁
-date: 2025/10/28 18:01
-tags:
-  - LLMInference
----
-
 # SGLang Scheduler 技术变迁
+
+## [English version](./SGLang%20Scheduler%20Evolution.md) | [简体中文](./SGLang%20Scheduler%20技术变迁.md)
+
+> 关于作者：我是刘芷溢，电子科技大学计算机本硕研二(27 毕业)，目前在找推理加速方向的实习，欢迎联系我！tomlzy213@gmail.com
 
 - 最开始的 Scheduler 中 CPU 和 GPU 是串行的，导致 GPU 的大量空闲
 - 后面的 Scheduler 允许 CPU 和 GPU overlap，实现了 zero overhead scheduler
@@ -210,10 +207,16 @@ class ReqToTokenPool:
             └── 3 (child_key=3)
                 └── 4 (child_key=4)
                     └── 5 (child_key=5)
+    ```
+
   # page_size = 4
+
   root
   └── (1,2,3,4) (child_key=(1,2,3,4))
   └── (5,6,7,8) (child_key=(5,6,7,8))
+
+  ```
+
   ```
 
 #### RelationShip
@@ -260,7 +263,7 @@ class PrefillAdder:
         self.new_chunked_req = None   # new chunked request
         self.log_hit_tokens = 0     # number of cache hit tokens
         self.log_input_tokens = 0   # input token statistics
-        
+
     @property
     def rem_total_tokens(self):
         """Calculate total remaining available tokens"""
@@ -270,7 +273,7 @@ class PrefillAdder:
 
     def add_chunked_req(self, req: Req):
         """Handle chunked prefill request"""
-        
+
     def preempt_to_schedule(self, req: Req, server_args: ServerArgs) -> bool:
         """Preempt low-priority requests to make way for high-priority ones"""
 ```

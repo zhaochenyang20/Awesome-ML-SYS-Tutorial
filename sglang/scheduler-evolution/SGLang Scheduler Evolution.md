@@ -1,11 +1,8 @@
----
-title: Evolution of SGLang Scheduler
-date: 2025/10/28 18:01
-tags:
-  - LLMInference
----
-
 # Evolution of SGLang Scheduler
+
+## [English version](./SGLang%20Scheduler%20Evolution.md) | [简体中文](./SGLang%20Scheduler%20技术变迁.md)
+
+> About the author: I am Liu Zhiyi, a second-year master's student in UESTC(graduating in 2027). I am currently looking for an internship in llm inference acceleration. Please feel free to contact me! tomlzy213@gmail.com
 
 - Initially, the Scheduler operated with CPU and GPU in serial, leading to significant GPU idle time.
 - Later versions of the Scheduler allowed for CPU and GPU overlap, achieving a zero-overhead scheduler.
@@ -202,6 +199,7 @@ It is essentially the organizational structure connecting the two pools. The sch
 
   - `page_size = 1` means exact token-by-token matching, capable of matching prefixes of any length.
   - `page_size > 1` means prefix matching by page (using `tuple(tokens)` as key).
+
   ```python
   # page_size = 1
   root
@@ -216,8 +214,6 @@ It is essentially the organizational structure connecting the two pools. The sch
   └── (1,2,3,4) (child_key=(1,2,3,4))
   └── (5,6,7,8) (child_key=(5,6,7,8))
   ```
-
-
 
 #### Relationship
 
@@ -263,7 +259,7 @@ class PrefillAdder:
         self.new_chunked_req = None   # new chunked request
         self.log_hit_tokens = 0     # number of cache hit tokens
         self.log_input_tokens = 0   # input token statistics
-        
+
     @property
     def rem_total_tokens(self):
         """Calculate total remaining available tokens"""
@@ -273,7 +269,7 @@ class PrefillAdder:
 
     def add_chunked_req(self, req: Req):
         """Handle chunked prefill request"""
-        
+
     def preempt_to_schedule(self, req: Req, server_args: ServerArgs) -> bool:
         """Preempt low-priority requests to make way for high-priority ones"""
 ```
@@ -382,8 +378,8 @@ New requests enter the Prefill phase, and after Prefill ends, they enter the Dec
    - **`init_next_round_input` updates the prefix of the radix tree cache.**
    - Create a new `ScheduleBatch`, call `prepare_for_extend`:
      - Allocate `req_pool_indices`: Assign a unique index position in the request pool for each request. This index is used to store the request's token-to-KV mapping in `req_to_token_pool`.
-      - allocate KV cache
-       - Write the mapping of req to kv cache into `req_to_token_pool`.
+     - allocate KV cache
+     - Write the mapping of req to kv cache into `req_to_token_pool`.
 
 3. `run_batch()`: Execute Prefill inference, call `TpModelWorker::forward_batch_generation()` -> `ModelRunner::forward()` -> `ModelRunner::_forward_raw()` -> `ModelRunner::forward_extend()`, then execute backend operators and wait for results.
 
@@ -393,7 +389,7 @@ New requests enter the Prefill phase, and after Prefill ends, they enter the Dec
 2. `update_running_batch()`:
    - Call `prepare_for_decode()`:
      - `output_ids` from the previous schedule become `input_ids` for this one.
-     - Allocate (batch size * 1) slots for `out_cache_loc`, because in decode mode we generate only one token per batch at a time.
+     - Allocate (batch size \* 1) slots for `out_cache_loc`, because in decode mode we generate only one token per batch at a time.
      ```python
        out_cache_loc = alloc_token_slots(batch.tree_cache, bs * 1)
      ```
@@ -621,7 +617,8 @@ SGLang's inference process is mainly divided into the following four stages:
    - Sample based on Logit output from model to generate next Token. (`ModelRunner::sample()`)
 4. **Post schedule:**
    - After one inference step, dynamically check if requests meet finish condition (Check Finish Condition). (`Scheduler::process_batch_result()`)
-  - Remove completed requests from the batch, send them to the detokenizer, then return results to the DetokenizerManager, and finally forward them to the TokenizerManager.
+
+- Remove completed requests from the batch, send them to the detokenizer, then return results to the DetokenizerManager, and finally forward them to the TokenizerManager.
 
 #### Overlap Overview[^overlap]
 
