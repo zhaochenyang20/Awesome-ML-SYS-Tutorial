@@ -2,7 +2,7 @@
 
 众所周知，在很长一段时间，OpenRLHF 都以 vllm 作为主要的推理引擎，而我希望能够将 SGLang 接入其中，所以这个日志主要记录了这一开发历程。虽然这事情已经做了好几周了，但真的一路都是大坑。之前在 SGLang 下踩过的坑已经详细阐述过了，这里 ref 一下：
 
-- [Latency optimization for weight updates](./sglang/latency-accelerte-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
+- [Latency optimization for weight updates](./sglang/latency-accelerate-for-weight-updates/readme.md)：一次对效率的 debug 过程，同样刊载于[记一次对 SGLang weight update latency 的优化](https://zhuanlan.zhihu.com/p/9908228168)。
 
 ## Quick Start
 
