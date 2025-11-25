@@ -19,7 +19,7 @@ We will analyze the entire Scheduler process in conjunction with the code. Howev
 
 The `Scheduler` component is responsible for managing Active Requests. The following core global data structures are used to maintain these Active Requests within the `Scheduler`.
 
-#### `waiting_queue`
+**`waiting_queue`**:
 
 - **Purpose:** `waiting_queue` is a data structure designed to hold Active Requests. It dynamically reorders these requests based on priority (longest prefix of the Request) or available memory to optimize batch processing.
 - **Additional Points**
@@ -28,7 +28,7 @@ The `Scheduler` component is responsible for managing Active Requests. The follo
     - Requests returned from `retract_decode`.
   - **Dequeue** The request with the highest current priority is dequeued to form a batch.
 
-#### `new_batch`
+**`new_batch`**:
 
 - **Purpose:** Represents a batch of Requests ready for the prefill/extend phase.
 - **Additional Points**
@@ -36,7 +36,7 @@ The `Scheduler` component is responsible for managing Active Requests. The follo
   - Requests in `new_batch` will undergo prefill/extend.
   - After prefill/extend, `new_batch` will transition to the **Global Batch** for the next iteration.
 
-#### `running_batch`
+**`running_batch`**:
 
 - **Purpose:** A batch of Requests ready for the decode phase.
   - Initialized as an empty batch: `ScheduleBatch(reqs=[], batch_is_full=False)`
@@ -45,7 +45,7 @@ The `Scheduler` component is responsible for managing Active Requests. The follo
 - **Additional Points**
   - **Retracted:** If available memory is insufficient during decode, the `Scheduler` may retract certain Requests from the `running_batch` via `retract_decode`, returning them to the `waiting_queue` for later processing.
 
-#### `cur_batch`
+**`cur_batch`**:
 
 - **Purpose:** The batch of Requests currently being processed in the `Scheduler` main loop (`run_batch` function). **`prefill` takes precedence.**
 - **Additional Points**
@@ -58,13 +58,13 @@ The `Scheduler` component is responsible for managing Active Requests. The follo
 
 ### Three Important Batches
 
-#### Overview
+**Overview**:
 
 - `ScheduleBatch` is managed by `schedule.py::Scheduler`. It contains high-level scheduling data, most of which resides on the CPU.
 - `ModelWorkerBatch` is managed by `tp_worker.py::TpModelWorker`. It is a subset of `ScheduleBatch`, containing only data relevant to model forward on the GPU, and it transitions from the CPU scheduler to the GPU model runner.
 - `ForwardBatch` is managed by `model_runner.py::ModelRunner` and contains **low-level tensor data**.
 
-#### ScheduleBatch
+**ScheduleBatch**:
 
 ```python
 class ScheduleBatch:
@@ -81,7 +81,7 @@ class ScheduleBatch:
     prefix_lens: List[int]  # Prefix lengths
 ```
 
-#### ModelWorkerBatch
+**ModelWorkerBatch**:
 
 ```python
 class ModelWorkerBatch:
@@ -97,7 +97,7 @@ class ModelWorkerBatch:
     extend_prefix_lens: Optional[List[int]]
 ```
 
-#### ForwardBatch
+**ForwardBatch**:
 
 ```python
 class ForwardBatch:
@@ -117,7 +117,7 @@ class ForwardBatch:
     extend_prefix_lens: Optional[torch.Tensor]
 ```
 
-#### Batch Transformation
+**Batch Transformation**:
 
 ```python
 # 1. Scheduler creates ScheduleBatch
@@ -164,7 +164,7 @@ KV Cache Pool:
 └──────┴──────┴──────┴──────┴──────┴──────┴──────┴──────┘
 ```
 
-#### ReqToTokenPool
+**ReqToTokenPool**:
 
 - Manages the **mapping from req_idx to token position**.
 - Allocates fixed memory slots for each request.
@@ -184,13 +184,13 @@ class ReqToTokenPool:
         self.max_context_len = max_context_len
 ```
 
-#### token_to_kv_pool
+**token_to_kv_pool**:
 
 - Manages allocation and deallocation of physical KV cache.
 - Handles page-aligned memory allocation (if paging is enabled).
 - Supports different allocation strategies (contiguous allocation, paged allocation, etc.).
 
-#### Tree Cache
+**Tree Cache**:
 
 It is essentially the organizational structure connecting the two pools. The scheduler accesses it frequently during scheduling to allocate slots in `req_to_token_pool` and `token_to_kv_pool` for requests.
 
@@ -215,7 +215,7 @@ It is essentially the organizational structure connecting the two pools. The sch
   └── (5,6,7,8) (child_key=(5,6,7,8))
   ```
 
-#### Relationship
+**Relationship**:
 
 When a new request enters:
 
@@ -276,7 +276,7 @@ class PrefillAdder:
 
 ### GenerationBatchResult
 
-#### **1. logits_output: Optional[LogitsProcessorOutput]**
+**logits_output: Optional[LogitsProcessorOutput]**
 
 - **Role**: Contains the complete logits output and related information from the model's forward pass.
 - **Content**:
@@ -286,7 +286,7 @@ class PrefillAdder:
   - Various top-k logprobs and token probability information
 - **Usage**: Used for sampling, calculating probabilities, and returning logprob information to the user.
 
-#### **2. next_token_ids: Optional[torch.Tensor]**
+**next_token_ids: Optional[torch.Tensor]**
 
 - **Role**: The next token ID after sampling.
 - **Shape**: `[batch_size]`
@@ -296,38 +296,38 @@ class PrefillAdder:
   - Prefill-only: All-zero placeholder tensor.
 - **Usage**: Directly used to update the request's `output_ids` to advance the generation process.
 
-#### **3. num_accepted_tokens: Optional[int]**
+**num_accepted_tokens: Optional[int]**
 
 - **Role**: Number of tokens accepted in speculative decoding.
 - **Usage**: Statistics on acceptance rate of speculative decoding, used for performance optimization and metric collection.
 
-#### **4. next_draft_input: Optional[EagleDraftInput]**
+**next_draft_input: Optional[EagleDraftInput]**
 
 - **Role**: Input information for the next round of EAGLE speculative decoding.
 - **Content**: Includes top-k probabilities, indices, hidden states, etc.
 - **Usage**: Preparing input data for the next round of speculative decoding.
 
-#### **5. extend_input_len_per_req: Optional[List[int]]**
+**extend_input_len_per_req: Optional[List[int]]**
 
 - **Role**: Extended input length for each request.
 - **Usage**: Knowing **how many new tokens were actually processed** for each request when processing batch results.
 
-#### **6. extend_logprob_start_len_per_req: Optional[List[int]]**
+**extend_logprob_start_len_per_req: Optional[List[int]]**
 
 - **Role**: The position where each request starts calculating logprob.
 - **Usage**: Determining from which position to start returning logprob information to the user.
 
-#### **7. copy_done: Optional[torch.cuda.Event]**
+**copy_done: Optional[torch.cuda.Event]**
 
 - **Role**: Synchronization event for GPU to CPU data transfer completion.
 - **Usage**: Ensuring data transfer is complete before processing results in overlapped scheduling.
 
-#### **8. delay_sample_func: Optional[callable]**
+**delay_sample_func: Optional[callable]**
 
 - **Role**: Delayed sampling function.
 - **Usage**: In overlapped scheduling, execute forward pass first, then execute sampling operation later.
 
-#### **9. future_indices: Optional[FutureIndices]**
+**future_indices: Optional[FutureIndices]**
 
 - **Role**: Index information in the Future mechanism.
 - **Usage**: **Managing storage and retrieval of asynchronous results** in overlapped scheduling.
@@ -358,18 +358,18 @@ Req -> Pre Schedule(CPU) -> Compute Batch -> Sample(GPU) -> Post Schedule(CPU) -
 
 ![](img/Scheduler.png)
 
-#### Pre Schedule
+**Pre Schedule**:
 
 - Collect requests from the TokenizerManager and put them into the waiting queue. (`Schedule::recv_request()` & `Schedule::process_input_requests()`)
 - Schedule from the waiting queue and `running_batch`. (`Schedule::get_batch_to_run()`)
   - Prefill involves Radix Tree and Longest Prefix Matching algorithm. (`Req::init_next_round_input()`)
 - Allocate memory resources required for Tokens for each request. (`ScheduleBatch::prepare_for_extend()` & `ScheduleBatch::prepare_for_decode()`)
 
-#### Compute batch
+**Compute batch**:
 
 New requests enter the Prefill phase, and after Prefill ends, they enter the Decode phase.
 
-##### Prefill Schedule
+**Prefill Schedule**:
 
 1. `get_next_batch_to_run`: Prefill takes precedence here, so `get_new_batch_prefill` is called, and the returned `new_batch` is directly used **as the batch for this execution round (i.e., `cur_batch`)**.
 2. `get_new_batch_prefill`:
@@ -383,7 +383,7 @@ New requests enter the Prefill phase, and after Prefill ends, they enter the Dec
 
 3. `run_batch()`: Execute Prefill inference, call `TpModelWorker::forward_batch_generation()` -> `ModelRunner::forward()` -> `ModelRunner::_forward_raw()` -> `ModelRunner::forward_extend()`, then execute backend operators and wait for results.
 
-##### Decode Schedule
+**Decode Schedule**:
 
 1. `get_next_batch_to_run()`: Process completed requests from the previous batch, then merge with `running_batch`.
 2. `update_running_batch()`:
@@ -395,7 +395,7 @@ New requests enter the Prefill phase, and after Prefill ends, they enter the Dec
      ```
 3. `run_batch()`: Execute Decode inference, call `TpModelWorker::forward_batch_generation()` -> `ModelRunner::forward()` -> `ModelRunner::_forward_raw()` -> `ModelRunner::forward_decode()`, then execute backend operators and wait for results.
 
-#### Sample
+**Sample**:
 
 `TpModelWorker::forward_batch_generation()`:
 
@@ -419,7 +419,7 @@ New requests enter the Prefill phase, and after Prefill ends, they enter the Dec
     )
   ```
 
-#### Post Schedule
+**Post Schedule**:
 
 - Prefill: `process_batch_result_prefill()`
   - Get results, call `tree_cache`'s `cache_unfinished_req()` to retain the cache for that req.
@@ -450,7 +450,7 @@ def event_loop_normal(self):
 
 ### Pre Schedule
 
-#### Req -> Waiting_queue
+**Req -> Waiting_queue**:
 
 - First execute `recv_requests`:
 
@@ -466,11 +466,11 @@ def event_loop_normal(self):
       - Call `_add_request_to_queue()` to insert `Req` into `waiting_queue`.
   4.  **Send response**: Send output back to the corresponding tokenizer worker process.
 
-#### Waiting_queue/running_batch -> cur_batch
+**Waiting_queue/running_batch -> cur_batch**:
 
 ![](img/batch.png)
 
-##### Get prefill batch `get_new_batch_prefill`
+**Get prefill batch `get_new_batch_prefill()`**:
 
 - Create `PrefillAdder`, chunk new requests, then process multiple chunks at a time.
   - `init_next_round_input()`:
@@ -506,7 +506,7 @@ def event_loop_normal(self):
     └──────┴──────┴──────┴──────┴──────┴──────┴──────┴──────┘
     ```
 
-##### Get decode batch
+**Get decode batch**:
 
 - First remove completed or errored batches from the batch, then merge the previous round's decode batch with `running_batch`.
   - Essentially concatenating `seq_lens`, `orig_seq_lens`, `output_ids`, etc. using `torch.cat`.
@@ -558,7 +558,7 @@ Here we temporarily only consider the **generation** case (there is also the Emb
 
 ### Post Schedule
 
-#### Prefill
+**Prefill**:
 
 - Unpack `GenerationBatchResult`.
 - Execute `synchronize()` to **wait for GPU→CPU copy completion, ensuring subsequent data access is available on CPU**.
@@ -568,7 +568,7 @@ Here we temporarily only consider the **generation** case (there is also the Emb
   - Special handling for Chunked requests: `is_chunked > 0` indicates prefill is not yet fully complete, need to decrement counter and skip streaming output.
 - Output streaming results: Call `stream_output()` to send results (token, logprob, etc.) to the client (e.g., WebSocket / API response).
 
-#### Decode
+**Decode**:
 
 ```python
 [GPU forward kernel]
@@ -602,7 +602,7 @@ Before introducing the principle, we need to recall the four major steps of the 
 
 ![](img/lazy_sampling.png)
 
-#### Inference Overview
+**Inference Overview**:
 
 SGLang's inference process is mainly divided into the following four stages:
 
@@ -620,7 +620,7 @@ SGLang's inference process is mainly divided into the following four stages:
 
 - Remove completed requests from the batch, send them to the detokenizer, then return results to the DetokenizerManager, and finally forward them to the TokenizerManager.
 
-#### Overlap Overview[^overlap]
+**Overlap Overview[^overlap]**:
 
 The `Compute batch` and `Sample` stages, which are adjacent, are GPU-heavy, while the two schedule stages are CPU-heavy. When multiple batches are pipelined, we can use **GPU Compute and Sample to overlap the post scheduler of the previous batch with the pre scheduler of the current batch**.
 
@@ -726,7 +726,7 @@ def event_loop_overlap(self):
         self.last_batch = batch
 ```
 
-#### Differences from normal event loop
+### Differences from normal event loop
 
 - `Schedule::run_batch()`
   - `Schedule::record_batch_in_overlap()`: Alternately stores `model_worker_batch` references in two overlapping batches, **avoiding CUDA kernel accessing dangling pointers or freed memory when overlap forward is not yet finished**.
@@ -779,16 +779,16 @@ with self.forward_stream_ctx:
 ![](img/previous_overlap.png)
 ![](img/lazy_sampling.png)
 
-#### Pros and Cons of the Two Versions
+### Pros and Cons of the Two Versions
 
-##### CUDA stream version
+**CUDA stream version**:
 
 - Higher execution efficiency: No CPU-GPU transfer for `vocab_mask` and `token_ids_buf`; fully utilizes GPU memory bandwidth.
 - Lower latency: `token_ids_buf` modified in-place directly on GPU, no need for repeated transfer.
   - On same device as model inference, facilitating pipelining.
 - Large non-model VRAM usage: `token_ids_buf` occupies GPU VRAM, fixed overhead.
 
-##### CPU launch version
+**CPU launch version**:
 
 - Occupies GPU memory only when in use.
 - Increased synchronization points: `vocab_mask` adds one CPU-GPU synchronization.
