@@ -4,7 +4,7 @@
 
 **We introduce speculative decoding into the RL sampling process, achieving a significant improvement in sampling speed under appropriate batch sizes. Furthermore, the draft model is also updated during the training process. Compared to freezing the draft model, the accepted length is consistently maintained at a high level, generating long-term stable positive gains.**
 
-[slime/docs/zh/advanced/speculative-decoding.md at main · THUDM/slime](https://github.com/THUDM/slime/blob/main/docs/zh/advanced/speculative-decoding.md)
+[Speculative Decoding Documentation](https://github.com/radixark/miles/blob/main/docs/en/advanced/speculative-decoding.md)
 
 ## Speculative Decoding in RL
 
@@ -14,7 +14,7 @@ Speculative Decoding, this double-edged sword, has already seen significant appl
 
 This is the problem solved in this article—we introduce speculative decoding into the RL sampling process and synchronously update the draft model as training progresses, stably improving sampling speed.
 
-This feature has already been merged into the `slime` main branch and is available out of the box. See the same [documentation](https://github.com/THUDM/slime/blob/main/docs/zh/advanced/speculative-decoding.md) for usage details.
+This feature has already been merged into miles main branch and is available out of the box. See the same [documentation](https://github.com/radixark/miles/blob/main/docs/en/advanced/speculative-decoding.md) for usage details.
 
 ## Online SFT for Draft Model
 
@@ -134,7 +134,7 @@ Without sequence packing, Megatron's implementation of `roll_tensor` is as follo
   <img src="./pic/cp.png" width="50%">
 </div>
 
-In slime, CP splitting is performed *before* sequence packing:
+In miles, CP splitting is performed *before* sequence packing:
 
 1.  First, each sequence is padded, split according to CP rules, and concatenated across ranks (to get aligned CP blocks on each rank).
 2.  Then, within each rank, sequence packing is applied to multiple sequences, concatenating them into a continuous tensor.
@@ -147,9 +147,9 @@ The loss mask involves two issues:
 
 1.  How the loss mask is passed to Megatron
 
-   We just mentioned that MTP training adds a new MTP CE Loss Flow, and the CE loss is calculated within Megatron. Originally (without MTP), slime only needed to call Megatron to compute logits, so it didn't need to consider the loss mask within Megatron. But now, the MTP CE Loss must be calculated in Megatron—which requires a loss mask.
+   We just mentioned that MTP training adds a new MTP CE Loss Flow, and the CE loss is calculated within Megatron. Originally (without MTP), miles only needed to call Megatron to compute logits, so it didn't need to consider the loss mask within Megatron. But now, the MTP CE Loss must be calculated in Megatron—which requires a loss mask.
 
-   Therefore, we need to process the original loss mask: pad the prompt part, split it according to CP rules, pad the end to align with input ids, and then pass it to Megatron. The `slice_with_cp()` API in slime can be directly reused for CP splitting.
+   Therefore, we need to process the original loss mask: pad the prompt part, split it according to CP rules, pad the end to align with input ids, and then pass it to Megatron. The `slice_with_cp()` API in miles can be directly reused for CP splitting.
 
 <div align="center">
   <img src="./pic/loss-flow.png" width="50%">
