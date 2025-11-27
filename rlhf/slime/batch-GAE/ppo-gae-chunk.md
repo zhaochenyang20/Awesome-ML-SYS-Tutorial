@@ -64,7 +64,7 @@ slime 在一开始的实现里，追求的是“支持变长序列”，优点�
 
 在开始前，我们先回顾一下标准的 GAE：
 
-记 
+我们记 delta 为 
 $$
 \delta_t = r_t + \gamma V_{t+1} - V_t
 $$
@@ -128,7 +128,7 @@ $$
 第一个 chunk：0 - C-1
 第二个 chunk：C - 2C-1
 ...
-第 c 个 chunk：cC - cC + L_c - 1
+第 c 个 chunk：cC - (cC + L_c - 1)
 ```
 
 在反向序列上定义 GAE 递推：
@@ -185,7 +185,7 @@ $$
 
 以下是一个展示如何把 Chunk-Scan GAE 写成批量计算函数的伪代码，代码原型来自：[`THUDM/slime` PR #850 — Chunk-Scan GAE](https://github.com/THUDM/slime/pull/850) 
 
-```shell
+```pseudocode
 function chunked_gae(rewards, values, gamma, lambda, chunk_size):
 
     w = gamma * lambda
@@ -225,7 +225,7 @@ function chunked_gae(rewards, values, gamma, lambda, chunk_size):
         write_into(full_scan_rev, chunk_index=c, values=S_global)
 
         # 下一个 chunk 的起点状态 = 当前 chunk 最后一个位置
-        s_prev = S_global[last]
+        s_prev = S_global[L_c - 1]
 
     # 7. 去掉 padding，反向回正向时间
     advantages = reverse_time(remove_padding(full_scan_rev))
@@ -280,4 +280,4 @@ Chunk-Scan 已被作为默认的训练行为，因此对于用户的安装或迁
 
 ## 7. 工程附录：踩过的坑 & 学到的东西
 
-1. GAE 变成瓶颈这件事本身，就是一个“用实验结果纠正工程直觉”的例子。在实验数据真正跑出之前，其实没人能想到 GAE 计算会成为 PPO 流水线的瓶颈。因此对于一个成熟的框架来说，应该在测试性能时，把性能测试的粒度划分得足够细，从而发现一些设计之初可能会忽视的问题。
+1. GAE 变成瓶颈这件事本身，就是一个“用实验结果纠正工程直觉”的例子。在实验数据真正跑出之前，很难想到 GAE 计算会成为 PPO 流水线的瓶颈。因此对于一个成熟的框架来说，应该在测试性能时，把性能测试的粒度划分得足够细，从而发现一些设计之初可能会忽视的问题。
