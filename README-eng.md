@@ -47,6 +47,9 @@ My learning notes/codes for ML SYS.  English version is under development and on
 - **Walk Through SGLang Scheduler**
   [[English version](./sglang/sglang-scheduler/readme.md)] | [[中文版](./sglang/sglang-scheduler/readme-CN.md)] : Demystifying the SGLang Scheduler.
 
+- [Pending Review] **SGLang Scheduler Evolution**
+  [[English version](./sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md) | [中文版](./sglang/scheduler-evolution/SGLang%20Scheduler%20技术变迁.md)] : Introduction to the technical evolution of the SGLang Scheduler from a serial execution model to a CPU/GPU-overlapped design.
+
 - **Latency Accelerate For Weight Updates**
   [[English version](./sglang/latency-accelerate-for-weight-updates/readme.md)] | [[中文版](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)] : A detailed debugging investigation of weight update latency in a distributed system.
 
