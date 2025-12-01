@@ -199,14 +199,14 @@ hf download --repo-type dataset zhuzilin/aime-2024 \
   --local-dir /root/aime-2024
   
 # Clone code and install dependencies
-git clone https://github.com/THUDM/slime.git
-cd slime
+git clone https://github.com/radixark/miles.git
+cd miles
 pip install -e .
 
 
 # FSDP does not require weight conversion, natively supports huggingface format
 # Enable reference model, train Qwen3-4B in colocate mode
-bash /root/slime/scripts/run-qwen3-4B-fsdp.sh
+bash /root/miles/scripts/run-qwen3-4B-fsdp.sh
 ```
 
 ---
