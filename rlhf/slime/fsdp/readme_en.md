@@ -1,8 +1,8 @@
-# Support FSDP2 as training backend for slime
+# Support FSDP2 as training backend for miles
 
 > **TL;DR:**
 > 
-> **We have added FSDP to slime as a more flexible training framework and have aligned it with Megatron. FSDP supports architecture-innovative models such as Qwen3-Next more flexibly and helps us further support VLM RL.**
+> **We have added FSDP to miles as a more flexible training framework and have aligned it with Megatron. FSDP supports architecture-innovative models such as Qwen3-Next more flexibly and helps us further support VLM RL.**
 
 ## Background
 
@@ -23,20 +23,20 @@ Compared to FSDP1 which flattens all parameters into a giant `FlatParameter`, FS
 
 > ✅ For more content about FSDP, you can check the previous blogs of the SGLang RL team: [**RL System Deep Dive: FSDP Training Backend**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-2-en.md)
 
-### Why does slime need FSDP?
+### Why does miles need FSDP?
 
-Friends familiar with slime know that we already have a mature training engine based on Megatron-LM. Considering the significant maintenance cost brought by introducing a new backend, why are we still determined to support FSDP?
+Friends familiar with miles know that we already have a mature training engine based on Megatron-LM. Considering the significant maintenance cost brought by introducing a new backend, why are we still determined to support FSDP?
 
 1. **VLM Architecture Adaptation**: The modal interaction architecture of VLM is complex, and FSDP's flexibility makes it much easier to adapt than Megatron. Therefore, we choose FSDP as the preferred path for VLM RL training (of course, Megatron version adaptation is also planned).
 2. **Agility for Architecture Innovation**: For new architectures under rapid iteration like Qwen3-Next, FSDP allows us to support RL processes with maximum speed.
 3. **Low Barrier and High Usability**: As a PyTorch native training backend, FSDP does not have complex environment dependencies and installation processes. Both the learning curve and debug cost are significantly lower than Megatron.
 4. **Seamless Ecosystem Compatibility**: FSDP is directly compatible with HuggingFace Model format. This means we don't need to perform tedious weight conversion via `mbridge` like when using Megatron (Note: Some models in Megatron now also do not require manual weight conversion, as it is automatically converted internally [PR link](https://github.com/THUDM/slime/pull/889/files)), and community models work out of the box.
 
-## FSDP in slime: Architecture Design
+## FSDP in miles: Architecture Design
 
-To support two distinct distributed backends, Megatron and FSDP, in slime simultaneously, how should we avoid underlying conflicts and keep the code clean? We adopted a top-level design of "Interface Standardization + Physical Isolation", meaning we only expose core FSDP functions outwardly: `init`, `save`, `sleep`, `wake_up`, `train`. Other functions try to follow the underscore convention, like `_train_core`. Specifically:
+To support two distinct distributed backends, Megatron and FSDP, in miles simultaneously, how should we avoid underlying conflicts and keep the code clean? We adopted a top-level design of "Interface Standardization + Physical Isolation", meaning we only expose core FSDP functions outwardly: `init`, `save`, `sleep`, `wake_up`, `train`. Other functions try to follow the underscore convention, like `_train_core`. Specifically:
 
-We utilize the Ray Actor mechanism to encapsulate different backends in independent process spaces, exposing unified training primitives (such as `train`) to the upper-level scheduler, so that the upper-level algorithm logic does not need to care about the underlying gradient synchronization details. This design largely eliminates global variable conflicts and reduces conditional branch complexity, allowing us to deeply optimize for FSDP2's Sharding mechanism and DTensor structure. The core implementation is located in `slime/backends/fsdp_utils/actor.py`. While keeping external business logic (such as Data Packing, Context Parallel) highly consistent with Megatron, we refactored the data flow path in the kernel implementation, ensuring that while enjoying FSDP's flexibility, we maximize training efficiency and maintain numerical precision.
+We utilize the Ray Actor mechanism to encapsulate different backends in independent process spaces, exposing unified training primitives (such as `train`) to the upper-level scheduler, so that the upper-level algorithm logic does not need to care about the underlying gradient synchronization details. This design largely eliminates global variable conflicts and reduces conditional branch complexity, allowing us to deeply optimize for FSDP2's Sharding mechanism and DTensor structure. The core implementation is located in `miles/backends/fsdp_utils/actor.py`. While keeping external business logic (such as Data Packing, Context Parallel) highly consistent with Megatron, we refactored the data flow path in the kernel implementation, ensuring that while enjoying FSDP's flexibility, we maximize training efficiency and maintain numerical precision.
 
 The robust FSDP design leaves the top-level architecture unaffected, and the overall process remains the standard RLHF loop: Rollout → Data Sharding → Packing → Forward/LogProb → Loss → Backward → Update. On this basis, we have made multiple optimizations for FSDP, including Data Packing, True On-Policy mode, CUDA Graph Aware Weight Wake Up, and numerous mitigation mechanisms for Training-Inference Mismatch. Next, we discuss the top-level `init` and `train` function entry points.
 
@@ -80,7 +80,7 @@ FSDP actor train flow
     - Perform gradient accumulation and parameter update.
     - **offload strategy**: Call `sleep` after training to offload model and optimizer to CPU (colocated mode); Ref model is loaded only when calculating log prob and offloaded immediately after use.
 
-# FSDP in slime Features & Optimization
+# FSDP in miles Features & Optimization
 
 Based on the architecture design, we further analyze the optimizations made so far.
 
@@ -186,7 +186,7 @@ Based on https://hub.docker.com/r/rlsys/slime
 ```jsx
 # clone code and install dependencies
 git clone https://github.com/THUDM/slime.git
-cd slime
+cd miles
 pip install -e .
 
 # FSDP does not need weight conversion, natively supports huggingface format
@@ -202,7 +202,7 @@ FSDP automatically reads all architecture information via `AutoModelForCausalLM.
 
 ### FSDP Training Key Startup Parameters
 
-- This part writes which parameters need to be modified in a Megatron script in slime to run with FSDP (TODO)
+- This part writes which parameters need to be modified in a Megatron script in miles to run with FSDP (TODO)
 
 ### Megatron vs FSDP Parameter Comparison Table
 
@@ -246,7 +246,7 @@ As a lightweight backend, our future plans for FSDP include the following direct
 
 # Acknowledgements
 
-Thanks to all friends who contributed code, testing, and optimization to slime X FSDP:
+Thanks to all friends who contributed code, testing, and optimization to miles X FSDP:
 
 Zhipu: Zilin Zhu, Chengxing Xie, Haoran Wang, Lei Li
 
@@ -272,7 +272,7 @@ FSDP's CP is directly implemented via [ring flash attention](https://github.com/
 
 [PR link](https://github.com/THUDM/slime/pull/321)
 
-To avoid waste caused by large amounts of padding on each CP rank due to direct padding, we splice long sequences into continuous vectors and use `cu_seqlens` to record boundaries. We first reused megatron's `process_rollout_data()` to split rollout by DP rank, then `packed_data` estimates how many `micro_batch`es are needed to complete a `global_batch` based on rollout token count and DP size. The relationship between `global_batch` and `micro_batch` in slime is seen in Batch & Sample.
+To avoid waste caused by large amounts of padding on each CP rank due to direct padding, we splice long sequences into continuous vectors and use `cu_seqlens` to record boundaries. We first reused megatron's `process_rollout_data()` to split rollout by DP rank, then `packed_data` estimates how many `micro_batch`es are needed to complete a `global_batch` based on rollout token count and DP size. The relationship between `global_batch` and `micro_batch` in miles is seen in Batch & Sample.
 
 - When `use_dynamic_batch_size` is enabled, the number of micro-batches needs to be dynamically calculated based on actual sequence length: Use First-Fit algorithm via `get_minimum_num_micro_batch_size()` to estimate the minimum number of micro-batches needed to accommodate all data based on each sequence's length and `max_tokens_per_gpu` limit. This number will be synchronized across all DP ranks via `all_reduce(MAX)` to ensure consistent gradient accumulation steps for each rank.
 - If dynamic batch size is not enabled, directly use static formula global_batch_size // (micro_batch_size * dp_size) to calculate fixed micro-batch count.
