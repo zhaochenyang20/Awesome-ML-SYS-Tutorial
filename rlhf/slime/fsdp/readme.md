@@ -155,13 +155,13 @@ Related PR: [PR link](https://github.com/THUDM/slime/pull/788)
 
 实验环境：单机H100，sglang 0.5.5post1
 
-Script:
+[Script](https://github.com/THUDM/slime/blob/main/scripts/run-qwen3-4B-fsdp.sh)
 
-```jsx
+Megatron, FSDP colocated w ref model, FSDP colocated w/o ref model
 
-```
-
-Colocate w/ Ref (Qwen3-4B):
+<p align="center">
+  <img src="./pic/5_fsdp_mcore_match.png" alt="Raw reward match" width="80%" />
+</p>
 
 ## Context Parallelism
 
@@ -187,14 +187,27 @@ Colocate w/ Ref (Qwen3-4B):
 基于https://hub.docker.com/r/rlsys/slime
 
 ```jsx
+# 如果需要使用WADNDB，需要提前设置好环境变量WANDB_API_KEY
+# 下载模型权重 (Qwen3-4B)
+hf download Qwen/Qwen3-4B --local-dir /root/Qwen3-4B
+
+# 下载训练数据集 (dapo-math-17k)
+hf download --repo-type dataset zhuzilin/dapo-math-17k \
+  --local-dir /root/dapo-math-17k
+
+# 下载评估数据集 (aime-2024)
+hf download --repo-type dataset zhuzilin/aime-2024 \
+  --local-dir /root/aime-2024
+  
 # clone 代码并安装依赖
 git clone https://github.com/THUDM/slime.git
 cd slime
 pip install -e .
 
+
 # FSDP不用进行权重转换，native支持huggingface格式
 # 开启reference model，在colocate 模式下训练 Qwen3-4B
-TODO
+bash /root/slime/scripts/run-qwen3-4B-fsdp.sh
 ```
 
 ---
