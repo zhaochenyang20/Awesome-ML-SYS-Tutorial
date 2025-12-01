@@ -187,7 +187,7 @@ Megatron, FSDP colocated w ref model, FSDP colocated w/o ref model
 基于https://hub.docker.com/r/rlsys/slime
 
 ```jsx
-# 如果需要使用WADNDB，需要提前设置好环境变量WANDB_API_KEY
+# 如果需要使用WANDB，需要提前设置好环境变量WANDB_API_KEY
 # 下载模型权重 (Qwen3-4B)
 hf download Qwen/Qwen3-4B --local-dir /root/Qwen3-4B
 
