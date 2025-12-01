@@ -1,8 +1,8 @@
-# Support FSDP2 as training backend for slime
+# Support FSDP2 as training backend for miles
 
 > **TL;DR:**
 > 
-> **We have added FSDP to slime as a more flexible training framework and have aligned it with Megatron. FSDP supports architecture-innovative models such as Qwen3-Next more flexibly and helps us further support VLM RL.**
+> **We have added FSDP to miles as a more flexible training framework and have aligned it with Megatron. FSDP supports architecture-innovative models such as Qwen3-Next more flexibly and helps us further support VLM RL.**
 
 ## Background
 
@@ -23,20 +23,20 @@ Compared to FSDP1 which flattens all parameters into a giant `FlatParameter`, FS
 
 > ✅ For more content about FSDP, you can check the previous blogs of the SGLang RL team: [**RL System Deep Dive: FSDP Training Backend**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-2-en.md)
 
-### Why does slime need FSDP?
+### Why does miles need FSDP?
 
-Friends familiar with slime know that we already have a mature training engine based on Megatron-LM. Considering the significant maintenance cost brought by introducing a new backend, why are we still determined to support FSDP?
+Friends familiar with miles know that we already have a mature training engine based on Megatron-LM. Considering the significant maintenance cost brought by introducing a new backend, why are we still determined to support FSDP?
 
 1. **VLM Architecture Adaptation**: The modal interaction architecture of VLM is complex, and FSDP's flexibility makes it much easier to adapt than Megatron. Therefore, we choose FSDP as the preferred path for VLM RL training (of course, Megatron version adaptation is also planned).
 2. **Agility for Architecture Innovation**: For new architectures under rapid iteration like Qwen3-Next, FSDP allows us to support RL processes with maximum speed.
 3. **Low Barrier and High Usability**: As a PyTorch native training backend, FSDP does not have complex environment dependencies and installation processes. Both the learning curve and debug cost are significantly lower than Megatron.
-4. **Seamless Ecosystem Compatibility**: FSDP is directly compatible with HuggingFace Model format. This means we don't need to perform tedious weight conversion via `mbridge` like when using Megatron (Note: Some models in Megatron now also do not require manual weight conversion, as it is automatically converted internally [PR link](https://github.com/THUDM/slime/pull/889/files)), and community models work out of the box.
+4. **Seamless Ecosystem Compatibility**: FSDP is directly compatible with HuggingFace Model format. This means we don't need to perform tedious weight conversion via `mbridge` like when using Megatron (Note: Some models in Megatron now also do not require manual weight conversion, as it is automatically converted internally [PR link](https://github.com/THUDM/miles/pull/889/files)), and community models work out of the box.
 
-## FSDP in slime: Architecture Design
+## FSDP in miles: Architecture Design
 
-To support two distinct distributed backends, Megatron and FSDP, in slime simultaneously, how should we avoid underlying conflicts and keep the code clean? We adopted a top-level design of "Interface Standardization + Physical Isolation", meaning we only expose core FSDP functions outwardly: `init`, `save`, `sleep`, `wake_up`, `train`. Other functions try to follow the underscore convention, like `_train_core`. Specifically:
+To support two distinct distributed backends, Megatron and FSDP, in miles simultaneously, how should we avoid underlying conflicts and keep the code clean? We adopted a top-level design of "Interface Standardization + Physical Isolation", meaning we only expose core FSDP functions outwardly: `init`, `save`, `sleep`, `wake_up`, `train`. Other functions try to follow the underscore convention, like `_train_core`. Specifically:
 
-We utilize the Ray Actor mechanism to encapsulate different backends in independent process spaces, exposing unified training primitives (such as `train`) to the upper-level scheduler, so that the upper-level algorithm logic does not need to care about the underlying gradient synchronization details. This design largely eliminates global variable conflicts and reduces conditional branch complexity, allowing us to deeply optimize for FSDP2's Sharding mechanism and DTensor structure. The core implementation is located in `slime/backends/fsdp_utils/actor.py`. While keeping external business logic (such as Data Packing, Context Parallel) highly consistent with Megatron, we refactored the data flow path in the kernel implementation, ensuring that while enjoying FSDP's flexibility, we maximize training efficiency and maintain numerical precision.
+We utilize the Ray Actor mechanism to encapsulate different backends in independent process spaces, exposing unified training primitives (such as `train`) to the upper-level scheduler, so that the upper-level algorithm logic does not need to care about the underlying gradient synchronization details. This design largely eliminates global variable conflicts and reduces conditional branch complexity, allowing us to deeply optimize for FSDP2's Sharding mechanism and DTensor structure. The core implementation is located in `miles/backends/fsdp_utils/actor.py`. While keeping external business logic (such as Data Packing, Context Parallel) highly consistent with Megatron, we refactored the data flow path in the kernel implementation, ensuring that while enjoying FSDP's flexibility, we maximize training efficiency and maintain numerical precision.
 
 The robust FSDP design leaves the top-level architecture unaffected, and the overall process remains the standard RLHF loop: Rollout → Data Sharding → Packing → Forward/LogProb → Loss → Backward → Update. On this basis, we have made multiple optimizations for FSDP, including Data Packing, True On-Policy mode, CUDA Graph Aware Weight Wake Up, and numerous mitigation mechanisms for Training-Inference Mismatch. Next, we discuss the top-level `init` and `train` function entry points.
 
@@ -80,13 +80,13 @@ FSDP actor train flow
     - Perform gradient accumulation and parameter update.
     - **offload strategy**: Call `sleep` after training to offload model and optimizer to CPU (colocated mode); Ref model is loaded only when calculating log prob and offloaded immediately after use.
 
-# FSDP in slime Features & Optimization
+# FSDP in miles Features & Optimization
 
 Based on the architecture design, we further analyze the optimizations made so far.
 
 ### Data Prepare And Packing
 
-At the beginning of each training round, the FSDP actor (i.e., this actor class) first gets a batch of **balanced** rollout sequences from rollout, then does simple sample splitting by DP rank. This step is no different from conventional implementation. For extreme efficiency, we implemented **Data Packing** here [PR Link](https://github.com/THUDM/slime/pull/321). Simply put, `pack_sequences` is processed in `slime/backends/fsdp_utils/data_packing.py`. For a batch of input sequences, we estimate how many packs are needed, i.e., the number of `micro-batch`es, based on the length of each sequence and `max_tokens_per_gpu`. Next, sequences of varying lengths are distributed into different packs so that the total tokens in each pack are as close as possible. Within each pack, multiple sequences are flattened into a long tokens vector, and `cu_seqlens` is constructed to record the start and end positions of each sequence. This strategy ensures that the total Token amount of each Pack is highly consistent, eliminating the computational waste caused by traditional Padding. Specific details can be found in the Appendix.
+At the beginning of each training round, the FSDP actor (i.e., this actor class) first gets a batch of **balanced** rollout sequences from rollout, then does simple sample splitting by DP rank. This step is no different from conventional implementation. For extreme efficiency, we implemented **Data Packing** here [PR Link](https://github.com/THUDM/miles/pull/321). Simply put, `pack_sequences` is processed in `miles/backends/fsdp_utils/data_packing.py`. For a batch of input sequences, we estimate how many packs are needed, i.e., the number of `micro-batch`es, based on the length of each sequence and `max_tokens_per_gpu`. Next, sequences of varying lengths are distributed into different packs so that the total tokens in each pack are as close as possible. Within each pack, multiple sequences are flattened into a long tokens vector, and `cu_seqlens` is constructed to record the start and end positions of each sequence. This strategy ensures that the total Token amount of each Pack is highly consistent, eliminating the computational waste caused by traditional Padding. Specific details can be found in the Appendix.
 
 ### Strict Training-Inference Consistency
 
@@ -95,14 +95,14 @@ After completing Data Packing, the actor calculates log-prob and entropy of ref/
 > ✅ Briefly speaking, the implementation and idea of training-infer kl = 0 are as follows:
 > - Both Training and Inference use FlashAttn3 as backend to achieve bitwise equal.
 > - Use DeepGEMM for matrix multiplication, Batch-invariant Kernels to achieve batch invariance.
-> Specific details are documented in more detail in slime's Doc. The main implementation PRs are [PR link1](https://github.com/THUDM/slime/pull/566), [PR link2](https://github.com/sgl-project/sglang/pull/12058)
+> Specific details are documented in more detail in miles's Doc. The main implementation PRs are [PR link1](https://github.com/THUDM/miles/pull/566), [PR link2](https://github.com/sgl-project/sglang/pull/12058)
 
 <p align="center">
   <img src="./pic/3_kl_0.png" alt="training-rollout logprob diff = 0" width="80%" />
 </p>
 
 
-We further optimize performance under true on policy conditions. `get_logprob_and_entropy_with_cp` directly reuses the temperature passed in by Rollout, and turns off `allow_compile` which may introduce deviation. Disabling compile will forbid compiling `selective_log_softmax_raw`, preventing estimation deviation caused by different calculation paths due to compilation and batch invariant (see https://github.com/THUDM/slime/pull/599). This ensures that the `log-prob` re-calculated at the training end can **accurately restore** the numerical performance during Rollout.
+We further optimize performance under true on policy conditions. `get_logprob_and_entropy_with_cp` directly reuses the temperature passed in by Rollout, and turns off `allow_compile` which may introduce deviation. Disabling compile will forbid compiling `selective_log_softmax_raw`, preventing estimation deviation caused by different calculation paths due to compilation and batch invariant (see https://github.com/THUDM/miles/pull/599). This ensures that the `log-prob` re-calculated at the training end can **accurately restore** the numerical performance during Rollout.
 
 > ⚠️ Here we discovered and solved an imperceptible Bug that caused on policy kl ≠ 0 when using kl-loss, see [PPO KL Precision Error](https://www.notion.so/PPO-KL-2b39a62bde1580c69c46fbc63ad4358b?pvs=21) for details.
 
@@ -148,7 +148,7 @@ In the FSDP training process, we save memory by offloading weights in the follow
 
 # FSDP/Megatron Training Precision Alignment
 
-Related PR: [PR link](https://github.com/THUDM/slime/pull/788)
+Related PR: [PR link](https://github.com/THUDM/miles/pull/788)
 
 Experimental Environment: Single node H100, sglang 0.5.5post1
 
@@ -181,12 +181,12 @@ Experimental results meet expectations, and convergence effects are similar.
 
 ## FSDP One-Click Start
 
-Based on https://hub.docker.com/r/rlsys/slime
+Based on https://hub.docker.com/r/rlsys/miles
 
 ```jsx
 # clone code and install dependencies
-git clone https://github.com/THUDM/slime.git
-cd slime
+git clone https://github.com/THUDM/miles.git
+cd miles
 pip install -e .
 
 # FSDP does not need weight conversion, natively supports huggingface format
@@ -202,7 +202,7 @@ FSDP automatically reads all architecture information via `AutoModelForCausalLM.
 
 ### FSDP Training Key Startup Parameters
 
-- This part writes which parameters need to be modified in a Megatron script in slime to run with FSDP (TODO)
+- This part writes which parameters need to be modified in a Megatron script in miles to run with FSDP (TODO)
 
 ### Megatron vs FSDP Parameter Comparison Table
 
@@ -246,7 +246,7 @@ As a lightweight backend, our future plans for FSDP include the following direct
 
 # Acknowledgements
 
-Thanks to all friends who contributed code, testing, and optimization to slime X FSDP:
+Thanks to all friends who contributed code, testing, and optimization to miles X FSDP:
 
 Zhipu: Zilin Zhu, Chengxing Xie, Haoran Wang, Lei Li
 
@@ -258,7 +258,7 @@ Linkedin: Lancert
 
 ### Context Parallel
 
-[PR link](https://github.com/THUDM/slime/pull/467)
+[PR link](https://github.com/THUDM/miles/pull/467)
 
 FSDP's CP is directly implemented via [ring flash attention](https://github.com/zhuzilin/ring-flash-attention) library. Compared to Megatron's complex chunk mechanism, FSDP only needs to implement simple continuous chunks, and the load balancing part is handed over to ring flash attn. We only need to focus on input data slicing and result aggregation.
 
@@ -270,9 +270,9 @@ FSDP's CP is directly implemented via [ring flash attention](https://github.com/
 
 ### Data Packing
 
-[PR link](https://github.com/THUDM/slime/pull/321)
+[PR link](https://github.com/THUDM/miles/pull/321)
 
-To avoid waste caused by large amounts of padding on each CP rank due to direct padding, we splice long sequences into continuous vectors and use `cu_seqlens` to record boundaries. We first reused megatron's `process_rollout_data()` to split rollout by DP rank, then `packed_data` estimates how many `micro_batch`es are needed to complete a `global_batch` based on rollout token count and DP size. The relationship between `global_batch` and `micro_batch` in slime is seen in Batch & Sample.
+To avoid waste caused by large amounts of padding on each CP rank due to direct padding, we splice long sequences into continuous vectors and use `cu_seqlens` to record boundaries. We first reused megatron's `process_rollout_data()` to split rollout by DP rank, then `packed_data` estimates how many `micro_batch`es are needed to complete a `global_batch` based on rollout token count and DP size. The relationship between `global_batch` and `micro_batch` in miles is seen in Batch & Sample.
 
 - When `use_dynamic_batch_size` is enabled, the number of micro-batches needs to be dynamically calculated based on actual sequence length: Use First-Fit algorithm via `get_minimum_num_micro_batch_size()` to estimate the minimum number of micro-batches needed to accommodate all data based on each sequence's length and `max_tokens_per_gpu` limit. This number will be synchronized across all DP ranks via `all_reduce(MAX)` to ensure consistent gradient accumulation steps for each rank.
 - If dynamic batch size is not enabled, directly use static formula global_batch_size // (micro_batch_size * dp_size) to calculate fixed micro-batch count.
@@ -300,11 +300,11 @@ Therefore, theoretically PPO KL divergence should be 0. However, in actual opera
 
 This problem is caused by precision errors in weight exchange logic. The original implementation referred to Megatron's way, manually exchanging ref and actor tensors between CPU and GPU. To be compatible with FSDP2's DTensor, we manually created DTensor for swap. However, manual weight exchange leads to slight numerical deviations during weight loading. Megatron uses this manual exchange because the offload process of distributed optimizer is very complex, so it simply exchanges weights directly.
 
-Finally, we switched to a cleaner solution: treat reference model as an independent FSDP model, use FSDP native CPU Offload for management, and load it to GPU only during forward. This method completely avoids manual weight exchange, fully utilizes FSDP native CPU/GPU transfer mechanism, eliminates numerical drift from the root cause, making PPO KL converge to theoretical value 0, while not introducing additional GPU memory overhead. [PR link](https://github.com/THUDM/slime/pull/780)
+Finally, we switched to a cleaner solution: treat reference model as an independent FSDP model, use FSDP native CPU Offload for management, and load it to GPU only during forward. This method completely avoids manual weight exchange, fully utilizes FSDP native CPU/GPU transfer mechanism, eliminates numerical drift from the root cause, making PPO KL converge to theoretical value 0, while not introducing additional GPU memory overhead. [PR link](https://github.com/THUDM/miles/pull/780)
 
 ### **True on policy**
 
-After the CP PR was merged, the true on policy of the main branch actually failed [issue link](https://github.com/THUDM/slime/issues/830). After investigation, it was found that precision was autocast to bf16 after indentation. After fixing, training-infer mismatch was successfully restored to 0. [PR link](https://github.com/THUDM/slime/pull/833)
+After the CP PR was merged, the true on policy of the main branch actually failed [issue link](https://github.com/THUDM/miles/issues/830). After investigation, it was found that precision was autocast to bf16 after indentation. After fixing, training-infer mismatch was successfully restored to 0. [PR link](https://github.com/THUDM/miles/pull/833)
 
 To avoid precision problems caused by improper application of auto cast, we finally chose [Mixed Precision](https://docs.pytorch.org/tutorials/intermediate/FSDP_advanced_tutorial.html#mixed-precision) newly supported by FSDP2, implementing clearer and cleaner precision management.
 
