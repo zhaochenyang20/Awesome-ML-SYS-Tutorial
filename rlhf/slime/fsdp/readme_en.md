@@ -152,13 +152,15 @@ Related PR: [PR link](https://github.com/THUDM/slime/pull/788)
 
 Experimental Environment: Single node H100, sglang 0.5.5post1
 
-Script:
+[Script](https://github.com/THUDM/slime/blob/main/scripts/run-qwen3-4B-fsdp.sh)
 
-```jsx
+Megatron, FSDP colocated w ref model, FSDP colocated w/o ref model
 
-```
+<p align="center">
+  <img src="./pic/5_fsdp_mcore_match.png" alt="Raw reward match" width="80%" />
+</p>
 
-Colocate w/ Ref (Qwen3-4B):
+
 
 ## Context Parallelism
 
@@ -184,14 +186,27 @@ Experimental results meet expectations, and convergence effects are similar.
 Based on https://hub.docker.com/r/rlsys/slime
 
 ```jsx
-# clone code and install dependencies
-git clone https://github.com/THUDM/slime.git
+# If you need to use WANDB, you need to set the environment variable WANDB_API_KEY in advance
+# Download model weights (Qwen3-4B)
+hf download Qwen/Qwen3-4B --local-dir /root/Qwen3-4B
+
+# Download training dataset (dapo-math-17k)
+hf download --repo-type dataset zhuzilin/dapo-math-17k \
+  --local-dir /root/dapo-math-17k
+
+# Download evaluation dataset (aime-2024)
+hf download --repo-type dataset zhuzilin/aime-2024 \
+  --local-dir /root/aime-2024
+  
+# Clone code and install dependencies
+git clone https://github.com/radixark/miles.git
 cd miles
 pip install -e .
 
-# FSDP does not need weight conversion, natively supports huggingface format
+
+# FSDP does not require weight conversion, natively supports huggingface format
 # Enable reference model, train Qwen3-4B in colocate mode
-TODO
+bash /root/miles/scripts/run-qwen3-4B-fsdp.sh
 ```
 
 ---
