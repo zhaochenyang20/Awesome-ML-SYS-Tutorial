@@ -1,17 +1,15 @@
 # Support FSDP2 as training backend for slime
 
-<aside>
-✅
 
-TLDR：我们在 slime 中新增了 FSDP 作为更为灵活的训练框架，并与 Megatron 完成对齐。FSDP 能够更加灵活支持诸如 Qwen3-Next 等架构创新的模型，并且有助于我们进一步支持 VLM RL。
-
-</aside>
+> **TL;DR:**
+> 
+> **我们在 slime 中新增了 FSDP 作为更为灵活的训练框架，并与 Megatron 完成对齐。FSDP 能够更加灵活支持诸如 Qwen3-Next 等架构创新的模型，并且有助于我们进一步支持 VLM RL。**
 
 ## 背景
 
 ### 什么是 FSDP？
 
-**FSDP (Fully Sharded Data Parallel)** 继承了 [](https://www.notion.so/Support-FSDP2-as-training-backend-for-slime-2ae9a62bde15801d80fec2e207f83dee?pvs=21)[DeepSpeed ZeRO Stage 3](https://www.deepspeed.ai/2021/03/07/zero3-offload.html) 的设计哲学，可以被视为是对传统 [DDP (Distributed Data Parallel)](https://docs.pytorch.org/tutorials/beginner/ddp_series_theory.html) 的强力优化。
+**FSDP (Fully Sharded Data Parallel)** 继承了 [DeepSpeed ZeRO Stage 3](https://www.deepspeed.ai/2021/03/07/zero3-offload.html) 的设计哲学，可以被视为是对传统 [DDP (Distributed Data Parallel)](https://docs.pytorch.org/tutorials/beginner/ddp_series_theory.html) 的强力优化。
 
 **从 Replicate 到 Shard**
 
@@ -24,14 +22,9 @@ TLDR：我们在 slime 中新增了 FSDP 作为更为灵活的训练框架，并
 
 相比于 FSDP1 将所有参数摊平成一个巨大的 `FlatParameter`，FSDP2 引入了 **DTensor (Distributed Tensor)**。它能够在保持 Tensor 原始结构（如 shape, stride）的前提下，在指定的并行维度上进行更优的切分。这不仅解决了 FSDP1 中元数据易失和 padding 复杂的痛点，更为 MixedPrecision Training 和 LoRA 提供了开箱即用的支持；本文中提到的 FSDP 均指 PyTorch 原生支持的 **FSDP2**。
 
-<aside>
-✅
 
-关于 FSDP 的更多内容可以查阅 SGLang RL team 以往的博客：[**RL System Deep Dive: FSDP Training Backend**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-2-en.md)
+> ✅ 关于 FSDP 的更多内容可以查阅 SGLang RL team 以往的博客：[**RL System Deep Dive: FSDP Training Backend**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-2-en.md)
 
-[Awesome-ML-SYS-Tutorial/rlhf/sys-design/readme-2-en.md at main · zhaochenyang20/Awesome-ML-SYS-Tutorial](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-2-en.md)
-
-</aside>
 
 ### 为什么 slime 需要 FSDP？
 
@@ -40,7 +33,7 @@ TLDR：我们在 slime 中新增了 FSDP 作为更为灵活的训练框架，并
 1. **VLM 架构适配**：VLM 的模态交互架构复杂，FSDP 的灵活性使其在适配上远比 Megatron 轻松。因此，我们选择 FSDP 作为 VLM RL 训练的首选路径（当然，Megatron 版本的适配也在计划中）。
 2. **架构创新的敏捷性**：对于 Qwen3-Next 这类处于快速迭代中的新架构，FSDP 能让我们以最快速度支持 RL 流程。
 3. **低门槛与高易用性**：作为 PyTorch native 的训练后端，FSDP 没有复杂的环境依赖和安装过程。无论是学习曲线还是 debug 成本都显著低于 Megatron。
-4. **无缝生态兼容**：FSDP 能直接兼容 HuggingFace Model 格式。这意味着我们无需像使用 Megatron 那样通过 `mbridge` 进行繁琐的权重转换(备注: 部分模型 Megatron 现在也无需手动权重转换了，内部会自动转换 [PR](https://github.com/THUDM/slime/pull/889/files))，社区模型开盒即用。
+4. **无缝生态兼容**：FSDP 能直接兼容 HuggingFace Model 格式。这意味着我们无需像使用 Megatron 那样通过 `mbridge` 进行繁琐的权重转换(备注: 部分模型 Megatron 现在也无需手动权重转换了，内部会自动转换 [PR link](https://github.com/THUDM/slime/pull/889/files))，社区模型开盒即用。
 
 ## FSDP in slime：架构设计
 
@@ -54,7 +47,9 @@ TLDR：我们在 slime 中新增了 FSDP 作为更为灵活的训练框架，并
 
 在 `init` 阶段，主要完成以下工作：
 
-![FSDP actor init 流程](Support%20FSDP2%20as%20training%20backend%20for%20slime/fsdp_1.png)
+<p align="center">
+  <img src="./pic/1_fsdp_init.png" alt="FSDP actor init 流程" width="80%" />
+</p>
 
 FSDP actor init 流程
 
@@ -69,7 +64,9 @@ FSDP actor init 流程
 
 `train` 函数作为训练主入口：
 
-![FSDP actor train 流程](Support%20FSDP2%20as%20training%20backend%20for%20slime/fsdp_2.png)
+<p align="center">
+  <img src="./pic/2_fsdp_train.png" alt="FSDP actor train 流程" width="80%" />
+</p>
 
 FSDP actor train 流程
 
@@ -92,36 +89,25 @@ FSDP actor train 流程
 
 ### Data Prepare And Packing
 
-每一轮训练开始时，FSDP actor (也就是这个 actor class) 首先从 rollout 拿到一批 **balance** 之后的 rollout sequence，然后按 DP rank 做简单的样本拆分，这一步和常规实现没有差别。为了极致效率，在这里我们实现了 [数据打包](https://www.notion.so/2b39a62bde1580f498bdd2e6271fc649?pvs=21)（data packing） [[PR Link](https://github.com/THUDM/slime/pull/321)]**。**简单来说，在 `slime/backends/fsdp_utils/data_packing.py` 中处理全部的 `pack_sequences`，对于输入的一批序列，根据每条的长度和 `max_tokens_per_gpu` 估算需要多少个 pack，即 `micro-batch` 的数量。接下来把长短不一的 sequence 分到不同 pack 中，使每个 pack 的 token 总数尽量接近。在每个 pack 内，将多条序列摊平成一条长的 tokens 向量，并构建 `cu_seqlens` 记录各条序列的起止位置。这种策略确保了每个 Pack 的 Token 总量高度一致，消除了传统 Padding 带来的算力浪费。具体细节可以参考附录  [数据打包](https://www.notion.so/2b39a62bde1580f498bdd2e6271fc649?pvs=21)
+每一轮训练开始时，FSDP actor (也就是这个 actor class) 首先从 rollout 拿到一批 **balance** 之后的 rollout sequence，然后按 DP rank 做简单的样本拆分，这一步和常规实现没有差别。为了极致效率，在这里我们实现了 [数据打包](https://www.notion.so/2b39a62bde1580f498bdd2e6271fc649?pvs=21)（data packing） [[PR Link](https://github.com/THUDM/slime/pull/321)]。简单来说，在 `slime/backends/fsdp_utils/data_packing.py` 中处理全部的 `pack_sequences`，对于输入的一批序列，根据每条的长度和 `max_tokens_per_gpu` 估算需要多少个 pack，即 `micro-batch` 的数量。接下来把长短不一的 sequence 分到不同 pack 中，使每个 pack 的 token 总数尽量接近。在每个 pack 内，将多条序列摊平成一条长的 tokens 向量，并构建 `cu_seqlens` 记录各条序列的起止位置。这种策略确保了每个 Pack 的 Token 总量高度一致，消除了传统 Padding 带来的算力浪费。具体细节可以参考附录  [数据打包](https://www.notion.so/2b39a62bde1580f498bdd2e6271fc649?pvs=21)
 
 ### 严格训推一致
 
 完成 Data Packing 后，actor 会对 packed micro‑batch 计算 ref/actor 的 log‑prob 和 entropy。我们在 FSDP 上实现了 True On Policy。也即对于近期非常火爆的 training inference mismatch 问题，我们给出了最为严格的答案，实现了同一个 policy model 在 training backend 和 inference backend 的 logp rob 绝对一致，从系统层面上解决了 training-infer mismatch。
 
-<aside>
-✅
+> ✅ 简单说一下 training-infer kl = 0 的实现和思想如下:
+> - Training 和 Inference 都使用 FlashAttn3 当作 backend，来实现bitwise equal
+> - 使用 DeepGEMM进行矩阵乘法, Batch-invariant Kernels 实现批次不变性
+> 具体细节在 slime 的 Doc 里有更详细的记载, 主要实现的 PR 是 [[PR link1](https://github.com/THUDM/slime/pull/566)], [[PR link2](https://github.com/sgl-project/sglang/pull/12058)]
 
-简单说一下 training-infer kl = 0 的实现和思想如下:
+<p align="center">
+  <img src="./pic/3_kl_0.png" alt="training-rollout logprob diff = 0" width="80%" />
+</p>
 
-- Training 和 Inference 都使用 FlashAttn3 当作 backend，来实现bitwise equal
-- 使用 DeepGEMM进行矩阵乘法, Batch-invariant Kernels 实现批次不变性
-
-具体细节在 slime 的 Doc 里有更详细的记载, 主要实现的 PR 是 [[PR link1](https://github.com/THUDM/slime/pull/566)], [[PR link2](https://github.com/sgl-project/sglang/pull/12058)]
-
-</aside>
-
-![training-rollout logprob diff = 0](Support%20FSDP2%20as%20training%20backend%20for%20slime/image.png)
-
-training-rollout logprob diff = 0
 
 我们更进一步优化 true on policy 情况下的性能。`get_logprob_and_entropy_with_cp` 直接复用了 Rollout 传入的 temperature，并关闭了可能引入偏差的 `allow_compile` , disable compile 会禁止compile `selective_log_softmax_raw`，防止因为编译带来的和 batch invarianthttps://github.com/THUDM/slime/pull/599中.确保训练端重算的 `log‑prob` 能**精准还原** Rollout 时的数值表现，杜绝因计算路径不同而产生的估算偏差
 
-<aside>
-⚠️
-
-在这里我们发现并解决了一个难以察觉的 Bug 导致了 use-kl-loss 的时候 on policy kl ≠ 0，详见 [PPO KL 精度误差](https://www.notion.so/PPO-KL-2b39a62bde1580c69c46fbc63ad4358b?pvs=21) 
-
-</aside>
+> ⚠️ 在这里我们发现并解决了一个难以察觉的 Bug 导致了 use-kl-loss 的时候 on policy kl ≠ 0，详见 [PPO KL 精度误差](https://www.notion.so/PPO-KL-2b39a62bde1580c69c46fbc63ad4358b?pvs=21) 
 
 ### **Algorithms Mitigation For Mismatch**
 
@@ -148,18 +134,12 @@ $$
 
 训练结束后，最新的权重会被同步回到 Inference Engine（这是 refit 术语最好的定义）。在 `update_weight_utis.py` 中，我们完整支持所有模式：`colocated` 和 `distributed` ，前者 train / rollout 交替占用同一批 GPU，后者将 train / rollout 分散在不同 GPU 上。对于这两种方式，我们都采用了分桶异步更新的策略[[Reference](https://hebiao064.github.io/rl-weight-sync)]，逐个将 chunked 权重同步到 inference engine，尽量减小 peak memory usage。
 
-![Update weights from training to inference with async tensor handle and bucket](Support%20FSDP2%20as%20training%20backend%20for%20slime/image%201.png)
+<p align="center">
+  <img src="./pic/4_fsdp_refit.png" alt="Update weights from training to inference with async tensor handle and bucket" width="80%" />
+</p>
 
-Update weights from training to inference with async tensor handle and bucket
+> ✅ 关于权重更新的具体机制，欢迎查阅 SGLang RL group 以往的博客：[**RL System Deep Thinking: Weight Update Mechanisms**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-1-EN.md)
 
-<aside>
-✅
-
-关于权重更新的具体机制，欢迎查阅 SGLang RL group 以往的博客：[**RL System Deep Thinking: Weight Update Mechanisms**](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-1-EN.md)
-
-[Awesome-ML-SYS-Tutorial/rlhf/sys-design/readme-1-EN.md at main · zhaochenyang20/Awesome-ML-SYS-Tutorial](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/sys-design/readme-1-EN.md)
-
-</aside>
 
 ### 显存优化：卸载策略
 
@@ -171,7 +151,7 @@ Update weights from training to inference with async tensor handle and bucket
 
 # FSDP/Megatron 训练精度对齐
 
-Related PR: https://github.com/THUDM/slime/pull/788
+Related PR: [PR link](https://github.com/THUDM/slime/pull/788)
 
 实验环境：单机H100，sglang 0.5.5post1
 
@@ -187,12 +167,7 @@ Colocate w/ Ref (Qwen3-4B):
 
 对于 CP, 我们想保证 Megatron 和 FSDP 在同样的 Context Parallelism 程度下，能够支持的 response length 相近：
 
-<aside>
-✅
-
-理论上 `max_reponse_length_with_cp = max_reponse_length_without_cp * cp_size` [[ref](https://arxiv.org/pdf/2310.01889)]
-
-</aside>
+> ✅ 理论上 `max_reponse_length_with_cp = max_reponse_length_without_cp * cp_size` [[ref link](https://arxiv.org/pdf/2310.01889)]
 
 对于实验配置: 4 张 B200，global_batch_size = 64的情况下:
 
@@ -258,7 +233,7 @@ FSDP 通过 `AutoModelForCausalLM.from_pretrained()` 自动读取所有架构信
 
 FSDP 目前仅支持 **DP + CP**，不支持 **TP, EP , PP** 。其中CP 的实现方式不同与Megatron
 
-, Megatron Core 有原生实现（与 TP/PP 深度集成), FSDP则是通过 Ring Flash Attention 外部库实现。
+, Megatron Core 有原生实现（与 TP/PP 深度集成）, FSDP则是通过 Ring Flash Attention 外部库实现。
 
 除此之外，Megatron 的 `--recompute-granularity` (full/selective)、`--recompute-method` (uniform/block)、`--recompute-num-layers` 并不支持，FSDP 只有简单的 `--gradient-checkpointing` 开关。
 
@@ -286,9 +261,9 @@ Linkedin: Lancert
 
 ### Context Parallel
 
-[https://github.com/THUDM/slime/pull/467](https://github.com/THUDM/slime/pull/467)
+[PR link](https://github.com/THUDM/slime/pull/467)
 
-FSDP 的 CP 直接通过https://github.com/zhuzilin/ring-flash-attention 库实现。相比于 Megatron 复杂的 chunk 机制，FSDP只需要实现简单的连续chunk，负载均衡部分交给 ring flash attn 实现。我们可以只关注输入数据的切分与结果的聚合。
+FSDP 的 CP 直接通过 [ring flash attention](https://github.com/zhuzilin/ring-flash-attention)) 库实现。相比于 Megatron 复杂的 chunk 机制，FSDP只需要实现简单的连续chunk，负载均衡部分交给 ring flash attn 实现。我们可以只关注输入数据的切分与结果的聚合。
 
 **具体实现流程如下：**
 
@@ -298,9 +273,9 @@ FSDP 的 CP 直接通过https://github.com/zhuzilin/ring-flash-attention 库实�
 
 ### 数据打包
 
-[https://github.com/THUDM/slime/pull/321](https://github.com/THUDM/slime/pull/321)
+[PR link](https://github.com/THUDM/slime/pull/321)
 
-为了避免直接 padding 造成每个 CP rank 上都存在大量的 padding 造成浪费，我们将长序列拼接成连续向量，并用 `cu_seqlens` 记录边界。我们首先复用了megatron的 `process_rollout_data()` 按 DP rank 拆分rollout，随后 `packed_data` 根据 rollout token 数量，DP size 来估算需要多少个 `micro_batch` 来完成一个 `global_batch`。slime中 `global_batch` 和 `micro_batch` 的关系见[Batch & Sample](https://www.notion.so/Batch-Sample-2b59a62bde15809a81dbe605180513ef?pvs=21) 
+为了避免直接 padding 造成每个 CP rank 上都存在大量的 padding 造成浪费，我们将长序列拼接成连续向量，并用 `cu_seqlens` 记录边界。我们首先复用了megatron的 `process_rollout_data()` 按 DP rank 拆分rollout，随后 `packed_data` 根据 rollout token 数量，DP size 来估算需要多少个 `micro_batch` 来完成一个 `global_batch`。slime中 `global_batch` 和 `micro_batch` 的关系见 Batch & Sample
 
 - 在开启 `use_dynamic_batch_size` 的情况下，需要根据实际的序列长度动态计算 micro-batch 数量：通过 `get_minimum_num_micro_batch_size()` 使用 First-Fit 算法，根据每条序列的长度和 `max_tokens_per_gpu` 限制，估算最少需要多少个 micro-batch 才能容纳所有数据。该数量会在所有 DP  rank 间进行 `all_reduce(MAX)` 同步，确保各 rank 的梯度累积步数一致。
 - 若未开启动态 batch size，则直接使用静态公式 global_batch_size // (micro_batch_size * dp_size) 计算固定的 micro-batch 数量。
@@ -308,7 +283,7 @@ FSDP 的 CP 直接通过https://github.com/zhuzilin/ring-flash-attention 库实�
 接下来在 `pack_sequences()` 中执行实际的打包操作：
 
 - 计算分区数 `k_partitions = ceil(total_tokens / max_tokens_per_gpu)`
-- 调用 `get_seqlen_balanced_partitions()` 使用 [**Karmarkar-Karp](https://en.wikipedia.org/wiki/Largest_differencing_method) 算法**（最大差分法）进行负载均衡分配，该算法通过优先队列维护分区状态，每次合并 token 总数差距最大的两个分区，使最终各 pack 的 token 数高度均衡
+- 调用 `get_seqlen_balanced_partitions()` 使用 [Karmarkar-Karp](https://en.wikipedia.org/wiki/Largest_differencing_method) 算法（最大差分法）进行负载均衡分配，该算法通过优先队列维护分区状态，每次合并 token 总数差距最大的两个分区，使最终各 pack 的 token 数高度均衡
 - 对每个pack，将分配的序列拼接成连续的 `flat_tokens` 向量，同时构建 `cu_seqlens` 数组记录各序列边界，如 `[0, 128, 384, 512]` 表示3条序列长度分别为128、256、128
 
 在Context Parallel模式下（`cp_size > 1`），`pad_packed_sequence_with_cp()` 会对拼接后的序列做最小对齐padding（最多 cp_size-1 个 token），确保总长度能被 cp_size 整除以便跨 rank 切分。虽然这里还是朴素的直接 padding，但是由于padding ≤ cp_size -1，不会导致可见的 overhead。
@@ -328,11 +303,11 @@ FSDP 的 CP 直接通过https://github.com/zhuzilin/ring-flash-attention 库实�
 
 该问题由权重交换逻辑中的精度误差引起。原实现参考 Megatron 的方式，通过手动在 CPU 和 GPU 之间交换 ref 和 actor 的 tensors。为兼容 FSDP2 的 DTensor，我们手动创建 DTensor 进行 swap。然而，手动权重交换会导致权重加载过程中产生细微的数值偏差。Megatron 采用这种手动的交换是因为 distributed optimizer 的offload过程很复杂，索性直接交换权重。
 
-最终我们改用了更简洁的方案：将 reference model 作为独立的 FSDP 模型，使用FSDP原生的 CPU Offload，进行管理，仅在 forward 时被加载到GPU中。这种方式完全避免了手动权重交换，充分利用 FSDP 原生的 CPU/GPU 转移机制，从根源上消除了数值漂移，使 PPO KL 收敛到理论值 0，同时不引入额外的 GPU 内存开销。[[PR](https://github.com/THUDM/slime/pull/780)]
+最终我们改用了更简洁的方案：将 reference model 作为独立的 FSDP 模型，使用FSDP原生的 CPU Offload，进行管理，仅在 forward 时被加载到GPU中。这种方式完全避免了手动权重交换，充分利用 FSDP 原生的 CPU/GPU 转移机制，从根源上消除了数值漂移，使 PPO KL 收敛到理论值 0，同时不引入额外的 GPU 内存开销。[[PR link](https://github.com/THUDM/slime/pull/780)]
 
 ### **True on policy**
 
-在 CP 的PR 合进去之后 main branch 的 true on policy 居然失效了 [[issue](https://github.com/THUDM/slime/issues/830)], 经过排查后发现是精度在缩进之后被 autocast 成了 bf16, 修复之后 training-infer mismatch 成功恢复到0。https://github.com/THUDM/slime/pull/833
+在 CP 的PR 合进去之后 main branch 的 true on policy 居然失效了 [[issue link](https://github.com/THUDM/slime/issues/830)], 经过排查后发现是精度在缩进之后被 autocast 成了 bf16, 修复之后 training-infer mismatch 成功恢复到0。[[PR link](https://github.com/THUDM/slime/pull/833)]
 
 为了避免auto cast应用不当导致的精度问题，我们最终选择了FSDP2新支持的 [Mixed Precision](https://docs.pytorch.org/tutorials/intermediate/FSDP_advanced_tutorial.html#mixed-precision)，实现了更加清晰干净的精度管理。
 
