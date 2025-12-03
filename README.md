@@ -29,6 +29,7 @@ $$
 - [Power Up Speculative Decoding In Reinforcement Learning](./rlhf/slime/spec/readme.md)：将 speculative decoding 引入到了 RL 的采样流程中，在 batch size 合适的情况下，采样速度得到了显著提升；并且，draft model 也会在训练过程中更新。相较于冻结 draft model 的做法，accepted length 持续维持在较高水平，产生长期稳定的正收益。同样刊载[英文版本](./rlhf/slime/spec/readme-en.md)。
 - [深入浅出 slime RL 框架的优雅设计与源码](./rlhf/slime/code-walk-through/readme.md)：slime 源码赏析，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1946402397409740613)和[英文版本](./rlhf/slime/code-walk-through/readme_en.md)。
 - [Pending Review] [slime FSDP Setup Guide](./rlhf/slime/fsdp/release_log/setup_fsdp.md)：记录如何在 slime 上测试 FSDP，包括 H 卡和 B 卡，以及 Colocate 和 Disaggregated 两种 placement 方式。
+- [Pending Review] [PPO 中 GAE 的分 chunk 并行计算（基于 slime 的实现）](./rlhf/slime/batch-GAE/ppo-gae-chunk.md)：将标准 GAE 的后向递推改写为基于 chunk 的并行前缀扫描，在长序列场景下大幅缓解 GAE 计算瓶颈，在 slime 中实现约 100×–300× 加速。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1975237289425798560)。
 
 ### verl 框架
 
