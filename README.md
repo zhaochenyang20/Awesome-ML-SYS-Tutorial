@@ -77,6 +77,7 @@ $$
 - [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)：一个请求被 SGLang Engine 处理的全过程，还有一些 part 没有完成，但是大多地方已经 okay，也让很多 SGLang begginer 就此开始。这里还有[中文版本](./sglang/code-walk-through/readme-CN.md)。
 - [Walk Through SGLang / VLLM Worker](./sglang/sglang-worker/readme.md)：SGLang 的代码不完全解析，同样刊载于 [Walk Through SGLang / VLLM Worker](https://zhuanlan.zhihu.com/p/6363614076)，这次我们还贴心提供了[英文版本](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/sglang-worker/readme.md)。更详细的解析应该参考 [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)，这个只是辅助看看。
 - [Walk Through SGLang Scheduler](./sglang/sglang-scheduler/readme-CN.md)
+- [Pending Review] [SGLang Scheduler Evolution](./sglang/scheduler-evolution/SGLang%20Scheduler%20技术变迁.md)：详细介绍了 SGLang Scheduler 从串行到 CPU / GPU overlap 的技术演进及相关组件，对比前代 overlap Scheduler 和当前引入多 CUDA stream 与 FutureMap 的 overlap Scheduler。可到知乎查看[文章](https://zhuanlan.zhihu.com/p/1969077475129688722)
 - [Pending Review] [KV Cache Code Walkthrough](./sglang/kvcache-code-walk-through/readme.md)：KV cache 管理实现的概览，从 Scheduler 组件开始，详细说明 prefill 和 decode 阶段中 KV cache 和内存池的更新过程。
 - [Pending Review] [SGLang 多模态请求生命周期：以 Qwen2.5-VL 为例的架构级深度解析](./sglang/code-walk-through/multimodal_request_lifecycle.md)：以 Qwen2.5-VL 为参考模型，提供对 SGLang 框架内多模态请求处理流程的详细剖析。
 - [Pending Review] [How A Model is Loaded in Hugging Face and SGLang](./sglang/how-model-is-loaded/readme.md)：记录模型在 Hugging Face 和 SGLang 中的加载过程，帮助理解权重加载机制。
