@@ -54,7 +54,7 @@ $$
 - [浅析以 OpenRLHF 为代表的 post-training 系统的计算流程](./rlhf/OpenRLHF/readme.md)：基于猛猿小姐姐的文章再做补充，Github native 渲染的巨烂，甚至看[知乎](https://zhuanlan.zhihu.com/p/16370000391)好了。
 
 ### AReal 框架
-- [AReal Code Walk Through](./rlhf/areal/code-walk-through_CN) AReal 源码赏析，同样刊载于 [英文版本](./rlhf/areal/code-walk-through_CN)。
+- [AReal Code Walk Through](./rlhf/areal/code-walk-through_CN.md) AReal 源码赏析，同样刊载于 [英文版本](./rlhf/areal/code-walk-through_CN.md)。
 
 ### 系统设计与优化
 

@@ -1,6 +1,6 @@
 # Code Walkthrough of AReaL
 
-[English](code-walk-through_EN) | [中文](code-walk-through_CN)
+[English](code-walk-through_EN.md) | [中文](code-walk-through_CN.md)
 
 早在 25 年年初，就有某位 infra 圈资深大佬盛赞 AReaL 的代码写的是整个圈子里最有艺术性的。趁着 AReaL 在 25 年经过了几个重大版本的发布，以及 [asystem-amem](https://github.com/inclusionAI/asystem-amem) 等框架相关工作的发布，我们 SGLang RL 小组向大家分享这份 AReaL 的学习笔记。
 

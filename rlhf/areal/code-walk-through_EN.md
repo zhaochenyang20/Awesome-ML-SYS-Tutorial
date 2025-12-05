@@ -1,6 +1,6 @@
 # Code Walkthrough of AReaL
 
-[English](code-walk-through_EN) | [中文](code-walk-through_CN)
+[English](code-walk-through_EN.md) | [中文](code-walk-through_CN.md)
 
 As early as the beginning of 2025, a senior expert in the infrastructure circle praised AReaL's code as the most artistic in the entire community. Taking advantage of AReaL's several major version releases in 2025, as well as the release of related framework works such as [asystem-amem](https://github.com/inclusionAI/asystem-amem), our SGLang RL team would like to share these study notes on AReaL with everyone.
 
