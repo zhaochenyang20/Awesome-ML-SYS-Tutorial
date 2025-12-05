@@ -1,6 +1,6 @@
 # Code Walkthrough of AReaL
 
-[English](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/code-walk-through_EN) | [中文](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/code-walk-through_CN)
+[English](code-walk-through_EN) | [中文](code-walk-through_CN)
 
 早在 25 年年初，就有某位 infra 圈资深大佬盛赞 AReaL 的代码写的是整个圈子里最有艺术性的。趁着 AReaL 在 25 年经过了几个重大版本的发布，以及 [asystem-amem](https://github.com/inclusionAI/asystem-amem) 等框架相关工作的发布，我们 SGLang RL 小组向大家分享这份 AReaL 的学习笔记。
 
@@ -10,8 +10,10 @@
 
 我们从一个简单的例子（`examples/math/gsm8k_grpo.py`）开始学习 AReaL 的工作流程：
 
+![AReaL Architecture Overview](areal_overview.jpg)
+
 <details>
-<summary><b>gsm8k_grpo.py 中 main() 代码</b></summary>
+<summary>gsm8k_grpo.py 中 main() 代码</summary>
 
 ```python
 def main(args):
@@ -232,10 +234,6 @@ def main(args):
 </details>
 
 
-![image.png](attachment:6e91f20a-6076-4a5c-aafe-47a84f2dc04d:image.png)
-
-TODO: 图例，再想想这些线怎么分吧，有些是调用顺序，有些是传数据，后续提到的 feature可以加进去，staleness 控制，图要画的开些
-
 ## Init
 
 初始化 Train Engine (如 `FSDPPPOActor`)、Inference Engine (如 `RemoteSGLangEngine`) 和可选的 Reference Engine，加载数据集 (`DataLoader`)，通过 `weight_update_meta` 建立起 Actor 向 Rollout Engine 传输权重的通道。
@@ -310,7 +308,7 @@ sequenceDiagram
 `RolloutWorkflow` 位于 `areal/api/workflow_api.py` ，是 AReaL 中定义 Agent 行为的核心抽象（定义于 `areal/api/workflow_api.py`）。
 
 <details>
-<summary><b>抽象类 RolloutWorkflow 代码 （AReaL/areal/api/workflow_api.py）</b></summary>
+<summary>抽象类 RolloutWorkflow 代码 （AReaL/areal/api/workflow_api.py）</summary>
 
 ```python
 class RolloutWorkflow(ABC):
@@ -329,7 +327,7 @@ class RolloutWorkflow(ABC):
 init 中除了 rollout 必要参数之外，`reward_fn` 也作为 input 输入，reward 计算也包含在 workflow 中。
 
 <details>
-<summary><b>RLVRWorkflow.init</b></summary>
+<summary>RLVRWorkflow.init</summary>
 
 ```python
 class RLVRWorkflow(RolloutWorkflow):
@@ -370,7 +368,7 @@ class RLVRWorkflow(RolloutWorkflow):
 Prompt 构造与预处理、并发采样、reward 计算，以及最终 Trajectory 的组装与返回。
 
 <details>
-<summary><b>RLVRWorkflow.arun_episode()</b></summary>
+<summary>RLVRWorkflow.arun_episode()</summary>
 
 ```python
 async def arun_episode(
@@ -422,7 +420,7 @@ async def arun_episode(
 `arun_episode()` 内部通过调用 `_collect_samples()` 进行采样与 reward 计算，而 `_collect_samples()` 则进一步调用 inference engine 的 `agenerate()`，这是实际触发模型推理的接口。
 
 <details>
-<summary><b>RLVRWorkflow._collect_samples()</b></summary>
+<summary>RLVRWorkflow._collect_samples()</summary>
 
 ```python
     async def _collect_samples(
@@ -454,7 +452,7 @@ async def arun_episode(
 `prepare_batch()`：封装了 `submit()` 和 `wait()` ，将 input data / prompts 作为输入，output 作为输出。
 
 <details>
-<summary><b>prepare_batch() 代码</b></summary>
+<summary>prepare_batch() 代码</summary>
 
 ```python
 def prepare_batch(
@@ -509,7 +507,7 @@ def prepare_batch(
 Main thread： main thread 不涉及生成或者控制，只是单纯的将 tasks 加入队列和将 output 输出。`submit()`将 tasks 加入`_pending_inputs`队列，`wait()` 轮询`_pending_results`队列：
 
 <details>
-<summary><b>submit() 和 wait() 代码</b></summary>
+<summary>submit() 和 wait() 代码</summary>
 
 ```python
 def submit(
@@ -573,7 +571,7 @@ def submit(
 Producer thread（`_commit_loop`）：根据 `StalenessManager.get_capacity()` 返回的可用容量确定本轮可提交的任务数量，并从 `_pending_inputs` 中取出相应数量的任务，将其交付给 `AsyncTaskRunner` 执行生成流程。
 
 <details>
-<summary><b>_commit_loop() 代码</b></summary>
+<summary>_commit_loop() 代码</summary>
 
 ```python
 def _commit_loop(self) -> None:
@@ -618,7 +616,7 @@ def _commit_loop(self) -> None:
 Consumer thread（`_fetch_loop`）：从`AsyncTaskRunner`收集结果并存入`_pending_results`
 
 <details>
-<summary><b>_fetch_loop() 代码</b></summary>
+<summary>_fetch_loop() 代码</summary>
 
 ```python
 def _fetch_loop(self) -> None:
@@ -678,7 +676,7 @@ def _fetch_loop(self) -> None:
 `AsyncTaskRunner`：`WorkflowExecutor` 内部的通用异步执行器，负责在后台线程中管理事件循环 (Event Loop)，并发执行高密度的网络 I/O 任务（即调用 Inference Engine 的 `agenerate`）
 
 <details>
-<summary><b>AsyncTaskRunner 代码</b></summary>
+<summary>AsyncTaskRunner 代码</summary>
 
 ```python
 async def _run_async_loop(self):
@@ -757,7 +755,7 @@ async def _run_async_loop(self):
 - `max_staleness`：样本和当前模型版本之间最多允许相差多少版本
 
 <details>
-<summary><b>init 代码</b></summary>
+<summary>init 代码</summary>
 
 ```python
 class StalenessManager:
@@ -803,7 +801,7 @@ staleness_capacity = max_samples − current_samples
 理解 staleness 算法之后看代码就非常清晰了。首先计算在并发限制下的容量余量，再计算staleness 限制下的容量余量，两者取最小值，就是真正的容量余量。
 
 <details>
-<summary><b>get_capacity() 代码</b></summary>
+<summary>get_capacity() 代码</summary>
 
 ```python
 def get_capacity(self, current_version: int) -> int:
@@ -861,7 +859,7 @@ return RedistributedData(
 ```
 
 <details>
-<summary><b>redistribute() 代码</b></summary>
+<summary>redistribute() 代码</summary>
 
 ```python
 def redistribute(
@@ -927,7 +925,7 @@ def redistribute(
 同步解除后，进入广播阶段。Head 节点作为源头 (`src_rank`)，通过 `broadcast_tensor_container` 将处理完毕、负载均衡后的数据分发给 `context_and_model_parallel_group` 中的所有 Worker。最后再次进行同步，确保所有 rank 都完整收到了数据。这种设计既避免了所有节点重复进行 Rollout 生成的算力浪费，又保证了数据能够高效、均衡地同步到整个分布式集群中。
 
 <details>
-<summary><b>prepare_batch() 代码</b></summary>
+<summary>prepare_batch() 代码</summary>
 
 ```python
 def prepare_batch(
@@ -955,7 +953,7 @@ def prepare_batch(
 </details>
 
 <details>
-<summary><b>_broadcast_and_redistribute_batch() 代码</b></summary>
+<summary>_broadcast_and_redistribute_batch() 代码</summary>
 
 ```python
 def _broadcast_and_redistribute_batch(
@@ -1002,10 +1000,10 @@ Actor 得到 trajectories 后，进入核心训练逻辑：
 
 ### Micro-Batching
 
-Micro-Batching 的逻辑主要分散在 `areal/utils/data.py` 中的 `split_padded_tensor_dict_into_mb_list` 函数。这里将一个大 Batch 切分成多个小 Micro-Batch，把不同长度的 Sequence 分组，使得每个 Micro-Batch 的总 Token 数不超过 `max_tokens_per_mb`，以此来避免 OOM (Out of Memory)。这里的逻辑与 `DistRolloutCoordinator` 通过 FFD 算法实现的 coordinator 相同，这里不再做详细分析。
+Micro-Batching 的逻辑主要分散在 `areal/utils/data.py` 中的 `split_padded_tensor_dict_into_mb_list` 函数。这里将一个大 Batch 切分成多个小 Micro-Batch，把不同长度的 Sequence 分组，使得每个 Micro-Batch 的总 Token 数不超过 `max_tokens_per_mb`，以此来避免 OOM (Out of Memory)。这里的逻辑与 `DistRolloutCoordinator` 通过 FFD 算法实现的 coordinator 相同，不再做详细分析。
 
 <details>
-<summary><b>核心代码实现</b></summary>
+<summary>核心代码实现</summary>
 
 ```python
 def split_padded_tensor_dict_into_mb_list(
@@ -1107,7 +1105,7 @@ ray_main() 是 AReaL 整个 RL 流程的 entrypoint，它的核心职责是：�
 Trainer 的 launcher 也是类似的，这里不再赘述。
 
 <details>
-<summary><b>Launch SGLang 代码</b></summary>
+<summary>Launch SGLang 代码</summary>
 
 ```python
 if allocation_mode.gen_backend == "sglang":
