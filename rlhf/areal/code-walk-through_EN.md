@@ -209,7 +209,7 @@ def main(args):
                 epoch,
                 step,
                 global_step,
-                209|            )
+                )
 
         current_platform.synchronize()
         dist.barrier(group=actor.cpu_group)
@@ -707,7 +707,7 @@ async def _run_async_loop(self):
                         create_time=time.monotonic_ns(),
                         task=async_task,
                         task_input=task_input,
-                        699|                        )
+                        )
                     task_id += 1
                 except queue.Empty:
                     break
@@ -790,7 +790,7 @@ max_samples = (max_staleness + current_version + 1) * consumer_batch_size
 The number of samples already accumulated in the current system is denoted as `current_samples` (including accepted and running rollouts). So, under the premise of not letting future samples "expire", the number of samples that can still be generated now is:
 
 ```python
-staleness_capacity = max_samples − current_samples
+staleness_capacity = max_samples - current_samples
 ```
 
 In other words, `max_staleness` controls "that these samples remain unexpired when moving forward up to `max_staleness` versions from now", and the formula indirectly guarantees this by limiting the total number of samples.
@@ -848,11 +848,11 @@ Next, remove the padding in the sequence, distribute the workload evenly within 
 
 ```python
 return RedistributedData(
-		all_data=all_data,            # All small chunks after original slicing (for backup)
-		data=data,                    # The assembled data finally used by the current GPU
-		rank=dist.get_rank(group=group),
-		group_indices=group_indices,  # Global allocation plan
-		)
+    all_data=all_data,            # All small chunks after original slicing (for backup)
+    data=data,                    # The assembled data finally used by the current GPU
+    rank=dist.get_rank(group=group),
+    group_indices=group_indices,  # Global allocation plan
+    )
 ```
 
 <details>
@@ -1081,7 +1081,7 @@ The ray-related code is concentrated in `areal/launcher/ray.py`, where the most 
 - It contains `_LLMParallelParser`, responsible for parsing the DSL string entered by the user (such as `"sglang:d2+fsdp:d4"`) into structured data.
 - It also stores the parsed result (`ModelAllocation` object list). All subsequent queries in the program regarding "how many models I have", "how many cards each model uses", and "who shares resources with whom" are obtained by directly accessing the properties of the `AllocationMode` instance.
 
-For colocate and dissaggregate, AReaL controls them through the following parameters:
+For colocate and disaggregate, AReaL controls them through the following parameters:
 
 ```python
 # disaggregation / separation (parts connected by "+")

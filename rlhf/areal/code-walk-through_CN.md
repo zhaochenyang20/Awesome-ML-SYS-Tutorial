@@ -209,7 +209,7 @@ def main(args):
                 epoch,
                 step,
                 global_step,
-                209|            )
+            )
 
         current_platform.synchronize()
         dist.barrier(group=actor.cpu_group)
@@ -710,7 +710,7 @@ async def _run_async_loop(self):
                         create_time=time.monotonic_ns(),
                         task=async_task,
                         task_input=task_input,
-                        699|                        )
+                    )
                     task_id += 1
                 except queue.Empty:
                     break
@@ -793,7 +793,7 @@ max_samples = (max_staleness + current_version + 1) * consumer_batch_size
 当前系统里已经累积的样本数记为 `current_samples`（包括已接受的和正在运行的 rollout），那么在不让未来的样本“过期”的前提下，现在还能再生成的样本数量就是：
 
 ```python
-staleness_capacity = max_samples − current_samples
+staleness_capacity = max_samples - current_samples
 ```
 
 也就是说，`max_staleness` 控制的是“从现在起往前走最多 `max_staleness` 个版本时，这些样本仍然不过期”，公式通过限制样本总量来间接保证这一点。
@@ -851,11 +851,11 @@ FFD 是一种经典的**贪心算法**，常用于解决装箱问题或多机调
 
 ```python
 return RedistributedData(
-		all_data=all_data,            # 原始切分后的所有小块（备份用）
-		data=data,                    # 当前 GPU 最终要用的拼好的数据
-		rank=dist.get_rank(group=group),
-		group_indices=group_indices,  # 全局的分配方案
-		)
+    all_data=all_data,            # 原始切分后的所有小块（备份用）
+    data=data,                    # 当前 GPU 最终要用的拼好的数据
+    rank=dist.get_rank(group=group),
+    group_indices=group_indices,  # 全局的分配方案
+    )
 ```
 
 <details>
@@ -1082,7 +1082,7 @@ ray 相关的代码集中在 `areal/launcher/ray.py` 中，其中最重要的类
 - 它包含了 `_LLMParallelParser`，负责将用户输入的 DSL 字符串（如 `"sglang:d2+fsdp:d4"`）解析成结构化的数据。
 - 它还存储了解析后的结果（ModelAllocation 对象列表）。程序后续所有关于“我有几个模型”、“每个模型用几张卡”、“谁和谁共用资源”的查询，都通过直接访问 AllocationMode 实例的属性来获取的。
 
-对于 colocate 和 dissaggregate，AReal 通过以下参数控制 ：
+对于 colocate 和 disaggregate，AReal 通过以下参数控制 ：
 
 ```python
 # disaggregation / separation（各部分使用“+”连接）
