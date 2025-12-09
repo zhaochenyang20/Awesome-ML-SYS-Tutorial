@@ -15,9 +15,10 @@ SGLang-Diffusion 支持 diffusion 的高效推理。diffusion models 是最近�
 
 这三种建模方式，以不同的角度理解逆向过程，但在推理框架内的呈现方式都类似。它们主要区别于 denoise 阶段，都主要由以下组件负责：
 
-- Scheduler 决定时间步 (Timesteps) 和噪声强度 (Sigma)。它们位于 runtime/models/schedulers/ 目录下
+
 - Model (DiT/UNet) 负责预测每一步的噪声。它们位于 runtime/models/dits/ 目录下
-- Sampler/Solver 更新样本状态，不同类别会对应不同的 Solver。它们也位于 runtime/models/schedulers/ 目录下的 Scheduler 类内部，通过 Scheduler 的 step 方法实现
+- Scheduler 决定时间步 (Timesteps) 和噪声强度 (Sigma)。它们位于 runtime/models/schedulers/ 目录下
+- Sampler/Solver 更新样本状态，不同 diffusion models 的类别会对应不同的 Solver。它们也位于 runtime/models/schedulers/ 目录下的 Scheduler 类内部，通过 Scheduler 的 step 方法实现
 
 ## 一个请求在 SGLang-Diffusion 的前世今生
 
@@ -34,10 +35,9 @@ SGLang-Diffusion 支持 diffusion 的高效推理。diffusion models 是最近�
 
 SGLang Diffusion 的设计尽量和 SGLang 保持一致，方便开发者理解和熟悉各种概念
 
-## NOTES
-
-1. 本代码导读基于 SGLang-diffusion 版本 (`35a9a073706e89a2f5740f578bbb080146cd48bf`)
-2. 本代码导读灵感来源于 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md)
+> [!NOTE]
+> 1. 本代码导读基于 SGLang-diffusion 版本 (`35a9a073706e89a2f5740f578bbb080146cd48bf`)
+> 2. 本代码导读灵感来源于 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md)
 
 
 ## References
