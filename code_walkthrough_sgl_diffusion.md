@@ -37,7 +37,7 @@ SGLang Diffusion 的设计尽量和 SGLang 保持一致，方便开发者理解�
 ## NOTES
 
 1. 本代码导读基于 SGLang-diffusion 版本 (`35a9a073706e89a2f5740f578bbb080146cd48bf`)
-2. 本代码导读灵感来源于 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md), 它是我接触，了解，并熟悉 SGLang 的指南
+2. 本代码导读灵感来源于 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md)
 
 
 ## References
