@@ -1,15 +1,15 @@
 # SGLang Diffusion Code Walk Through
 
-本文旨在为开发者提供一份 SGLang Diffusion(`multimodal_gen`) 后端的代码导读，梳理请求的处理路径，展示一个文生图/视频请求的处理流程
+本文旨在为开发者提供一份 SGLang Diffusion (`multimodal_gen`) 后端的代码导读
 
-### 扩散模型
-SGLang-Diffusion 支持 diffusion 的高效推理, diffusion models 是最近几年快速发展的，也是最流行的图像/视频生成框架。作为代码导读教程，这里无需介绍复杂的数学公式和原理，
+## 扩散模型
+SGLang-Diffusion 支持 diffusion 的高效推理。diffusion models 是最近几年发展最快的，也是最流行的图像和视频的生成框架。
 
 总的来说，diffusion models 定义了一个前向过程：数据 -> 高斯噪声。从这个前向过程可以推导出逆向过程（噪声 -> 数据，从噪声中重建样本），让模型学习这个过程，并利用训练好的模型执行这个逆向过程，也就是推理框架需要做的事情
 
-从建模逆向过程的方式，可以大致把 diffusion models 分为三类：
+作为代码导读教程，这里无需介绍复杂的数学公式和原理。这里从建模逆向过程的方式，可以大致把 diffusion models 分为三类：
 
-1. Variational Perspective (变分视角, DDPM)：建模为马尔可夫链，训练模型学习前后两步 xt 的条件概率，预测每一步的高斯噪声
+1. Variational Perspective (变分视角, DDPM)：建模为马尔可夫链，训练模型学习前后两步 $x_{t}$ 的条件概率，预测每一步的高斯噪声
 2. Score-based Perspective (基于得分的视角, SGM)：建模为随机微分方程 (SDE)，训练模型学习数据的得分函数（梯度方向），指引噪声向高密度数据（真实数据）区域移动
 3. Flow-based Perspective (基于流的视角, Probability Flow/Rectified Flow)：建模为噪声点与数据点之间的确定性传输路径 (Flow)，训练模型学习连接两者的速度场 (Velocity Field)，通过求解 ODE(常微分方程) 将噪声平滑转化为数据
 
@@ -19,9 +19,9 @@ SGLang-Diffusion 支持 diffusion 的高效推理, diffusion models 是最近几
 - Model (DiT/UNet) 负责预测每一步的噪声。它们位于 runtime/models/dits/ 目录下
 - Sampler/Solver 更新样本状态，不同类别会对应不同的 Solver。它们也位于 runtime/models/schedulers/ 目录下的 Scheduler 类内部，通过 Scheduler 的 step 方法实现
 
-### 一个请求在 SGLang-Diffusion 的前世今生
+## 一个请求在 SGLang-Diffusion 的前世今生
 
-在 `multimodal_gen` 中，请求的处理流程大致如下：
+在 SGLang Diffusion 中，请求的处理流程大致如下：
 
 1. **Server Initialize**（仅作用于 offline generate 模式, online 模式下会提前初始化）: 每个 rank 上启动 `Scheduler` 和 `GPUWorker`。`GPUWorker` 初始化时会构建 `ComposedPipeline` 对象，其中会涉及 Pipeline Components 的加载
 2. **Send Request**: 请求通过客户端（如 `DiffusionGenerator` 或 HTTP API）发送至 Scheduler。
@@ -32,13 +32,15 @@ SGLang-Diffusion 支持 diffusion 的高效推理, diffusion models 是最近几
 7. **PostProcess**: 客户端（如 `DiffusionGenerator`）接收 tensor 数据，进行后处理（如格式转换、保存文件），最终得到图像/视频。
 
 
-### NOTES
+SGLang Diffusion 的设计尽量和 SGLang 保持一致，方便开发者理解和熟悉各种概念
 
-1. 本代码导读基于 SGLang-diffusion 版本 (35a9a073706e89a2f5740f578bbb080146cd48bf)
-2. 本代码导读灵感来源于 https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md, 它是我接触，了解，并熟悉 SGLang 的指南
+## NOTES
+
+1. 本代码导读基于 SGLang-diffusion 版本 (`35a9a073706e89a2f5740f578bbb080146cd48bf`)
+2. 本代码导读灵感来源于 [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md), 它是我接触，了解，并熟悉 SGLang 的指南
 
 
-### References
+## References
 
 1. [The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)
 2. [What are Diffusion Models](https://lilianweng.github.io/posts/2021-07-11-diffusion-models)
