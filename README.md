@@ -75,7 +75,7 @@ $$
 ### 核心架构与优化
 
 - [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)：一个请求被 SGLang Engine 处理的全过程，还有一些 part 没有完成，但是大多地方已经 okay，也让很多 SGLang begginer 就此开始。这里还有[中文版本](./sglang/code-walk-through/readme-CN.md)。
-- [SGLang-Diffusion Code Walk Through](./sglang/code-walk-through/sgl_diffusion.md)：diffusion model 的基础原理，以及一个请求被 SGLang-Diffusion 处理的全过程
+- [Pending Review][SGLang-Diffusion Code Walk Through](./sglang/code-walk-through/sgl_diffusion.md)：diffusion model 的基础原理，以及一个请求被 SGLang-Diffusion 处理的全过程
 - [Walk Through SGLang / VLLM Worker](./sglang/sglang-worker/readme.md)：SGLang 的代码不完全解析，同样刊载于 [Walk Through SGLang / VLLM Worker](https://zhuanlan.zhihu.com/p/6363614076)，这次我们还贴心提供了[英文版本](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/sglang-worker/readme.md)。更详细的解析应该参考 [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)，这个只是辅助看看。
 - [Walk Through SGLang Scheduler](./sglang/sglang-scheduler/readme-CN.md)
 - [Pending Review] [SGLang Scheduler Evolution](./sglang/scheduler-evolution/SGLang%20Scheduler%20技术变迁.md)：详细介绍了 SGLang Scheduler 从串行到 CPU / GPU overlap 的技术演进及相关组件，对比前代 overlap Scheduler 和当前引入多 CUDA stream 与 FutureMap 的 overlap Scheduler。可到知乎查看[文章](https://zhuanlan.zhihu.com/p/1969077475129688722)
