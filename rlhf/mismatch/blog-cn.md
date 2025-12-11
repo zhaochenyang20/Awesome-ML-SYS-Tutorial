@@ -231,7 +231,7 @@ CUSTOM_ARGS=(
 )
 ```
 
-然后您可以在[此链接](https://github.com/THUDM/slime/main/examples/train_infer_mismatch_helper/mis.yaml)中调整详细配置。
+然后您可以在[此链接](https://github.com/THUDM/slime/blob/main/examples/train_infer_mismatch_helper/mis.yaml)中调整详细配置。
 
 简而言之，您可以在四个关键维度上配置校正策略：
 
