@@ -10,9 +10,9 @@ SGLang-Diffusion 支持 diffusion 的高效推理。diffusion models 是最近�
 
 作为代码导读教程，这里不会介绍复杂的数学公式和原理。这里依据模型建模逆向过程的方式，大致把 diffusion models 分为三类：
 
-1. Variational Perspective (变分视角, DDPM)：建模为马尔可夫链，训练模型学习前后两步 $x_{t}$ 的条件概率，预测每一步的高斯噪声
+1. Variational Perspective (变分视角, DDPM)：建模为马尔可夫链，训练模型学习前后两步 $x_{t}$ 的条件概率，预测当前时刻叠加在数据上的噪声
 2. Score-based Perspective (基于得分的视角, SGM)：建模为随机微分方程 (SDE)，训练模型学习数据的得分函数（梯度方向），指引噪声向高密度数据（真实数据）区域移动
-3. Flow-based Perspective (基于流的视角, Probability Flow/Rectified Flow)：建模为噪声点与数据点之间的确定性传输路径 (Flow)，训练模型学习连接两者的速度场 (Velocity Field)，通过求解 ODE(常微分方程) 将噪声平滑转化为数据
+3. Flow-based Perspective (基于流的视角, Rectified Flow)：建模为噪声点与数据点之间的确定性传输路径 (Flow)，训练模型学习连接两者的速度场 (Velocity Field)，通过求解 ODE(常微分方程) 将噪声平滑转化为数据
 
 这三种建模方式，以不同的角度理解逆向过程，但在推理框架内的呈现方式都类似。它们主要区别于 denoise 阶段，都主要由以下组件负责：
 
