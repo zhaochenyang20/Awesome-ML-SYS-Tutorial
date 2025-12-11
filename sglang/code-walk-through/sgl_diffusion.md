@@ -32,6 +32,8 @@ SGLang-Diffusion 支持 diffusion 的高效推理。diffusion models 是最近�
 6. **Response**: 所有 Rank 完成计算后，Rank 0 的 `Scheduler` 收集生成的 tensor 数据（Pixel Values），并返回给客户端。
 7. **PostProcess**: 客户端（如 `DiffusionGenerator`）接收 tensor 数据，进行后处理（如格式转换、保存文件），最终得到图像/视频。
 
+<img width="4465" height="2591" alt="sgl-diffusion-2025-12-09-2150" src="https://github.com/user-attachments/assets/06d6bc6c-6008-4d7c-b6cb-a3e8140ee64b" />
+
 
 SGLang Diffusion 的设计尽量和 SGLang 保持一致，方便开发者理解和熟悉各种概念
 
