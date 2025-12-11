@@ -10,9 +10,9 @@ Broadly, diffusion models define a **forward process**: Data -> Gaussian Noise. 
 
 As a code walk-through tutorial, we will not delve into complex mathematical formulas and principles here. Based on how models conceptualize the reverse process, diffusion models are generally divided into three categories:
 
-1.  **Variational Perspective (DDPM)**: Modeled as a Markov Chain. The model is trained to learn the conditional probability of two adjacent steps $x_{t}$, predicting the Gaussian noise at each step.
+1.  **Variational Perspective (DDPM)**: Modeled as a Markov Chain. The model is trained to learn the conditional probability of two adjacent steps $x_{t}$, predicting the Gaussian noise.
 2.  **Score-based Perspective (SGM)**: Modeled as a Stochastic Differential Equation (SDE). The model is trained to learn the data's score function (gradient direction), guiding the noise towards high-density (real data) regions.
-3.  **Flow-based Perspective (Probability Flow/Rectified Flow)**: Modeled as a deterministic transport path (Flow) between a noise point and a data point. The model is trained to learn the **Velocity Field** connecting the two, smoothly transforming noise into data by solving an Ordinary Differential Equation (ODE).
+3.  **Flow-based Perspective (Rectified Flow)**: Modeled as a deterministic transport path (Flow) between a noise point and a data point. The model is trained to learn the **Velocity Field** connecting the two, smoothly transforming noise into data by solving an Ordinary Differential Equation (ODE).
 
 These three modeling approaches interpret the reverse process from different angles, but their presentation within the inference framework is similar. They primarily differ in the denoise stage and are mainly handled by the following components:
 
