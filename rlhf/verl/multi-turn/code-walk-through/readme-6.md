@@ -2,9 +2,7 @@
 
 最近 RL sys 圈子的吴锡斌老师在 verl 上设计了将 rollout 与 tool 调用解耦的 AgentLoop，实现了自由灵活的 mutli-turn RL。在每个 AgentLoop 内部，rollout engine 只对外提供一个 token-in-token-out 的接口，而 tool 调用则通过 `ToolAgentLoop` 来实现。我个人比较喜欢这样解耦的设计，同时，AgentLoop 的代码结构也比较清晰。我个人学习了一次整个代码后，觉着 AgentLoop 的设计甚是不错，但是 `ActorRolloutRefWorker` 的历史包袱还是很重。
 
-AgentLoop 是 Verl 中用于管理 RLHF 训练中多轮 rollout 的模块。它对原本嵌套在 `SGLangRollout` 中的复杂逻辑进行了抽象，提供了一种更加清晰、可扩展的方式来处理 LLM 交互、工具调用以及状态管理。本篇解析将展示 AgentLoop 如何替代传统的 `ActorRolloutRefWorker`，构建出更具组合性和可定制性的结构，从而更易于扩展和规模化多轮 agent 的行为。
-
-AgentLoop 的设计比较优雅的，主要是 `ActorRolloutRefWorker` 的历史包袱太重了。如果我们把整个 `ActorRolloutRefWorker` 当做一个 `sgl.Engine` 的话，其实 AgentLoop 里面包装的两层 `AsyncSGLangServer` 和 `AsyncLLMServerManager`。`AsyncSGLangServer` 相当于在 `sgl.Engine` 上包装了 `fastapi` 成了 server，而 `AsyncLLMServerManager` 是在 server 上包了一层 router 做 load balance，相当于 sglang 的 router。这两层设计都是合理的，主要麻烦的是 `ActorRolloutRefWorker`，这个包装的太麻烦了。
+本文简单分析了 agent loop 的源码，并给出了一些自己的看法。
 
 如果我们把整个 `ActorRolloutRefWorker` 当做一个 `sgl.Engine` 的话，AgentLoop 里面包装的两层 `AsyncSGLangServer` 和 `AsyncLLMServerManager`。`AsyncSGLangServer` 相当于在 `sgl.Engine` 上包装了 `fastapi` 成了 server，而 `AsyncLLMServerManager` 是在 server 上包了一层 router 做 load balance，相当于 sglang 的 router。这两层设计都是合理的，主要麻烦的是 `ActorRolloutRefWorker`，层层调用，最后一共经过 7 个 class 才调到 `sgl.Engine`，最近 verl 团队也在致力于对这块 worker class 的重构，敬请期待。最后，`AgentLoopManager`，`AgentLoopWorker` 和 `AgentLoop` 这三层，我觉得 `AgentLoopWorker` 可能未必有必要，其他两层挺合理的。
 
