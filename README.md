@@ -29,6 +29,7 @@ $$
 - [Power Up Speculative Decoding In Reinforcement Learning](./rlhf/slime/spec/readme.md)：将 speculative decoding 引入到了 RL 的采样流程中，在 batch size 合适的情况下，采样速度得到了显著提升；并且，draft model 也会在训练过程中更新。相较于冻结 draft model 的做法，accepted length 持续维持在较高水平，产生长期稳定的正收益。同样刊载[英文版本](./rlhf/slime/spec/readme-en.md)。
 - [深入浅出 slime RL 框架的优雅设计与源码](./rlhf/slime/code-walk-through/readme.md)：slime 源码赏析，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1946402397409740613)和[英文版本](./rlhf/slime/code-walk-through/readme_en.md)。
 - [Pending Review] [slime FSDP Setup Guide](./rlhf/slime/fsdp/release_log/setup_fsdp.md)：记录如何在 slime 上测试 FSDP，包括 H 卡和 B 卡，以及 Colocate 和 Disaggregated 两种 placement 方式。
+- [Pending Review] [PPO 中 GAE 的分 chunk 并行计算（基于 slime 的实现）](./rlhf/slime/batch-GAE/ppo-gae-chunk.md)：将标准 GAE 的后向递推改写为基于 chunk 的并行前缀扫描，在长序列场景下大幅缓解 GAE 计算瓶颈，在 slime 中实现约 100×–300× 加速。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1975237289425798560)。
 
 ### verl 框架
 
@@ -74,8 +75,10 @@ $$
 ### 核心架构与优化
 
 - [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)：一个请求被 SGLang Engine 处理的全过程，还有一些 part 没有完成，但是大多地方已经 okay，也让很多 SGLang begginer 就此开始。这里还有[中文版本](./sglang/code-walk-through/readme-CN.md)。
+- [Pending Review][SGLang-Diffusion Code Walk Through](./sglang/code-walk-through/sgl_diffusion.md)：diffusion model 的基础原理，以及一个请求被 SGLang-Diffusion 处理的全过程
 - [Walk Through SGLang / VLLM Worker](./sglang/sglang-worker/readme.md)：SGLang 的代码不完全解析，同样刊载于 [Walk Through SGLang / VLLM Worker](https://zhuanlan.zhihu.com/p/6363614076)，这次我们还贴心提供了[英文版本](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/sglang-worker/readme.md)。更详细的解析应该参考 [SGLang Code Walk Through](./sglang/code-walk-through/readme.md)，这个只是辅助看看。
 - [Walk Through SGLang Scheduler](./sglang/sglang-scheduler/readme-CN.md)
+- [Pending Review] [SGLang Scheduler Evolution](./sglang/scheduler-evolution/SGLang%20Scheduler%20技术变迁.md)：详细介绍了 SGLang Scheduler 从串行到 CPU / GPU overlap 的技术演进及相关组件，对比前代 overlap Scheduler 和当前引入多 CUDA stream 与 FutureMap 的 overlap Scheduler。可到知乎查看[文章](https://zhuanlan.zhihu.com/p/1969077475129688722)
 - [Pending Review] [KV Cache Code Walkthrough](./sglang/kvcache-code-walk-through/readme.md)：KV cache 管理实现的概览，从 Scheduler 组件开始，详细说明 prefill 和 decode 阶段中 KV cache 和内存池的更新过程。
 - [Pending Review] [SGLang 多模态请求生命周期：以 Qwen2.5-VL 为例的架构级深度解析](./sglang/code-walk-through/multimodal_request_lifecycle.md)：以 Qwen2.5-VL 为参考模型，提供对 SGLang 框架内多模态请求处理流程的详细剖析。
 - [Pending Review] [How A Model is Loaded in Hugging Face and SGLang](./sglang/how-model-is-loaded/readme.md)：记录模型在 Hugging Face 和 SGLang 中的加载过程，帮助理解权重加载机制。
