@@ -4,7 +4,7 @@ Here, MIS (masked importance sampling) includes two operations: sequence/token m
 
 ## What is Training Inference Mismatch?
 
-<img src="pics/1.png" alt="Training Inference Mismatch" width="30%">
+<img src="pics/training-inference-mismatch.png" alt="Training Inference Mismatch" width="30%">
 
 Training Inference Mismatch, in this post, refers to the numerical inconsistency between the rollout engine and the training engine. Even when both engines use the same model weights, they may produce slightly different log-probabilities for the same token sequence. This happens because rollout and training engines often use different kernels, different batch sizes, different activated experts, and different reduction orders. (ref TML blog)
 
@@ -46,7 +46,7 @@ Based on this implementation, we added the following implementations and optimiz
 
 ## Algorithmic Mitigation
 
-<img src="pics/2.png" alt="Algorithmic Mitigation" width="30%">
+<img src="pics/algorithmic-mitigation.png" alt="Algorithmic Mitigation" width="30%">
 
 Let's first look at the reason why this mismatch is important from an algorithm perspective. The original PPO algorithm formula is below, where $$\pi_\theta$$ denotes the current policy being optimized and used to compute the training loss and $$\pi_{\text{old}}
 $$ denotes the behavior policy that generated the rollout data, i.e., the action probabilities from the model before the current update step.
@@ -81,7 +81,7 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 
 ## Bypassing and Unified PPO Importance Sampling
 
-<img src="pics/3.png" alt="Bypassing and Unified PPO Importance Sampling" width="30%">
+<img src="pics/bypassing-ppo.png" alt="Bypassing and Unified PPO Importance Sampling" width="30%">
 
 To achieve algorithmic correctness, one may directly use the rollout engine's log-probs as the old policy in offline PPO's importance sampling, rather than the recomputed log-probs from the training engine. Then it becomes the correct math form:
 
@@ -102,7 +102,7 @@ In this way, the log_prob recomputation on the training engine will be skipped -
 
 ## Decoupled, 3-policy PPO Importance Sampling
 
-<img src="pics/4.png" alt="Decoupled, 3-policy PPO Importance Sampling" width="30%">
+<img src="pics/decoupled-ppo.png" alt="Decoupled, 3-policy PPO Importance Sampling" width="30%">
 
 However, sometimes you may want to decouple the training-rollout mismatch from the general off-policy importance sampling. Decoupled PPO achieves batch-independent PPO by decoupling two roles: Proximal Policy (anchor policy for PPO clipping, control update size) and Behavior Policy (for off-policy correction in importance sampling). Therefore, there are 3 roles engaged in this mode: target policy $$\pi_\theta$$ , proximal policy $$\pi_{\textcolor{blue}{\text{old}}}$$, and behavior policy$$\pi_{\textcolor{red}{\text{SGLang}}}$$. $$\pi_{\textcolor{blue}{\text{old}}}$$ is recomputed with Megatron at the beginning of each training step. The total formula is below:
 
@@ -166,7 +166,7 @@ We first confirm that as the training goes on, the K3 KL will increase. Our sett
 - Base Model: Qwen3-4b-base ([Link](https://huggingface.co/Qwen/Qwen3-4B-Base))
 - Algorithm: REINFORCE (Williams et al. 1992)
 
-<img src="pics/5.png" alt="Existence of Mismatch" width="50%">
+<img src="pics/mismatch-existence.png" alt="Existence of Mismatch" width="50%">
 
 You can see in the initial step of training, as the model learns and perpexity drops, mis k3 kl actually drops. But after 600 steps, although the train and eval reward remains stable, the mis K3 KL metrics start to increase dramatically, indicating the existence of training and rollout mismatch.
 
@@ -184,13 +184,13 @@ Below are the four configurations we evaluated:
 
 Across all settings, we consistently observed stable training curves. All four configurations successfully reproduced the characteristic length increase after ~100 steps, indicating that enabling IS does not negatively impact the learning dynamics. Based on these results, we recommend enabling IS as a default configuration, as it provides mismatch correction without sacrificing performance.
 
-<img src="pics/6.png" alt="IS Won't Harm Performance" width="50%">
+<img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="50%">
 
 ### IS Can Supress KL Increase
 
 To test whether MIS (IS + RS + BN) works, we continue training on step 650, and the result is below. You can see that for the base run, kl continues to increase, but with MIS, the increasing trend is successfully depressed and starts to decrease.
 
-<img src="pics/7.png" alt="IS Can Supress KL Increase" width="50%">
+<img src="pics/is-kl-suppression.png" alt="IS Can Supress KL Increase" width="50%">
 
 ## Usage
 

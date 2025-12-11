@@ -4,7 +4,7 @@ TLDR: 我们分享了解决训练-推理不匹配问题的两种视角：通过�
 
 ## 什么是训练-推理不匹配？
 
-<img src="pics/1.png" alt="训练-推理不匹配" width="30%">
+<img src="pics/training-inference-mismatch.png" alt="训练-推理不匹配" width="30%">
 
 训练-推理不匹配，在本文中，指的是 rollout 引擎和训练引擎之间的数值不一致。即使两个引擎使用相同的模型权重，它们也可能对相同的令牌序列产生略微不同的对数概率。这是因为 rollout 和训练引擎通常使用不同的内核、不同的批次大小、不同的激活专家和不同的归约顺序。（参考 TML 博客）
 
@@ -46,7 +46,7 @@ TLDR: 我们分享了解决训练-推理不匹配问题的两种视角：通过�
 
 ## 算法缓解
 
-<img src="pics/2.png" alt="算法缓解" width="30%">
+<img src="pics/algorithmic-mitigation.png" alt="算法缓解" width="30%">
 
 让我们首先从算法角度看看为什么这种不匹配很重要。原始 PPO 算法公式如下，其中 $$\pi_\theta$$ 表示正在优化并用于计算训练损失的当前策略，$$\pi_{\text{old}}
 $$ 表示生成 rollout 数据的行为策略，即当前更新步骤之前模型的动作概率。
@@ -81,7 +81,7 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 
 ## 绕过和统一的 PPO 重要性采样
 
-<img src="pics/3.png" alt="绕过和统一的 PPO 重要性采样" width="30%">
+<img src="pics/bypassing-ppo.png" alt="绕过和统一的 PPO 重要性采样" width="30%">
 
 为了实现算法正确性，可以直接使用 rollout 引擎的对数概率作为离线 PPO 重要性采样中的旧策略，而不是从训练引擎重新计算的对数概率。然后它变成正确的数学形式：
 
@@ -102,7 +102,7 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 
 ## 解耦的 3 策略 PPO 重要性采样
 
-<img src="pics/4.png" alt="解耦的 3 策略 PPO 重要性采样" width="30%">
+<img src="pics/decoupled-ppo.png" alt="解耦的 3 策略 PPO 重要性采样" width="30%">
 
 然而，有时您可能希望将训练-rollout 不匹配与一般的离策略重要性采样解耦。解耦 PPO 通过解耦两个角色来实现批次无关的 PPO：近端策略（PPO 裁剪的锚定策略，控制更新大小）和行为策略（用于重要性采样中的离策略校正）。因此，在此模式中有 3 个角色参与：目标策略 $$\pi_\theta$$、近端策略 $$\pi_{\textcolor{blue}{\text{old}}}$$ 和行为策略 $$\pi_{\textcolor{red}{\text{SGLang}}}$$。$$\pi_{\textcolor{blue}{\text{old}}}$$ 在每个训练步骤开始时使用 Megatron 重新计算。总公式如下：
 
@@ -168,7 +168,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 - 基础模型：Qwen3-4b-base（[链接](https://huggingface.co/Qwen/Qwen3-4B-Base)）
 - 算法：REINFORCE (Williams et al. 1992)
 
-<img src="pics/5.png" alt="不匹配的存在" width="50%">
+<img src="pics/mismatch-existence.png" alt="不匹配的存在" width="50%">
 
 您可以看到，在训练的初始步骤中，随着模型学习且困惑度下降，mis k3 kl 实际上下降了。但在 600 步之后，尽管训练和评估奖励保持稳定，mis K3 KL 指标开始急剧增加，表明训练和 rollout 不匹配的存在。
 
@@ -187,13 +187,13 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 在所有设置中，我们一致观察到稳定的训练曲线。所有四种配置都成功复现了约 100 步后的特征长度增加，表明启用 IS 不会对学习动力学产生负面影响。基于这些结果，我们建议将 IS 作为默认配置启用，因为它提供不匹配校正而不会牺牲性能。
 
-<img src="pics/6.png" alt="IS 不会损害性能" width="50%">
+<img src="pics/is-performance.png" alt="IS 不会损害性能" width="50%">
 
 ### IS 可以抑制 KL 增加
 
 为了测试 MIS（IS + RS + BN）是否有效，我们在第 650 步继续训练，结果如下。您可以看到，对于基础运行，kl 继续增加，但使用 MIS 后，增加趋势被成功抑制并开始下降。
 
-<img src="pics/7.png" alt="IS 可以抑制 KL 增加" width="50%">
+<img src="pics/is-kl-suppression.png" alt="IS 可以抑制 KL 增加" width="50%">
 
 ## 使用方法
 
