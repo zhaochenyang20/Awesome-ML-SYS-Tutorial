@@ -134,7 +134,7 @@ Because this normalization already suppresses variance, we can relax clipping or
 
 ## Masked / Rejection Importance Sampling
 
-See here for full detail.
+> See [here](https://richardli.xyz/rl-collapse-3) for full detail.
 
 In addition to clipping-based importance sampling, we provide masking and rejection sampling (RS) as a stronger safeguard against training-inference mismatch. When the rollout engine assigns extremely low probability to a sampled token, the importance ratio can grow to an unsafe magnitude. Even if clipped, such cases still inject incorrect gradients into training. RS avoids this issue entirely by discarding those tokens—or the entire sequence, if necessary—when the ratio exceeds a preset trust threshold, preventing harmful updates from taking effect.
 This mechanism enforces a more principled trust region: if the sampled behavior deviates too far from the proximal policy, we simply do not learn from that sample. It guarantees that all effective training data remain consistent with the assumed rollout distribution and protects the optimization from collapse in cases where mismatch becomes extreme.
@@ -172,7 +172,7 @@ You can see in the initial step of training, as the model learns and perpexity d
 
 ### IS Won't Harm Performance
 
-See our weight&bias blog here.
+See our weight&bias blog [here](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b).
 
 In our experiments, we also verified that enabling distribution correction—including several commonly used configurations—does not degrade performance or destabilize training. To demonstrate this, we enabled different IS-related options at the beginning of training and compared them against a baseline with no IS correction.
 Below are the four configurations we evaluated:

@@ -134,7 +134,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 ## 掩码/拒绝重要性采样
 
-详见此处。
+> 详见[此处](https://richardli.xyz/rl-collapse-3)。
 
 除了基于裁剪的重要性采样，我们还提供掩码和拒绝采样（RS）作为针对训练-推理不匹配的更强保障。当 rollout 引擎为采样的令牌分配极低概率时，重要性比率可能增长到不安全的幅度。即使被裁剪，这种情况仍然会将不正确的梯度注入训练。RS 通过丢弃这些令牌——或者，如果必要，整个序列——当比率超过预设的信任阈值时，完全避免此问题，防止有害更新生效。
 
@@ -174,7 +174,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 ### IS 不会损害性能
 
-参见我们的 weight&bias 博客。
+参见我们的 weight&bias 博客[此处](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b)。
 
 在我们的实验中，我们还验证了启用分布校正——包括几种常用配置——不会降低性能或使训练不稳定。为了证明这一点，我们在训练开始时启用了不同的 IS 相关选项，并将它们与没有 IS 校正的基线进行比较。
 
