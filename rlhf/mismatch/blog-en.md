@@ -1,6 +1,6 @@
 # Let Speed Be With Stability: All-In-One Solution to Training-Inference Mismatch with Miles
 
-TL;DR: We explore the "Training-Inference Mismatch" problem in RLHF and present two solutions implemented in Miles: True On-Policy training (eliminating mismatch via bitwise backend alignment) and Algorithmic Mitigation (correcting mismatch via TIS/MIS). We recommend enabling algorithmic mitigation as a default, as it stabilizes training without performance regression.
+> TL;DR: We explore the "Training-Inference Mismatch" problem in RLHF and present two solutions implemented in Miles: True On-Policy training (eliminating mismatch via backend alignment) and Algorithmic Mitigation (correcting mismatch via TIS/MIS). We recommend enabling algorithmic mitigation as a default, as it stabilizes training without performance regression.
 
 Training-Inference Mismatch refers to numerical inconsistencies between rollout (inference) and training engines, which can potentially destabilize Reinforcement Learning (RL). In this post, we analyze why this mismatch occurs and introduce Miles' comprehensive solutions. We provide a **True On-Policy** mode that achieves bitwise-exact alignment between SGLang and FSDP for those seeking absolute correctness. Alternatively, for those prioritizing efficiency, we offer **Algorithmic Mitigation** strategies like Masked Importance Sampling (MIS). Our experiments show that MIS effectively suppresses mismatch growth during late-stage training while maintaining high performance, making it a robust default choice for RL practitioners.
 
@@ -8,19 +8,19 @@ Training-Inference Mismatch refers to numerical inconsistencies between rollout 
 
 <img src="pics/training-inference-mismatch.png" alt="Training Inference Mismatch" width="30%">
 
-Training Inference Mismatch, in this post, refers to the numerical inconsistency between the rollout engine and the training engine. Even when both engines use the same model weights, they may produce slightly different log-probabilities for the same token sequence. This happens because rollout and training engines often use different kernels, different batch sizes, different activated experts, and different reduction orders. (ref TML blog)
+Training Inference Mismatch, in this post, refers to the numerical inconsistency between the rollout engine and the training engine. Even when both engines use the same model weights, they may produce slightly different log-probabilities for the same token sequence. This happens because rollout and training engines often use different kernels, different batch sizes, different activated experts, and different reduction orders. (ref Thinking Machine Lab [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/))
 
-It is widely said that training inference mismatch could lead to RL collapse. But to be honest, we never encounter this even in the post-training of the frontier model like GLM 4.6.
+> It is widely said that training inference mismatch could lead to RL collapse. But to be honest, we never encounter this even in the post-training of the frontier model like GLM 4.6.
 
-We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense model, K3 KL is e-5 to e-3. In MOE models, K3 KL is usually e-3 to e-1. Even though this mismatch is not always magnificent, it still introduces a subtle off-policy: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (ref blog section 3) .
+We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense model, K3 KL is e-5 to e-3. In MOE models, K3 KL is usually e-3 to e-1. Even though this mismatch is not always magnificent, it still introduces a subtle off-policy: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (ref [blog](https://richardli.xyz/rl-collapse) section 3) .
 
-In all these senses, the Training Inference Mismatch should be treated as a non-negligible issue of an RL system. Users may choose to eliminate entirely for correctness, or mitigate for efficiency. To support both needs, Miles provides two solutions, allowing users to choose the trade-offs that best match their system requirements:
+In all these senses, the Training Inference Mismatch should be treated as a non-negligible issue of an RL system. Users may choose to eliminate entirely for correctness, or mitigate for efficiency. To support both needs, Miles provides two solutions, allowing users to choose the trade-offs that best match their system requirements.
 
-In our experiments, RL training on Miles has been impressively stable in practice.  We spent plenty of time trying to find a collapsed baseline, but we weren't able to find one. If you know any open-source RL tasks that will collapse after certain steps due to mismatch increasing and can be reproduced in one node, feel free to reach out to us.
+But in our experiments, RL training on Miles has been impressively stable in practice.  We spent plenty of time trying to find a collapsed baseline, but we weren't able to find one. If you know any open-source RL tasks that will collapse after certain steps due to mismatch increasing and can be reproduced in one node, feel free to reach out to us.
 
 ## Why Training and Inference Can Be Different
 
-The reasons are various. For example, when the batch size is small, kernels may use split-reduction optimizations, which change the reduction order depending on the input size. Since floating-point arithmetic is non-associative, accumulating values in different orders introduces numerical discrepancies. Each tensor-core instruction may also perform reduction internally in a different order (ref: TML blog).
+The fundamental reason is the non-associative property of floating point addition. For example, when the batch size is small, kernels may use split-reduction optimizations, which change the reduction order depending on the input size. Since floating-point arithmetic is non-associative, accumulating values in different orders introduces numerical discrepancies. Each tensor-core instruction may also perform reduction internally in a different order (ref: Thinking Machine Lab [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
 
 As a result, even in SGLang, performing inference on the same samples with different batch sizes can yield slightly different numerical outputs. In addition, rollout and training have fundamentally different workloads in RL: rollout generates tokens one-by-one with tiny effective matrices, while training processes full sequences in large batches. These vastly different matrix shapes lead the system to select different GPU kernels, further amplifying the rollout–training mismatch.
 
@@ -29,7 +29,7 @@ As a result, even in SGLang, performing inference on the same samples with diffe
 Given the existence and partial cause of  training inference mismatch, we present two solutions:
 
 1. We align every operator backend between rollout and training so that rollout log probs and training log probs are bitwise identical. This achieves training inference KL = 0, giving you 100% true on-policy behavior. 
-2. Instead of forcing the use of aligned kernels for both inference and training (which reduces efficiency to an unacceptable degree), we treat rollout log-probs as the authoritative behavior policy and use importance sampling or rejection sampling to conduct off-policy rollout correction.
+2. Instead of forcing the use of aligned kernels for both inference and training (which reduces efficiency to certain degree), we treat rollout log-probs as the authoritative behavior policy and use importance sampling or rejection sampling to conduct off-policy rollout correction.
 
 We provide these options to the community and try our best to make RL training more stable and debuggable.
 
@@ -136,29 +136,29 @@ Because this normalization already suppresses variance, we can relax clipping or
 
 ## Masked / Rejection Importance Sampling
 
-> See [here](https://richardli.xyz/rl-collapse-3) for full detail.
+> See [here](https://richardli.xyz/rl-collapse-3) for full explanation.
 
-In addition to clipping-based importance sampling, we provide masking and rejection sampling (RS) as a stronger safeguard against training-inference mismatch. When the rollout engine assigns extremely low probability to a sampled token, the importance ratio can grow to an unsafe magnitude. Even if clipped, such cases still inject incorrect gradients into training. RS avoids this issue entirely by discarding those tokens—or the entire sequence, if necessary—when the ratio exceeds a preset trust threshold, preventing harmful updates from taking effect.
+In addition to clipping-based importance sampling, we provide masking and rejection sampling (RS) as a stronger safeguard against training-inference mismatch. When the rollout engine assigns extremely low probability to a sampled token, the importance ratio can grow to an unsafe magnitude (i.e. 1e12). Even if clipped, such cases still inject incorrect gradients into training. RS avoids this issue entirely by discarding those tokens—or the entire sequence, if necessary—when the ratio exceeds a preset trust threshold, preventing harmful updates from taking effect.
+
 This mechanism enforces a more principled trust region: if the sampled behavior deviates too far from the proximal policy, we simply do not learn from that sample. It guarantees that all effective training data remain consistent with the assumed rollout distribution and protects the optimization from collapse in cases where mismatch becomes extreme.
+
 Pure rejection sampling, however, may reduce the amount of usable data and increase variance, especially when mismatch is moderate. Therefore, we combine RS with importance sampling in MIS: IS maintains mathematical correction for most tokens, while RS acts as a safety valve only when discrepancies become severe. In our experiments, this hybrid approach provides stable performance and improves robustness during the late-stage mismatch surge without sacrificing learning efficiency.
 
 ## Experiments
 
-When identifying a set of importance-sampling (IS) baselines, we encountered a requirement that does not appear in most prior RLHF or agent-training baselines: We must be able to get the log-probabilities of the model’s raw responses.
+When identifying a set of importance-sampling (IS) baselines, we encountered a requirement that does not appear in most prior RLHF or agent-training baselines: We must be able to get the log-probabilities from the rollout engine.
 
 This means no post-processing is allowed on the model output, because any modification to the response string breaks the correspondence between the sampled tokens and the tokens whose log-probs we later evaluate.
 
 Unfortunately, many existing agent baselines do rely on lightweight post-processing, often for simple tasks like trimming labels, removing prefixes, or completing partial responses. These operations are common in classic agent examples, but they invalidate log-prob evaluation for IS-correct RL.
 
 For example:
-- Search-R1 performs post-processing in response:
-  [Link](https://github.com/PeterGriffinJin/Search-R1/blob/main/search_r1/llm_agent/generation.py#L54)
-- Retool does the same:
-  [Link](https://github.com/radixark/miles/blob/main/examples/retool/generate_with_retool.py#L147)
+- Search-R1 performs post-processing in response:[Link](https://github.com/PeterGriffinJin/Search-R1/blob/main/search_r1/llm_agent/generation.py#L54)
+- Retool does the same: [Link](https://github.com/radixark/miles/blob/main/examples/retool/generate_with_retool.py#L147)
 
 At the moment, we have not found a solid theoretical reason why these agent tasks require such post-processing. Fortunately, removing the post-processing entirely and using the model’s raw output still yields rewards that are similar to the original baselines. We therefore adopt this simple workaround for now, though the downstream effects remain uncertain.
 
-Additionally, due to limited engineering bandwidth, we chose to use GRPO instead of PPO to demonstrate IS behavior.
+Additionally, due to limited resource and time, we chose to use GRPO instead of PPO to demonstrate IS behavior.
 
 ### Existence of Mismatch
 
@@ -174,7 +174,7 @@ You can see in the initial step of training, as the model learns and perpexity d
 
 ### IS Won't Harm Performance
 
-See our weight&bias blog [here](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b).
+> See our full weight&bias log [here](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b).
 
 In our experiments, we also verified that enabling distribution correction—including several commonly used configurations—does not degrade performance or destabilize training. To demonstrate this, we enabled different IS-related options at the beginning of training and compared them against a baseline with no IS correction.
 Below are the four configurations we evaluated:
@@ -218,7 +218,7 @@ CUSTOM_ARGS=(
 
 ### Algorithmic Mitigation
 
-Please refer to [this link](https://github.com/radixark/miles/blob/main/examples/train_infer_mismatch_helper/README.md) for a long and complete explanation of each attribute.
+> Please refer to [this link](https://github.com/radixark/miles/blob/main/examples/train_infer_mismatch_helper/README.md) for a long and complete explanation of each attribute.
 
 Miles provides a comprehensive configuration system allowing users to flexibly balance Bias and Variance. To open Importance sampling, you must add the following attribute to your starting script.
 
