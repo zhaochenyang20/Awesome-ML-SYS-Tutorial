@@ -24,7 +24,7 @@ $$
 
 ### slime 框架
 
-- [让速度与精度同在：全面解决 RL 中的训推不一致问题](./rlhf/mismatch/blog-cn.md)：介绍 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的**True On-Policy**训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。同样刊载[英文版本](./rlhf/mismatch/blog-en.md)。
+- [让速度与精度同在：全面解决 RL 中的训推不一致问题](./rlhf/mismatch/blog-cn.md)：介绍 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的**True On-Policy** 训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。同样刊载[英文版本](./rlhf/mismatch/blog-en.md)。
 - [Support FSDP2 as A Training Backend for slime](./rlhf/slime/fsdp/readme.md)：在 slime 中新增了 FSDP 作为训练后端，并与 Megatron 完成对齐。FSDP 能够更加灵活支持诸如 Qwen3-Next/gpt-oss 等架构创新的模型，并且有助于我们进一步支持 VLM RL。同样刊载[英文版本](./rlhf/slime/fsdp/readme_en.md)和[知乎](https://zhuanlan.zhihu.com/p/1979141713449742500)。
 - [Unified FP8: Moving Beyond Mixed Precision for Stable and Accelerated MoE RL](./rlhf/slime/fp8/readme.md)：在 RL 中完全使用 FP8 进行采样（Rollout）和训练（Training），同样刊载[英文版本](./rlhf/slime/fp8/readme_en.md)和[知乎](https://zhuanlan.zhihu.com/p/1974681194017865986)。
 - [Power Up Speculative Decoding In Reinforcement Learning](./rlhf/slime/spec/readme.md)：将 speculative decoding 引入到了 RL 的采样流程中，在 batch size 合适的情况下，采样速度得到了显著提升；并且，draft model 也会在训练过程中更新。相较于冻结 draft model 的做法，accepted length 持续维持在较高水平，产生长期稳定的正收益。同样刊载[英文版本](./rlhf/slime/spec/readme-en.md)。
