@@ -1,6 +1,8 @@
-TLDR: We share our two perspectives on solving the training-inference mismatch: eliminate the mismatch by fully aligning SGLang and FSDP backends for bitwise-exact on-policy training, and algorithm mitigation with TIS/MIS methods.
+# Let Speed Be With Stability: All-In-One Solution to Training-Inference Mismatch with Miles
 
-Here, MIS (masked importance sampling) includes two operations: sequence/token masking + importance sampling. In addition, we explored various combinations of different settings and found that enabling MIS/TIS does not harm RL performance — therefore, we recommend enabling them as the default setting. We sometimes observed a notable increase in mismatch during the late training stage, though it did not lead to training collapse, and further demonstrated that applying importance sampling effectively suppresses this mismatch growth.
+TL;DR: We explore the "Training-Inference Mismatch" problem in RLHF and present two solutions implemented in Miles: True On-Policy training (eliminating mismatch via bitwise backend alignment) and Algorithmic Mitigation (correcting mismatch via TIS/MIS). We recommend enabling algorithmic mitigation as a default, as it stabilizes training without performance regression.
+
+Training-Inference Mismatch refers to numerical inconsistencies between rollout (inference) and training engines, which can potentially destabilize Reinforcement Learning (RL). In this post, we analyze why this mismatch occurs and introduce Miles' comprehensive solutions. We provide a **True On-Policy** mode that achieves bitwise-exact alignment between SGLang and FSDP for those seeking absolute correctness. Alternatively, for those prioritizing efficiency, we offer **Algorithmic Mitigation** strategies like Masked Importance Sampling (MIS). Our experiments show that MIS effectively suppresses mismatch growth during late-stage training while maintaining high performance, making it a robust default choice for RL practitioners.
 
 ## What is Training Inference Mismatch?
 
