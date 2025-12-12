@@ -150,7 +150,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 遗憾的是，许多现有的 Agent 基线确实依赖一些轻量级的后处理，如修剪ta、移除前缀或补全部分响应。这些操作在经典 Agent 示例中很常见，但它们会使IS无法正确进行。例如：
 
 - Search-R1 在响应中执行后处理：[链接](https://github.com/PeterGriffinJin/Search-R1/blob/main/search_r1/llm_agent/generation.py#L54)
-- Retool 也是如此：[链接](https://github.com/radixark/miles/blob/main/examples/retool/generate_with_retool.py#L147)
+- Retool 也是如此：[链接](https://github.com/THUDM/slime/blob/main/examples/retool/generate_with_retool.py#L147)
 
 目前，我们尚未理解为何这些 Agent 任务必须依赖此类后处理。幸运的是，完全移除后处理并直接使用模型的原始输出，仍然能获得与原始基线相似的reward。因此，我们目前采用了直接去除这种简单的变通方案。
 
