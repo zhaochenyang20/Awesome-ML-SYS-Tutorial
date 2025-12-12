@@ -230,7 +230,7 @@ CUSTOM_ARGS=(
 )
 ```
 
-Then you can adjust the detail configuration in [this link](https://github.com/THUDM/radixark/miles/main/examples/train_infer_mismatch_helper/mis.yaml).
+Then you can adjust the detail configuration in [this link](https://github.com/radixark/miles/blob/main/examples/train_infer_mismatch_helper/mis.yaml).
 
 In short, you can configure your correction strategy across four key dimensions:
 
