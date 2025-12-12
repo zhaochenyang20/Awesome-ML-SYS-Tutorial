@@ -1,6 +1,6 @@
 # 让速度与精度同在：全面解决 RL 中的训推不一致问题
 
-> TL;DR：本文介绍了 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的**True On-Policy**训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。尽管 slime 的 RL 训练从未因为训推不一致而崩溃，我们仍然为了研究和社区的训练需求，为大家提供最强大的解决方案。
+> TL;DR：本文介绍了 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的 **True On-Policy** 训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。尽管 slime 的 RL 训练从未因为训推不一致而崩溃，我们仍然为了研究和社区的训练需求，为大家提供最强大的解决方案。
 
 训练-推理不匹配是指 Rollout（推理）引擎与训练引擎之间存在的数值不一致，这可能会破坏R的稳定性。在本文中，我们分析了这种不匹配产生的原因，并介绍了 Slime 提供的两种解决方案。对于追求绝对正确性的用户，我们提供了**true On-Policy**模式，实现了 SGLang 与 FSDP 之间的比特级对齐；对于更看重效率的用户，我们提供了如掩码重要性采样（MIS）等**算法**缓解方案。我们的实验表明，MIS 能有效抑制训练后期的不匹配增长，同时不影响模型performance，推荐作为默认设置开启。
 
@@ -299,7 +299,7 @@ MIS 的工作引入了不同层级的 IS 和 RS 组合。
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 Miles Team: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 
-我们真诚感谢 UCLA 的 Qiwei Di 和 Quanquan Gu 老师对我们的宝贵建议和讨论。
+我们真诚感谢 UCLA 的 Qiwei Di 和 Quanquan Gu 老师，以及 Thinking Machines Lab 的 Liyuan Liu 和 UCSD 的 Feng Yao 对我们的宝贵建议和讨论。
 
 ## 参考文献
 
