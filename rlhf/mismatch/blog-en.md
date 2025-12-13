@@ -4,7 +4,7 @@
 
 "Training-Inference Mismatch" refers to the numerical inconsistencies that arise between the rollout (inference) engine and the training engine. Even when utilizing identical model weights, these engines often produce divergent log-probabilities for the same token sequence. In this post, we analyze the root causes of this divergence and present Miles' dual-approach solution.
 
-For those seeking absolute correctness, we offer a [Truly On Policy mode](https://github.com/THUDM/slime/blob/main/examples/true_on_policy/README.md) that achieves bitwise-exact alignment between SGLang and FSDP. For those prioritizing throughput, we provide Algorithmic Mitigation strategies, such as [Masked Importance Sampling (MIS)](https://richardli.xyz/rl-collapse). Our experiments demonstrate that MIS effectively suppresses mismatch growth during late-stage training while preserving high performance, making it a robust default for RL practitioners.
+For those seeking absolute correctness, we offer a [Truly On Policy mode](https://github.com/THUDM/slime/blob/main/examples/true_on_policy/README.md) that achieves bitwise-exact alignment between SGLang and FSDP. For those prioritizing throughput, we provide Algorithmic Mitigation strategies, such as [Masked Importance Sampling (MIS)](https://richardli.xyz/rl-collapse-3). Our experiments demonstrate that MIS effectively suppresses mismatch growth during late-stage training while preserving high performance, making it a robust default for RL practitioners.
 
 ## What is Training Inference Mismatch?
 
