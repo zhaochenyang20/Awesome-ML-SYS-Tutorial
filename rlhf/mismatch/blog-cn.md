@@ -176,7 +176,12 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
   <img src="pics/mismatch-existence.png" alt="Existence of Mismatch" width="50%">
 </div>
 
-可以看到，在训练初期，随着模型学习且Perplexity下降，mis K3 KL 实际上下降了。但在 600 步之后，尽管训练和评估奖励保持稳定并未下降，mis K3 KL 指标却开始急剧上升，表明训练和 Rollout 之间的不匹配确实存在并且在训练后期会加大。【TODO：这里能不能放上 reward 图，证明训练确实没崩溃，只看 KL 有点不够】
+<p align="center">
+  <img src="pics/base-eval.png" width="45%" />
+  <img src="pics/base-reward.png" width="45%" />
+</p>
+
+可以看到，在训练初期，随着模型学习且Perplexity下降，mis K3 KL 实际上下降了。但在 600 步之后，尽管训练和评估奖励保持稳定并未下降，mis K3 KL 指标却开始急剧上升，表明训练和 Rollout 之间的不匹配确实存在并且在训练后期会加大。
 
 ### IS 不会损害 Performance
 
