@@ -1,8 +1,8 @@
 # 让速度与精度同在：全面解决 RL 中的训推不一致问题
 
-> TL;DR：本文介绍了 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的 **True On-Policy** 训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。尽管 slime 的 RL 训练从未因为训推不一致而崩溃，我们仍然为了研究和社区的训练需求，为大家提供最强大的解决方案。
+> TL;DR：本文介绍了 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的 **Truly On Policy** 训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。尽管 slime 的 RL 训练从未因为训推不一致而崩溃，我们仍然为了研究和社区的训练需求，为大家提供最强大的解决方案。
 
-训练-推理不匹配是指 Rollout（推理）引擎与训练引擎之间存在的数值不一致，这可能会破坏R的稳定性。在本文中，我们分析了这种不匹配产生的原因，并介绍了 Slime 提供的两种解决方案。对于追求绝对正确性的用户，我们提供了**true On-Policy**模式，实现了 SGLang 与 FSDP 之间的比特级对齐；对于更看重效率的用户，我们提供了如掩码重要性采样（MIS）等**算法**缓解方案。我们的实验表明，MIS 能有效抑制训练后期的不匹配增长，同时不影响模型performance，推荐作为默认设置开启。
+训练-推理不匹配是指 Rollout（推理）引擎与训练引擎之间存在的数值不一致，这可能会破坏R的稳定性。在本文中，我们分析了这种不匹配产生的原因，并介绍了 Slime 提供的两种解决方案。对于追求绝对正确性的用户，我们提供了**Truly On Policy**模式，实现了 SGLang 与 FSDP 之间的比特级对齐；对于更看重效率的用户，我们提供了如掩码重要性采样（MIS）等**算法**缓解方案。我们的实验表明，MIS 能有效抑制训练后期的不匹配增长，同时不影响模型performance，推荐作为默认设置开启。
 
 ## 什么是训推不一致？
 
@@ -30,10 +30,10 @@
 
 鉴于训推不一致的存在及其成因，我们提出两种解决方案：
 
-1.  **True On-Policy**：我们将 Rollout 和 Training 之间的每一个算子后端都进行对齐，确保 Rollout 的对数概率与 Training 的对数概率在比特级上完全一致。这实现了训推 KL = 0，从而提供 100% 真正的同策略（True On-Policy）行为。
+1.  **Truly On Policy**：我们将 Rollout 和 Training 之间的每一个算子后端都进行对齐，确保 Rollout 的对数概率与 Training 的对数概率在比特级上完全一致。这实现了训推 KL = 0，从而提供 100% 真正的同策略（Truly On Policy）行为。
 2.  **算法修正**：强制在 Rollout 和 Training 中使用完全对齐的算子会对 efficiency 有不可忽视的影响。而 RL 社区的研究者们提出了算法修正方案，将 Rollout 的对数概率视为 Behavior Policy，并利用 Importance Sampling 或 Rejection Sampling 来进行异策略 Rollout 的修正。
 
-## 完美的 True On-Policy 训练
+## 完美的 Truly On Policy 训练
 
 正如前文所述，彻底消除不匹配的关键在于对齐 Rollout 和 Training 之间的所有算子后端——确保 Rollout 和 Training 中的每一个操作在比特级上相等。为了实现这一目标，我们对模型各组件使用的算子进行了精挑细选。
 
@@ -43,7 +43,7 @@
 
 -   **FlashAttention-3**：我们在训练和推理中均使用 Flash Attention 3 后端，因为它在 Prefill 和 Decode 操作之间能保持比特级一致，且相比 Triton 版本效率比较高。它同时也支持 Radix Cache。
 -   **DeepGEMM**：我们使用 DeepGEMM 的快速矩阵乘法作为确定性后端，效率更高。对于不同的输入大小，DeepGEMM 会使用固定的归约顺序和 Tensor Core 指令，不受形状变化的影响。
--   **Torch.compile()**：为了在启用 True On-Policy 模式时提升效率，我们使用 `torch.compile` 来避免大量细碎算子的开销。部分操作（例如 RoPE）也经过编译加速。
+-   **Torch.compile()**：为了在启用 Truly On Policy 模式时提升效率，我们使用 `torch.compile` 来避免大量细碎算子的开销。部分操作（例如 RoPE）也经过编译加速。
 -   **数值对齐**：为了简化问题，我们还对齐了两个系统间的数值操作细节，例如算子数据类型（dtype）、具体的算子实现等。
 
 ## 缓解训推不一致的修正算法
@@ -60,10 +60,10 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{old}}}} \left[
   \sum_{t=0}^{|y|-1}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})} A_t,
     \text{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -75,10 +75,10 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{SGLang}}}} \left[
   \sum_{t=0}^{|y|-1}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})} A_t,
     \text{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -96,10 +96,10 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{SGLang}}}} \left[
   \sum_{t=0}^{|y|-1}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})} A_t,
     \text{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -120,10 +120,10 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
   \sum_{t=0}^{|y|-1}
   \frac{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})} A_t,
     \mathrm{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -165,7 +165,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 ### 不匹配现象的存在
 
-由于有限的时间和资源，我们选择使用 GRPO 而非 PPO 来演示 IS 的行为。我们首先确认，随着训练的进行，即便训练不崩溃，K3 KL 也可能会增加。我们的实验设置如下：
+由于有限的时间和资源，我们选择使用 GRPO 而非 PPO 来演示 IS 的行为。我们首先确认，随着训练的进行，即便训练不崩溃，Rollout Engine 和 Training Engine 的 log probs 间的 K3 KL 也可能会增加。我们的实验设置如下：
 
 - 训练数据集：[Dapo](https://huggingface.co/datasets/aaabiao/dapo_filter)
 - 评估数据集：aime 24 + aime 25
@@ -181,7 +181,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
   <img src="pics/base-reward.png" width="45%" />
 </p>
 
-可以看到，在训练初期，随着模型学习且Perplexity下降，mis K3 KL 实际上下降了。但在 600 步之后，尽管训练和评估奖励保持稳定并未下降，mis K3 KL 指标却开始急剧上升，表明训练和 Rollout 之间的不匹配确实存在并且在训练后期会加大。
+可以看到，在训练初期，随着模型学习且 Perplexity 下降，K3 KL 实际上下降了。但在 600 步之后，尽管训练和评估奖励保持稳定并未下降，K3 KL 指标却开始急剧上升，表明训练和 Rollout 之间的不匹配确实存在并且在训练后期会加大。
 
 ### IS 不会损害 Performance
 
@@ -199,6 +199,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
   <img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="50%">
 </div>
 
+【TODO：这里只列举了 response length 不太够，感觉至少得是仔细分析下同一个training setup，四种算法在reward, length, kl这些方面的区别？不过我们之前的 wandb 结果都有，补充图和结果就好了】
 
 >  完整的 wandb log 参考[此处](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b)。
 

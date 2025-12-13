@@ -1,8 +1,8 @@
 # Let Speed Be With Stability: All-In-One Solution to Training-Inference Mismatch with Miles
 
-> TL;DR: We explore the "Training-Inference Mismatch" problem in RLHF and present two solutions implemented in Miles: **True On-Policy** training (eliminating mismatch via backend alignment) and Algorithmic Mitigation (correcting mismatch via TIS/MIS). Even though RL training on Miles has been impressively stable in practice, we still provide the most powerful solutions for research and community training needs.
+> TL;DR: We explore the "Training-Inference Mismatch" problem in RLHF and present two solutions implemented in Miles: **Truly On Policy** training (eliminating mismatch via backend alignment) and Algorithmic Mitigation (correcting mismatch via TIS/MIS). Even though RL training on Miles has been impressively stable in practice, we still provide the most powerful solutions for research and community training needs.
 
-Training-Inference Mismatch refers to numerical inconsistencies between rollout (inference) and training engines, which can potentially destabilize Reinforcement Learning (RL). In this post, we analyze why this mismatch occurs and introduce Miles' comprehensive solutions. We provide a **True On-Policy** mode that achieves bitwise-exact alignment between SGLang and FSDP for those seeking absolute correctness. Alternatively, for those prioritizing efficiency, we offer **Algorithmic Mitigation** strategies like Masked Importance Sampling (MIS). Our experiments show that MIS effectively suppresses mismatch growth during late-stage training while maintaining high performance, making it a robust default choice for RL practitioners.
+Training-Inference Mismatch refers to numerical inconsistencies between rollout (inference) and training engines, which can potentially destabilize Reinforcement Learning (RL). In this post, we analyze why this mismatch occurs and introduce Miles' comprehensive solutions. We provide a **Truly On Policy** mode that achieves bitwise-exact alignment between SGLang and FSDP for those seeking absolute correctness. Alternatively, for those prioritizing efficiency, we offer **Algorithmic Mitigation** strategies like Masked Importance Sampling (MIS). Our experiments show that MIS effectively suppresses mismatch growth during late-stage training while maintaining high performance, making it a robust default choice for RL practitioners.
 
 ## What is Training Inference Mismatch?
 
@@ -30,22 +30,22 @@ As a result, even in SGLang, performing inference on the same samples with diffe
 
 Given the existence and partial cause of  training inference mismatch, we present two solutions:
 
-1. **True On-Policy**: We align every operator backend between rollout and training so that rollout log probs and training log probs are bitwise identical. This achieves training inference KL = 0, giving you 100% true on-policy behavior.
+1. **Truly On Policy**: We align every operator backend between rollout and training so that rollout log probs and training log probs are bitwise identical. This achieves training inference KL = 0, giving you 100% Truly On Policy behavior.
 2. **Algorithmic Correction**: Instead of forcing the use of aligned kernels for both inference and training (which reduces efficiency to certain degree), we treat rollout log-probs as the authoritative behavior policy and use importance sampling or rejection sampling to conduct off-policy rollout correction.
 
 We provide these options to the community and try our best to make RL training more stable and debuggable.
 
-## Perfect True On-Policy Training
+## Truly On Policy Training
 
 As we revealed, the key to fully eliminating the mismatch is to align all the operator backends between training and rollout—making every operation in training and inference bitwise-identical. To achieve this goal, we carefully selected the kernels we used for each model component.
 
-Specifically, we use batch-invariant kernels: This is a prerequisite for true on-policy, and we adopted the kernels from the Thinking Machines. This implementation provides the batch-invariant kernels for RMSNorm, Matmul, and other common operators, including log_softmax and mean. 
+Specifically, we use batch-invariant kernels: This is a prerequisite for Truly On Policy, and we adopted the kernels from the Thinking Machines. This implementation provides the batch-invariant kernels for RMSNorm, Matmul, and other common operators, including log_softmax and mean. 
 
 Based on this implementation, we added the following implementations and optimizations:
 
 - FlashAttention-3: We use the Flash Attention 3 backend for both training and inference, since it achieves bitwise equality between prefill and decode operations while staying efficient compared to the Triton version. It also supports Radix Cache.
-- DeepGEMM: In our true on-policy implementation, we used DeepGEMM's fast matrix multiplication as a deterministic backend, which is more efficient. For different input sizes, DeepGEMM will use a fixed reduction order and tensor core instruction, which is independent of the shape changes.
-- Torch.compile(): To improve efficiency when enabling true on-policy, we use torch.compile to speed up by avoiding many tiny kernels. Some operations, for example, RoPE is also compiled to speed up.
+- DeepGEMM: In our Truly On Policy implementation, we used DeepGEMM's fast matrix multiplication as a deterministic backend, which is more efficient. For different input sizes, DeepGEMM will use a fixed reduction order and tensor core instruction, which is independent of the shape changes.
+- Torch.compile(): To improve efficiency when enabling Truly On Policy, we use torch.compile to speed up by avoiding many tiny kernels. Some operations, for example, RoPE is also compiled to speed up.
 - Numeric alignment: We also align numeric operation details between the two systems for simplicity, such as op dtype, detailed kernels, etc.
 
 ## Algorithmic Mitigation
@@ -60,10 +60,10 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{old}}}} \left[
   \sum_{t=0}^{|y|-1}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})} A_t,
     \text{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{old}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -75,9 +75,9 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{SGLang}}}} \left[
   \sum_{t=0}^{|y|-1}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})} A_t,
     \text{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})},\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{Megatron}}}(y_t \mid x, y_{<t})},
       1 - \epsilon,\,
       1 + \epsilon
     \right) A_t
@@ -96,10 +96,10 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{SGLang}}}} \left[
   \sum_{t=0}^{|y|-1}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})} A_t,
     \text{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -120,10 +120,10 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
   \sum_{t=0}^{|y|-1}
   \frac{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})}{\pi_{\textcolor{red}{\text{SGLang}}}(y_t \mid x, y_{<t})}
   \min \left(
-    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})} A_t,\,
+    \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})} A_t,
     \mathrm{clip}\left(
-      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})},\,
-      1 - \epsilon,\,
+      \frac{\pi_\theta(y_t \mid x, y_{<t})}{\pi_{\textcolor{blue}{\text{old}}}(y_t \mid x, y_{<t})},
+      1 - \epsilon,
       1 + \epsilon
     \right) A_t
   \right)
@@ -173,7 +173,7 @@ Additionally, due to limited resource and time, we chose to use GRPO instead of 
 
 ### Existence of Mismatch
 
-We first confirm that as the training goes on, the K3 KL will increase. Our setting is:
+We first confirm that as the training goes on, the K3 KL between Rollout Engine and Training Engine will increase. Our setting is:
 - Training dataset: [Link](https://huggingface.co/datasets/aaabiao/dapo_filter)
 - Eval dataset: aime 24 + aime 25
 - Base Model: Qwen3-4b-base ([Link](https://huggingface.co/Qwen/Qwen3-4B-Base))
@@ -188,7 +188,7 @@ We first confirm that as the training goes on, the K3 KL will increase. Our sett
   <img src="pics/base-reward.png" width="45%" />
 </p>
 
-You can see in the initial step of training, as the model learns and perplexity drops, mis k3 kl actually drops. But after 600 steps, although the train and eval reward remains stable, the mis K3 KL metrics start to increase dramatically, indicating the existence of training and rollout mismatch.
+You can see in the initial step of training, as the model learns and perplexity drops, K3 KL actually drops. But after 600 steps, although the train and eval reward remains stable, the K3 KL metrics start to increase dramatically, indicating the existence of training and rollout mismatch.
 
 ### IS Won't Harm Performance
 
@@ -219,18 +219,18 @@ To test whether MIS (IS + RS + BN) works, we continue training on step 650, and 
 ## Usage
 
 For more details, we provide complete guides and runnable examples:
-- True On-Policy Training (FSDP): [Link](https://github.com/radixark/Miles/tree/main/examples/true_on_policy)
+- Truly On Policy Training (FSDP): [Link](https://github.com/radixark/Miles/tree/main/examples/true_on_policy)
 - Algorithmic Mismatch Correction (Megatron): [Link](https://github.com/radixark/Miles/tree/main/examples/train_infer_mismatch_helper)
 
-If your goal is to fully eliminate the rollout–training mismatch, we recommend the true on-policy solution.
+If your goal is to fully eliminate the rollout–training mismatch, we recommend the Truly On Policy solution.
 
 If you prefer to retain high performance while mitigating mismatch, algorithmic correction such as MIS is a lightweight and effective choice.
 
 Below is a brief overview of the available options.
 
-### True On Policy
+### Truly On Policy
 
-To open true on-policy mode, add args:
+To open Truly On Policy mode, add args:
 
 ```bash
 CUSTOM_ARGS=(
@@ -299,7 +299,7 @@ This acts as a low-level safety net independent of IS/RS settings.
 - In upstream slime, you can also find additional mismatch-related tooling, for example:
   - Unbiased KL estimation from Deepseek V3.2: [Link](https://github.com/THUDM/slime/pull/1004)
   - Rollout routing replay: [Link](https://github.com/THUDM/slime/pull/715)
-  - True On-Policy training for VLMs: [Link](https://github.com/THUDM/slime/tree/main/examples/true_on_policy_vlm)
+  - Truly On Policy training for VLMs: [Link](https://github.com/THUDM/slime/tree/main/examples/true_on_policy_vlm)
 
 Any mismatch solving tool can be found in Miles (or its upstream slime)!
 
@@ -309,7 +309,7 @@ Bytedance Inc: Yingru Li, Jiacai Liu, Ziheng Jiang, Qian Liu, Hongyu Lu, Yuxuan 
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 Miles Team: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 
-We sincerely thanks Qiwei Di and Prof. Quanquan Gu from UCLA, as well as Liyuan Liu and Feng Yao from Thinking Machines Lab for their valuable suggestions and discussions.
+We sincerely thanks Qiwei Di, Xuheng Li, Heyang Zhao and Prof. Quanquan Gu from UCLA, as well as Liyuan Liu and Feng Yao from Thinking Machines Lab for their valuable suggestions and discussions.
 
 ## Reference
 
