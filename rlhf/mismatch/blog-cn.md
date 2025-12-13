@@ -113,7 +113,7 @@ $$\mathcal{L}_{\text{PPO}}(\theta)
   <img src="pics/decoupled-ppo.png" alt="Decoupled, 3-policy PPO Importance Sampling" width="50%">
 </div>
 
-然而，部分研究者希望将“训推不匹配的重要性采样”与“通用的重要性采样”解耦。Decoupled PPO 通过分离两个角色来实现批次无关（Batch-independent）的 PPO：**近端策略（Proximal Policy）**（作为 PPO 裁剪的锚点，控制更新幅度）和**行为策略（Behavior Policy）**（用于重要性采样中的异策略修正）。因此，该模式涉及三个角色：目标策略 $\pi_\theta$、近端策略 $\pi_{\textcolor{blue}{\text{old}}}$ 以及行为策略 $\pi_{\textcolor{red}{\text{SGLang}}}$。其中，$\pi_{\textcolor{blue}{\text{old}}}$ 是在每个训练步开始时使用 Training 引擎重新计算（re-forward pass）得到的。总公式如下：
+然而，部分研究者希望将“训推不匹配的重要性采样”与“通用的重要性采样”解耦。Decoupled PPO 通过分离两个角色来实现批次无关（Batch-independent）的 PPO：**近端策略（Proximal Policy）**（作为 PPO 裁剪的锚点，控制更新幅度）和**行为策略（Behavior Policy）**（用于重要性采样中的异策略修正）。因此，该模式涉及三个角色：目标策略 $\pi_\theta$、近端策略 $\pi_{\textcolor{blue}{\text{old}}}$ 以及行为策略 $\pi_{\textcolor{red}{\text{SGLang}}}$。其中，$\pi_{\textcolor{blue}{\text{old}}}$ 是在每个训练步开始时使用 Training 引擎重新计算（re-forward pass）得到的，详见参考文献 6 和 7。总公式如下：
 
 $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 = - \mathbb{E}_{x \sim \mathcal{D}} \mathbb{E}_{y \sim \pi_{\textcolor{red}{\text{SGLang}}}} \left[
@@ -311,11 +311,13 @@ RadixArk: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 
 ## 参考文献
 
-- When Speed Kills Stability: Demystifying RL collapse from the training-inference mismatch [blog](https://richardli.xyz/rl-collapse)
+1. When Speed Kills Stability: Demystifying RL collapse from the training-inference mismatch [blog](https://richardli.xyz/rl-collapse)
   - Part 1: Why Off-Policy Breaks RL — An SGA Analysis Framework [blog](https://richardli.xyz/rl-collapse-1)
   - Part 2: Applying the SGA Framework — Token v.s. Sequence-level Correction [blog](https://richardli.xyz/rl-collapse-2)
   - Part 3: Trust Region Optimization via Sequence Masking [blog](https://richardli.xyz/rl-collapse-3)
-- Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
-- Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
-- Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
-- Small Leak Can Sink a Great Ship—Boost RL Training on MoE with 𝑰𝒄𝒆𝑷𝒐𝒑! [blog](https://ringtech.notion.site/icepop)
+2. Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
+3. Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
+4. Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
+5. Small Leak Can Sink a Great Ship—Boost RL Training on MoE with 𝑰𝒄𝒆𝑷𝒐𝒑! [blog](https://ringtech.notion.site/icepop)
+6. Batch size-invariance for policy optimization [link](https://arxiv.org/abs/2110.00641)
+7. AReaL: A Large-Scale Asynchronous Reinforcement Learning System for Language Reasoning [link](https://arxiv.org/abs/2505.24298)
