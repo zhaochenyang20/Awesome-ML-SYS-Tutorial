@@ -200,14 +200,14 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 3.  Token-level IS + Masking/Rejection Sampling (RS) [即 MIS]
 4.  Token-level IS + Masking/Rejection Sampling (RS) + Batch Normalization (BN) [仍旧是 MIS]
 
-在所有设置中，我们均观察到了稳定的训练曲线。所有四种配置都成功复现了约 100 步后的 Response Length 增加现象，这表明启用 IS 不会对学习动态产生负面影响。此外，在所有实验中，当response length开始增加后，reward也开始提升；在此之前，reward一直停滞在 0.32 左右。基于这些结果，我们建议将 IS 作为默认配置启用，因为它在不牺牲性能的前提下提供了 mismatch 修正。
+在所有设置中，我们均观察到了稳定的训练曲线。所有四种配置都成功复现了约 100 步后的 Response Length 增加现象，这表明启用 IS 不会对学习动态产生负面影响。此外，在所有实验中，当 response length 开始增加后，reward 也开始提升；在此之前，reward 一直停滞在 0.32 左右。基于这些结果，我们建议将 IS 作为默认配置启用，因为它在不牺牲性能的前提下提供了 mismatch 修正。
 
 <div align="center">
   <img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="45%">
   <img src="pics/experiment-raw-reward.png" alt="Raw Reward (Moving Average)" width="45%">
 </div>
 <p align="center">
-    <em>左图: Response Length      右图：Train Reward（经moving average平滑）。</em>
+    <em>左图: Response Length      右图：Train Reward（经 moving average 平滑）。</em>
 </p>
 
 
