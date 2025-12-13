@@ -371,48 +371,7 @@ Prompt 构造与预处理、并发采样、reward 计算，以及最终 Trajecto
 <summary>RLVRWorkflow.arun_episode()</summary>
 
 ```python
-async def arun_episode(
-        self, engine: InferenceEngine, data: dict[str, Any]
-    ) -> dict[str, torch.Tensor]:
-            ...
-        version = engine.get_version()
-        prompt_str = self.tokenizer.decode(input_ids)
-        prompt_strs = [prompt_str] * n_samples
-
-        # Generate responses and collect rewards
-        sample_results = await asyncio.gather(
-            *[
-                self._collect_samples(engine, req, prompt_str, data)
-                for _ in range(n_samples)
-            ]
-        )
-        if sample_results:
-            resps, rewards, completions_strs = map(list, zip(*sample_results))
-        else:
-            resps, rewards, completions_strs = [], [], []
-
-        # Build result tensors
-        results = []
-        for resp, reward in zip(resps, rewards):
-            seq = resp.input_tokens + resp.output_tokens
-            logprobs = [0.0] * resp.input_len + resp.output_logprobs
-            loss_mask = [0] * resp.input_len + [1] * resp.output_len
-            versions = [-1] * resp.input_len + resp.output_versions
-
-            res = {
-                "input_ids": torch.tensor(seq, dtype=torch.int32),
-                "loss_mask": torch.tensor(loss_mask, dtype=torch.int32),
-                "logprobs": torch.tensor(logprobs, dtype=torch.float32),
-                "versions": torch.tensor(versions, dtype=torch.int32),
-                "attention_mask": torch.ones(len(seq), dtype=torch.bool),
-                "rewards": torch.tensor(reward, dtype=torch.float32),
-            }
-            res = {k: v.unsqueeze(0) for k, v in res.items()}
-            results.append(res)
-
-        ...
-
-        return concat_padded_tensors(results)
+RLVRWorkflow._collect_samples()
 ```
 </details>
 
@@ -423,24 +382,7 @@ async def arun_episode(
 <summary>RLVRWorkflow._collect_samples()</summary>
 
 ```python
-    async def _collect_samples(
-        self,
-        engine: InferenceEngine,
-        req: ModelRequest,
-        prompt_str: str,
-        task_data: dict[str, Any],
-    ) -> tuple[ModelResponse, float, str]:
-       
-        async with atrace_session_phase("generate"):
-            resp = await engine.agenerate(req)
-
-        reward, completions_str = await self._compute_rewards(
-            resp, prompt_str, task_data
-        )
-
-        stats_tracker.get(self.rollout_stat_scope).scalar(reward=reward)
-
-        return resp, reward, completions_str
+prepare_batch()
 ```
 </details>
 
