@@ -14,7 +14,7 @@ Training Inference Mismatch, in this post, refers to the numerical inconsistency
 
 > It is widely said that training inference mismatch could lead to RL collapse. But to be honest, we never encounter this even in the post-training of the frontier model like GLM 4.6.
 
-We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (at least some frameworks collapsed, see [blog 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33) and [blog 2](https://richardli.xyz/rl-collapse)).
+We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (at least some frameworks collapsed, see [blog 1](https://richardli.xyz/rl-collapse) and [blog 2](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)).
 
 In all these senses, the Training Inference Mismatch should be treated as a non-negligible issue of an RL system. Users may choose to eliminate entirely for correctness, or mitigate for efficiency. To support both needs, Miles provides two solutions, allowing users to choose the trade-offs that best match their system requirements.
 
@@ -272,15 +272,18 @@ This determines how important weights are aggregated from tokens to sequences.
   - Uses the geometric mean of all token weights as the sequence weight.
   - Characteristics: A trade-off solution. It retains sequence-level information while avoiding the numerical instability of the product method, striking a balance between bias and variance. It also provides some length-invariant property for long-context tasks.
 
-2. Rejection Sampling & Masking
+2. Importance Weight Constraints & Trust Regions
 
-To prevent extreme importance weights from destabilizing training and enforce a hard trust region, we apply constraints to the weights.
+To prevent extreme importance weights from destabilizing training and to enforce a hard trust region, we apply specific constraints to the weights.
+
 - **IS Mode (Importance Sampling)**
-  - `--tis-mode`: Options include `clip` or `truncate`. This forces weights to stay within the `[lower_bound, upper_bound]` range.
+  - --tis-mode: Strategies include clip or truncate. This constrains importance weights to remain within the $[lower\_bound, upper\_bound]$ range, mitigating high variance.
+
 - **RS Mode (Rejection Sampling)**
-  - `--use-rs`: Instead of capping weights, RS directly masks (drops) tokens or sequences that fall outside the threshold. This ensures gradient purity for valid data but reduces the effective training sample size.
+  - --use-rs: Instead of clipping weights, RS strictly discards (drops) tokens or sequences that fall outside the specified threshold. While this reduces the effective sample size, it ensures that the gradient update is calculated exclusively using data within the trust region ("gradient purity").
+
 - **Mask Mode (Masking)**
-  - `--use-mask`: Mask mode masks tokens or sequences that fall outside the threshold. This ensures gradient purity for valid data and keep the effective training sample size.
+  - --use-mask: This mode applies a mask to tokens or sequences falling outside the threshold during the gradient update. Unlike RS, this preserves the original batch structure (and nominal sample size), while effectively zeroing out the gradient contribution from invalid data.
 
 [MIS](https://richardli.xyz/rl-collapse-3) introduces combinations of IS and RS/Masking at different levels.
 
