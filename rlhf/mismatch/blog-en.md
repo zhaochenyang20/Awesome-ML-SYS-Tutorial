@@ -14,7 +14,7 @@ Training Inference Mismatch, in this post, refers to the numerical inconsistency
 
 > It is widely said that training inference mismatch could lead to RL collapse. But to be honest, we never encounter this even in the post-training of the frontier model like GLM 4.6.
 
-We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (ref [blog](https://richardli.xyz/rl-collapse) section 3).
+We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (at least some frameworks collapsed, see [blog 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33) and [blog 2](https://richardli.xyz/rl-collapse-3)).
 
 In all these senses, the Training Inference Mismatch should be treated as a non-negligible issue of an RL system. Users may choose to eliminate entirely for correctness, or mitigate for efficiency. To support both needs, Miles provides two solutions, allowing users to choose the trade-offs that best match their system requirements.
 
@@ -304,7 +304,7 @@ Bytedance Inc: Yingru Li, Jiacai Liu, Ziheng Jiang, Qian Liu, Hongyu Lu, Yuxuan 
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 Miles Team: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 
-We sincerely thanks Qiwei Di and Prof. Quanquan Gu from UCLA, as well as Liyuan Liu from Thinking Machines Lab and Feng Yao from UCSD for their valuable suggestions and discussions.
+We sincerely thanks Qiwei Di and Prof. Quanquan Gu from UCLA, as well as Liyuan Liu and Feng Yao from Thinking Machines Lab for their valuable suggestions and discussions.
 
 ## Reference
 
@@ -315,4 +315,4 @@ We sincerely thanks Qiwei Di and Prof. Quanquan Gu from UCLA, as well as Liyuan 
 - Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
 - Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
 - Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
-
+- Small Leak Can Sink a Great Ship—Boost RL Training on MoE with 𝑰𝒄𝒆𝑷𝒐𝒑! [blog](https://ringtech.notion.site/icepop)

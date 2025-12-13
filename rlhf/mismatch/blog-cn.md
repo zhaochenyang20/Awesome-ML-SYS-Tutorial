@@ -14,7 +14,7 @@
 
 > 业界仍在激烈地争论，训推不一致是否会导致 RL 训练崩溃（Collapse）。但坦率地说，即使在像 GLM 4.6 模型的 Post-training 阶段，slime 的 RL 训练也从未遇到过这种情况。
 
-我们使用 K3 KL 散度来衡量 Rollout 阶段与训练阶段所使用的对数概率之间的差异（详见附录）。在 Dense 模型中，K3 KL 通常在 1e-5 到 1e-3 之间；而在混合专家（MoE）模型中，K3 KL 通常在 1e-3 到 1e-1 之间。尽管这种不匹配看起来并不总是非常显著，但它引入了一种微妙的 'off-policy' 效应：采样时使用的策略与计算损失时使用的策略并不完全相同。在诸如多轮对话 Agent 等复杂任务上，据说这种微小的差异有时会随时间累积，最终破坏整个训练过程的稳定性，甚至可能导致崩溃（或者说导致其他框架崩溃，具体可以参考[这篇博客](https://richardli.xyz/rl-collapse)）。
+我们使用 K3 KL 散度来衡量 Rollout 阶段与训练阶段所使用的对数概率之间的差异（详见附录）。在 Dense 模型中，K3 KL 通常在 1e-5 到 1e-3 之间；而在混合专家（MoE）模型中，K3 KL 通常在 1e-3 到 1e-1 之间。尽管这种不匹配看起来并不总是非常显著，但它引入了一种微妙的 'off-policy' 效应：采样时使用的策略与计算损失时使用的策略并不完全相同。在诸如多轮对话 Agent 等复杂任务上，据说这种微小的差异有时会随时间累积，最终破坏整个训练过程的稳定性，甚至可能导致崩溃（至少导致了其他框架崩溃，具体可以参考[博客 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)和[博客 2](https://richardli.xyz/rl-collapse-3)）。
 
 从这些角度来看，训推不一致应当被视为 RL 系统中一个不可忽视的问题。用户可以选择彻底消除它以确保正确性，或者采取缓解措施以兼顾效率。为了同时满足这两种需求，slime 提供了两种解决方案，允许用户根据自身系统的需求进行权衡选择。
 
@@ -299,7 +299,7 @@ MIS 的工作引入了不同层级的 IS 和 RS 组合。
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 Miles Team: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 
-我们真诚感谢 UCLA 的 Qiwei Di 和 Quanquan Gu 老师，以及 Thinking Machines Lab 的 Liyuan Liu 和 UCSD 的 Feng Yao 对我们的宝贵建议和讨论。
+我们真诚感谢 UCLA 的 Qiwei Di 和 Quanquan Gu 老师，以及 Thinking Machines Lab 的 Liyuan Liu 和 Feng Yao 对我们的宝贵建议和讨论。
 
 ## 参考文献
 
@@ -310,4 +310,4 @@ Miles Team: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 - Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
 - Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
 - Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
-
+- Small Leak Can Sink a Great Ship—Boost RL Training on MoE with 𝑰𝒄𝒆𝑷𝒐𝒑! [blog](https://ringtech.notion.site/icepop)
