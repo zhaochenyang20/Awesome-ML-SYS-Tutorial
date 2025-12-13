@@ -190,6 +190,8 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 ### IS 不会损害 Performance
 
+>  完整的 wandb log 参考[此处](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b)。
+
 我们在实验中，验证了启用 TIS/MIS（包括几种常用配置）并不会降低性能或破坏训练稳定性。为了证明这一点，我们在训练开始时启用了不同的 IS 相关选项，并将其与未进行 IS 修正的基线进行了对比。
 我们评估了以下四种配置：
 
@@ -198,15 +200,26 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 3.  Token-level IS + Masking/Rejection Sampling (RS) [即 MIS]
 4.  Token-level IS + Masking/Rejection Sampling (RS) + Batch Normalization (BN) [仍旧是 MIS]
 
-在所有设置中，我们均观察到了稳定的训练曲线。所有四种配置都成功复现了约 100 步后的 Response Length 增加现象，这表明启用 IS 不会对学习动态产生负面影响。基于这些结果，我们建议将 IS 作为默认配置启用，因为它在不牺牲性能的前提下提供了 mismatch 修正。
+在所有设置中，我们均观察到了稳定的训练曲线。所有四种配置都成功复现了约 100 步后的 Response Length 增加现象，这表明启用 IS 不会对学习动态产生负面影响。此外，在所有实验中，当 response length 开始增加后，reward 也开始提升；在此之前，reward 一直停滞在 0.32 左右。基于这些结果，我们建议将 IS 作为默认配置启用，因为它在不牺牲性能的前提下提供了 mismatch 修正。
 
 <div align="center">
-  <img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="50%">
+  <img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="45%">
+  <img src="pics/experiment-raw-reward.png" alt="Raw Reward (Moving Average)" width="45%">
 </div>
+<p align="center">
+    <em>左图: Response Length      右图：Train Reward（经 moving average 平滑）。</em>
+</p>
 
-【TODO：这里只列举了 response length 不太够，感觉至少得是仔细分析下同一个training setup，四种算法在reward, length, kl这些方面的区别？不过我们之前的 wandb 结果都有，补充图和结果就好了】
 
->  完整的 wandb log 参考[此处](https://wandb.ai/ch271828n-team/slime-dapo/reports/IS-Has-No-Harm--VmlldzoxNTE3NTM3MQ?accessToken=vbaw93cjkyi8d6iul7gzvccehf2ugff1cicfcmlaxjv88n875i0ip1ixqfr42s9b)。
+我们还检查了这些运行的 K3 KL 散度。我们观察到，在所有设置下，随着训练困惑度（PPL）的下降，训练与推理的不匹配（由 K3 KL 衡量）也在减小，这与我们上面的长基线运行结果一致。
+
+<div align="center">
+  <img src="pics/experiment-mis-k3-kl.png" alt="K3 KL Divergence" width="45%">
+  <img src="pics/experiment-ppl.png" alt="Training PPL" width="45%">
+</div>
+<p align="center">
+    <em>左图：K3 KL 散度。右图：训练困惑度（PPL）。</em>
+</p>
 
 ### IS 可以抑制 KL 增长
 

@@ -204,11 +204,26 @@ Below are the four configurations we evaluated:
 3. Token-level IS + Sequence Masking/Rejection Sampling(RS) [a.k.a [MIS](https://richardli.xyz/rl-collapse-3)]
 4. Token-level IS + Sequence Masking/Rejection Sampling(RS) + Batch Normalization(BN) [a.k.a [MIS](https://richardli.xyz/rl-collapse-3)]
 
-Across all settings, we consistently observed stable training curves. All four configurations successfully reproduced the characteristic length increase after ~100 steps, indicating that enabling IS does not negatively impact the learning dynamics. Based on these results, we recommend enabling IS as a default configuration, as it provides mismatch correction without sacrificing performance.
+Across all settings, we consistently observed stable training curves. All four configurations successfully reproduced the characteristic length increase after ~100 steps, indicating that enabling IS does not negatively impact the learning dynamics. Additionally, across all experiments, the reward begins to improve only after the response length starts to increase; prior to this, the reward stagnates around 0.32. Based on these results, we recommend enabling IS as a default configuration, as it provides mismatch correction without sacrificing performance.
 
 <div align="center">
-  <img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="50%">
+  <img src="pics/is-performance.png" alt="IS Won't Harm Performance" width="45%">
+  <img src="pics/experiment-raw-reward.png" alt="Raw Reward (Moving Average)" width="45%">
 </div>
+<p align="center">
+    <em>Left: Response Length. Right: Raw Reward (smoothed with moving average).</em>
+</p>
+
+We also examined the K3 KL divergence for these runs. We observed that across all settings, as the training perplexity (PPL) decreases, the training-inference mismatch (measured by K3 KL) also diminishes, which is consistent with our long base run above.
+
+<div align="center">
+  <img src="pics/experiment-mis-k3-kl.png" alt="K3 KL Divergence" width="45%">
+  <img src="pics/experiment-ppl.png" alt="Training PPL" width="45%">
+</div>
+<p align="center">
+    <em>Left: K3 KL Divergence. Right: Training Perplexity (PPL).</em>
+</p>
+
 
 ### IS Can Suppress KL Increase
 
