@@ -1,8 +1,10 @@
 # Let Speed Be With Stability: All-In-One Solution to Training-Inference Mismatch with Miles
 
-> TL;DR: We explore the "Training-Inference Mismatch" problem in RLHF and present two solutions implemented in Miles: **Truly On Policy** training (eliminating mismatch via backend alignment) and Algorithmic Mitigation (correcting mismatch via TIS/MIS). Even though RL training on Miles has been impressively stable in practice, we still provide the most powerful solutions for research and community training needs.
+> TL;DR: We investigate the "Training-Inference Mismatch" in LLM-RL--a phenomenon where numerical inconsistencies between rollout and training engines threaten stability. We introduce two comprehensive solutions implemented in Miles: Truly On Policy training (backend alignment for bitwise precision) and Algorithmic Mitigation (correction via TIS/MIS). While Miles demonstrates impressive stability in practice, we provide these robust tools to ensure correctness and efficiency for the broader RL community.
 
-Training-Inference Mismatch refers to numerical inconsistencies between rollout (inference) and training engines, which can potentially destabilize Reinforcement Learning (RL). In this post, we analyze why this mismatch occurs and introduce Miles' comprehensive solutions. We provide a **Truly On Policy** mode that achieves bitwise-exact alignment between SGLang and FSDP for those seeking absolute correctness. Alternatively, for those prioritizing efficiency, we offer **Algorithmic Mitigation** strategies like Masked Importance Sampling (MIS). Our experiments show that MIS effectively suppresses mismatch growth during late-stage training while maintaining high performance, making it a robust default choice for RL practitioners.
+"Training-Inference Mismatch" refers to the numerical inconsistencies that arise between the rollout (inference) engine and the training engine. Even when utilizing identical model weights, these engines often produce divergent log-probabilities for the same token sequence. In this post, we analyze the root causes of this divergence and present Miles' dual-approach solution.
+
+For those seeking absolute correctness, we offer a [Truly On Policy mode](https://github.com/THUDM/slime/blob/main/examples/true_on_policy/README.md) that achieves bitwise-exact alignment between SGLang and FSDP. For those prioritizing throughput, we provide Algorithmic Mitigation strategies, such as [Masked Importance Sampling (MIS)](https://richardli.xyz/rl-collapse-3). Our experiments demonstrate that MIS effectively suppresses mismatch growth during late-stage training while preserving high performance, making it a robust default for RL practitioners.
 
 ## What is Training Inference Mismatch?
 
@@ -10,15 +12,15 @@ Training-Inference Mismatch refers to numerical inconsistencies between rollout 
   <img src="pics/training-inference-mismatch.png" alt="Training Inference Mismatch" width="50%">
 </div>
 
-Training Inference Mismatch, in this post, refers to the numerical inconsistency between the rollout engine and the training engine. Even when both engines use the same model weights, they may produce slightly different log-probabilities for the same token sequence. This happens because rollout and training engines often use different kernels, different batch sizes, different activated experts, and different reduction orders. (ref Thinking Machine Lab [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/))
+Training-Inference Mismatch refers to the numerical inconsistency between the rollout (inference) engine and the training engine. Even when both engines utilize identical model weights, they often produce slightly different log-probabilities for the same token sequence. This divergence stems from infrastructure-level variances, such as differing CUDA kernels, batch sizes, expert selection logic, and reduction orders (see Thinking Machine Lab [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
 
-> It is widely said that training inference mismatch could lead to RL collapse. But to be honest, we never encounter this even in the post-training of the frontier model like GLM 4.6.
+> While it is widely claimed that training-inference mismatch can trigger RL collapse, we have not encountered this issue in practice, even during the post-training of frontier models like GLM 4.6.
 
-We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see [Reference 8](http://joschu.net/blog/kl-approx.html) for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (at least some frameworks collapsed, see [blog 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33) and [blog 2](https://richardli.xyz/rl-collapse-3)).
+To quantify this discrepancy, we use the K3 KL divergence (see [Reference 8](http://joschu.net/blog/kl-approx.html) for details). In dense models, K3 KL typically ranges from $10^{-5}$ to $10^{-3}$, while in Mixture-of-Experts (MoE) models, it increases to between $10^{-3}$ and $10^{-1}$. Although this mismatch is often minor, it technically introduces an off-policy effect: the policy used for sampling is not strictly identical to the one used for loss computation. In complex scenarios, such as multi-turn agent tasks, existing literature suggests that these small discrepancies can accumulate over time, potentially destabilizing or collapsing the training process (e.g., [blog 1](https://richardli.xyz/rl-collapse) and [blog 2](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
 
-In all these senses, the Training Inference Mismatch should be treated as a non-negligible issue of an RL system. Users may choose to eliminate entirely for correctness, or mitigate for efficiency. To support both needs, Miles provides two solutions, allowing users to choose the trade-offs that best match their system requirements.
+Miles treats this mismatch as a non-negligible aspect of RL system design. Users can choose to eliminate it entirely for correctness or mitigate it for efficiency.
 
-⚠️ As we mentioned, across experiments at different scales, Miles has been impressively stable with training-inference mismatch. We spent plenty of time trying to find a collapsed baseline, but we weren't able to find one. If you know any open-source RL tasks that will collapse after certain steps due to mismatch increasing and can be reproduced on a single node, feel free to reach out to us.
+⚠️ Call for Collaboration: Miles has proven remarkably resilient to mismatch across various scales. We attempted to force a baseline collapse but were unsuccessful. If you are aware of open-source RL tasks that reproducibly collapse due to mismatch on a single node, please reach out to us.
 
 ## Why Training and Inference Can Be Different
 
@@ -141,7 +143,7 @@ In standard importance sampling, the average weight of each batch can vary drama
 
 Because this normalization already suppresses variance, we can relax clipping or masking thresholds and therefore reduce the bias they introduce. As the batch size grows large, self-normalization alone can make the estimator both stable and nearly unbiased, without relying on aggressive truncation.
 
-### Masked / Rejection Importance Sampling
+### Masked Importance Sampling
 
 In addition to clipping-based importance sampling, we provide masking and rejection sampling (RS) as a stronger safeguard against training-inference mismatch. When the rollout engine assigns extremely low probability to a sampled token, the importance ratio can grow to an unsafe magnitude (i.e. 1e12). Even if clipped, such cases still inject incorrect gradients into training. RS avoids this issue entirely by discarding those tokens—or the entire sequence, if necessary—when the ratio exceeds a preset trust threshold, preventing harmful updates from taking effect.
 
@@ -199,8 +201,8 @@ Below are the four configurations we evaluated:
 
 1. Baseline
 2. Token-level Importance Sampling(IS)
-3. Token-level IS + Masking/Rejection Sampling(RS) [a.k.a MIS]
-4. Token-level IS + Masking/Rejection Sampling(RS) + Batch Normalization(BN) [a.k.a MIS]
+3. Token-level IS + Sequence Masking/Rejection Sampling(RS) [a.k.a [MIS](https://richardli.xyz/rl-collapse-3)]
+4. Token-level IS + Sequence Masking/Rejection Sampling(RS) + Batch Normalization(BN) [a.k.a [MIS](https://richardli.xyz/rl-collapse-3)]
 
 Across all settings, we consistently observed stable training curves. All four configurations successfully reproduced the characteristic length increase after ~100 steps, indicating that enabling IS does not negatively impact the learning dynamics. Based on these results, we recommend enabling IS as a default configuration, as it provides mismatch correction without sacrificing performance.
 
@@ -224,7 +226,7 @@ For more details, we provide complete guides and runnable examples:
 
 If your goal is to fully eliminate the rollout–training mismatch, we recommend the Truly On Policy solution.
 
-If you prefer to retain high performance while mitigating mismatch, algorithmic correction such as MIS is a lightweight and effective choice.
+If you prefer to retain high performance while mitigating mismatch, algorithmic correction such as [MIS](https://richardli.xyz/rl-collapse-3) is a lightweight and effective choice.
 
 Below is a brief overview of the available options.
 
@@ -272,15 +274,20 @@ This determines how important weights are aggregated from tokens to sequences.
   - Uses the geometric mean of all token weights as the sequence weight.
   - Characteristics: A trade-off solution. It retains sequence-level information while avoiding the numerical instability of the product method, striking a balance between bias and variance. It also provides some length-invariant property for long-context tasks.
 
-2. Rejection Sampling & Masking
+2. Importance Weight Constraints & Trust Regions
 
-To prevent extreme importance weights from destabilizing training and enforce a hard trust region, we apply constraints to the weights.
+To prevent extreme importance weights from destabilizing training and to enforce a hard trust region, we apply specific constraints to the weights.
+
 - **IS Mode (Importance Sampling)**
-  - `--tis-mode`: Options include `clip` or `truncate`. This forces weights to stay within the `[lower_bound, upper_bound]` range.
-- **RS Mode (Rejection Sampling)**
-  - `--use-rs`: Instead of capping weights, RS directly masks (drops) tokens or sequences that fall outside the threshold. This ensures gradient purity for valid data but reduces the effective training sample size.
+  - --tis-mode: Strategies include clip or truncate. This constrains importance weights to remain within the $[lower\_bound, upper\_bound]$ range, mitigating high variance.
 
-MIS introduces combinations of IS and RS at different levels.
+- **RS Mode (Rejection Sampling)**
+  - --use-rs: Instead of clipping weights, RS strictly discards (drops) tokens or sequences that fall outside the specified threshold. While this reduces the effective sample size, it ensures that the gradient update is calculated exclusively using data within the trust region ("gradient purity").
+
+- **Mask Mode (Masking)**
+  - --use-mask: This mode applies a mask to tokens or sequences falling outside the threshold during the gradient update. Unlike RS, this preserves the original batch structure (and nominal sample size), while effectively zeroing out the gradient contribution from invalid data.
+
+[MIS](https://richardli.xyz/rl-collapse-3) introduces combinations of IS and RS/Masking at different levels.
 
 3. Veto Mechanism
 
@@ -305,7 +312,7 @@ Any mismatch solving tool can be found in Miles (or its upstream slime)!
 
 ## Acknowledgments
 
-Bytedance Inc: Yingru Li, Jiacai Liu, Ziheng Jiang, Qian Liu, Hongyu Lu, Yuxuan Tong
+Bytedance Inc: Yingru Li, Jiacai Liu, Yuxuan Tong, Hongyu Lu, Ziheng Jiang
 
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 
@@ -319,6 +326,7 @@ We sincerely thanks Qiwei Di, Xuheng Li, Heyang Zhao and Prof. Quanquan Gu from 
   - Part 1: Why Off-Policy Breaks RL — An SGA Analysis Framework [blog](https://richardli.xyz/rl-collapse-1)
   - Part 2: Applying the SGA Framework — Token v.s. Sequence-level Correction [blog](https://richardli.xyz/rl-collapse-2)
   - Part 3: Trust Region Optimization via Sequence Masking [blog](https://richardli.xyz/rl-collapse-3)
+  - Mathematical Formulations of Rollout Correction Methods [docs](https://verl.readthedocs.io/en/latest/algo/rollout_corr_math.html)
 2. Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
 3. Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
 4. Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
