@@ -4,7 +4,7 @@
 
 "Training-Inference Mismatch" refers to the numerical inconsistencies that arise between the rollout (inference) engine and the training engine. Even when utilizing identical model weights, these engines often produce divergent log-probabilities for the same token sequence. In this post, we analyze the root causes of this divergence and present Miles' dual-approach solution.
 
-For those seeking absolute correctness, we offer a [Truly On Policy mode](https://github.com/THUDM/slime/blob/main/examples/true_on_policy/README.md) that achieves bitwise-exact alignment between SGLang and FSDP. For those prioritizing throughput, we provide Algorithmic Mitigation strategies, such as [Masked Importance Sampling (MIS)](https://richardli.xyz/rl-collapse-3). Our experiments demonstrate that MIS effectively suppresses mismatch growth during late-stage training while preserving high performance, making it a robust default for RL practitioners.
+For those seeking absolute correctness, we offer a [Truly On Policy mode](https://github.com/radixark/Miles/blob/main/examples/true_on_policy/README.md) that achieves bitwise-exact alignment between SGLang and FSDP. For those prioritizing throughput, we provide Algorithmic Mitigation strategies, such as [Masked Importance Sampling (MIS)](https://richardli.xyz/rl-collapse-3) and [Truncated Importance Sampling (TIS)](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33). Our experiments demonstrate that MIS effectively suppresses mismatch growth during late-stage training while preserving high performance, making it a robust default for RL practitioners.
 
 ## What is Training Inference Mismatch?
 
@@ -14,13 +14,13 @@ For those seeking absolute correctness, we offer a [Truly On Policy mode](https:
 
 Training-Inference Mismatch refers to the numerical inconsistency between the rollout (inference) engine and the training engine. Even when both engines utilize identical model weights, they often produce slightly different log-probabilities for the same token sequence. This divergence stems from infrastructure-level variances, such as differing CUDA kernels, batch sizes, expert selection logic, and reduction orders (see Thinking Machine Lab [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
 
-> While it is widely claimed that training-inference mismatch can trigger RL collapse, we have not encountered this issue in practice, even during the post-training of frontier models like GLM 4.6.
+> ⚠️ While it is widely claimed that training-inference mismatch can trigger RL collapse, we have not encountered this issue in practice, even during the post-training of frontier models like GLM 4.6.
 
 To quantify this discrepancy, we use the K3 KL divergence (see [Reference 8](http://joschu.net/blog/kl-approx.html) for details). In dense models, K3 KL typically ranges from $10^{-5}$ to $10^{-3}$, while in Mixture-of-Experts (MoE) models, it increases to between $10^{-3}$ and $10^{-1}$. Although this mismatch is often minor, it technically introduces an off-policy effect: the policy used for sampling is not strictly identical to the one used for loss computation. In complex scenarios, such as multi-turn agent tasks, existing literature suggests that these small discrepancies can accumulate over time, potentially destabilizing or collapsing the training process (e.g., [blog 1](https://richardli.xyz/rl-collapse) and [blog 2](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
 
 Miles treats this mismatch as a non-negligible aspect of RL system design. Users can choose to eliminate it entirely for correctness or mitigate it for efficiency.
 
-⚠️ Call for Collaboration: Miles has proven remarkably resilient to mismatch across various scales. We attempted to force a baseline collapse but were unsuccessful. If you are aware of open-source RL tasks that reproducibly collapse due to mismatch on a single node, please reach out to us.
+> ⚠️ Call for Collaboration: Miles has proven remarkably resilient to mismatch across various scales. We attempted to force a baseline collapse but were unsuccessful. If you are aware of open-source RL tasks that reproducibly collapse due to mismatch on a single node, please reach out to us.
 
 ## Why Training and Inference Can Be Different
 
@@ -292,7 +292,7 @@ To prevent extreme importance weights from destabilizing training and to enforce
 3. Veto Mechanism
 
 This acts as a low-level safety net independent of IS/RS settings.
-- Mechanism: If a sequence contains any token with a probability lower than the veto threshold (e.g., \(p < 10^{-6}\)) under the old policy, the entire sequence is discarded.
+- Mechanism: If a sequence contains any token with a probability lower than the veto threshold (e.g., $p < 10^{-6}$) under the old policy, the entire sequence is discarded.
 - Why it's needed: It prevents "catastrophic updates." Even if clipped, a token with near-zero probability in the denominator can introduce numerical instability or destructive gradients.
 
 4. Self-Normalization
@@ -303,16 +303,16 @@ This acts as a low-level safety net independent of IS/RS settings.
 
 ## More Mismatch-Solving Features
 
-- In upstream slime, you can also find additional mismatch-related tooling, for example:
+In upstream Miles, you can also find additional mismatch-related tooling, for example:
   - Unbiased KL estimation from Deepseek V3.2: [Link](https://github.com/THUDM/slime/pull/1004)
   - Rollout routing replay: [Link](https://github.com/THUDM/slime/pull/715)
-  - Truly On Policy training for VLMs: [Link](https://github.com/THUDM/slime/tree/main/examples/true_on_policy_vlm)
+  - Truly On Policy training for VLMs: [Link](https://github.com/radixark/Miles/tree/main/examples/true_on_policy_vlm)
 
-Any mismatch solving tool can be found in Miles (or its upstream slime)!
+Any mismatch solving tool can be found in Miles (or its upstream Miles)!
 
 ## Acknowledgments
 
-Bytedance Inc: Yingru Li, Jiacai Liu, Yuxuan Tong, Hongyu Lu, Ziheng Jiang
+Bytedance Inc: Yingru Li, Jiacai Liu, Yuxuan Tong, Qian Liu, Hongyu Lu, Ziheng Jiang
 
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 

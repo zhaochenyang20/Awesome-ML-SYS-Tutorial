@@ -1,8 +1,10 @@
 # 让速度与精度同在：全面解决 RL 中的训推不一致问题
 
-> TL;DR：本文介绍了 slime 框架对训推不一致问题提供的两种解决方案：通过 kernel 层面对齐实现完美的 Truly On Policy 训练，以及基于 TIS/MIS 等算法来缓解训推不一致的影响。尽管 slime 的 RL 训练从未因为训推不一致而崩溃，我们仍然为了研究和社区的训练需求，为大家提供最强大的解决方案。
+> TL;DR：我们系统性研究了 LLM-RL 中的“训练-推理不匹配"问题——一种由 Rollout 引擎与训练引擎之间的数值不一致所导致的、可能威胁训练稳定性的现象。我们介绍了 slime 框架中实现的两种全面解决方案：Truly On Policy 训练（通过后端对齐实现比特级精度）和算法缓解（通过 TIS/MIS 进行修正）。尽管 slime 在实践中表现出色且稳定，我们仍然为更广泛的 RL 社区提供这些强大的工具，以确保正确性和效率。
 
-训练-推理不匹配是指 Rollout（推理）引擎与训练引擎之间存在的数值不一致，这可能会破坏R的稳定性。在本文中，我们分析了这种不匹配产生的原因，并介绍了 Slime 提供的两种解决方案。对于追求绝对正确性的用户，我们提供了 Truly On Policy 模式，实现了 SGLang 与 FSDP 之间的比特级对齐；对于更看重效率的用户，我们提供了如掩码重要性采样（MIS）等算法缓解方案。我们的实验表明，MIS 能有效抑制训练后期的不匹配增长，同时不影响模型performance，推荐作为默认设置开启。
+训练-推理不匹配是指 Rollout（推理）引擎与训练引擎之间存在的数值不一致。即使使用相同的模型权重，这些引擎也经常为相同的 Token 序列产生不同的对数概率。在本文中，我们分析了这种差异的根本原因，并介绍了 slime 的双重方法解决方案。
+
+对于追求绝对正确性的用户，我们提供了 [Truly On Policy 模式](https://github.com/THUDM/slime/blob/main/examples/true_on_policy/README.md)，实现了 SGLang 与 FSDP 之间的比特级对齐。对于更看重吞吐量的用户，我们提供了算法缓解策略，如[掩码重要性采样（MIS）](https://richardli.xyz/rl-collapse-3)和[截断式重要性采样（TIS）](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)。我们的实验表明，MIS 能有效抑制训练后期的不匹配增长，同时保持高性能，使其成为 RL 实践者的稳健默认选择。
 
 ## 什么是训推不一致？
 
@@ -10,19 +12,19 @@
   <img src="pics/training-inference-mismatch.png" alt="Training Inference Mismatch" width="50%">
 </div>
 
-在本文中，训推不一致指的是 Rollout 引擎与 Training 引擎之间存在的数值不一致性。即使两个引擎使用完全相同的模型权重，针对相同的 Token 序列，它们计算出的 log-probabilities 也可能存在细微差异。造成这种情况的原因在于，Rollout 和 Training 引擎通常使用不同的算子、不同的批次大小（Batch Size）、不同的专家激活策略以及不同的归约顺序（Reduction Order）。（部分原因可参考 Thinking Machine Lab 的[这篇博客](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)）。
+训推不一致指的是 Rollout（推理）引擎与训练引擎之间存在的数值不一致性。即使两个引擎使用完全相同的模型权重，针对相同的 Token 序列，它们计算出的对数概率也可能存在细微差异。这种差异源于基础设施层面的变化，例如不同的 CUDA 算子、批次大小、专家选择逻辑以及归约顺序（参见 Thinking Machine Lab 的[博客](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)）。
 
-> 业界仍在激烈地争论，训推不一致是否会导致 RL 训练崩溃（Collapse）。但坦率地说，即使在像 GLM 4.6 模型的 Post-training 阶段，slime 的 RL 训练也从未遇到过这种情况。
+> 虽然广泛声称训练-推理不匹配可能引发 RL 崩溃，但我们在实践中并未遇到此问题，即使在像 GLM 4.6 这样的前沿模型的 post-training 阶段也是如此。
 
-我们使用 K3 KL 散度来衡量 Rollout 阶段与训练阶段所使用的对数概率之间的差异（详见附录）。在 Dense 模型中，K3 KL 通常在 1e-5 到 1e-3 之间；而在混合专家（MoE）模型中，K3 KL 通常在 1e-3 到 1e-1 之间。尽管这种不匹配看起来并不总是非常显著，但它引入了一种微妙的 'off-policy' 效应：采样时使用的策略与计算损失时使用的策略并不完全相同。在诸如多轮对话 Agent 等复杂任务上，据说这种微小的差异有时会随时间累积，最终破坏整个训练过程的稳定性，甚至可能导致崩溃（至少导致了其他框架崩溃，具体可以参考[博客 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)和[博客 2](https://richardli.xyz/rl-collapse-3)）。
+为了量化这种差异，我们使用 K3 KL 散度（详见[参考文献 8](http://joschu.net/blog/kl-approx.html)）。在 Dense 模型中，K3 KL 通常在 $10^{-5}$ 到 $10^{-3}$ 之间；而在混合专家（MoE）模型中，K3 KL 通常在 $10^{-3}$ 到 $10^{-1}$ 之间。尽管这种不匹配通常很小，但从技术上讲，它引入了异策略（off-policy）效应：用于采样的策略与用于损失计算的策略并不严格相同。在复杂场景中，例如多轮 Agent 任务，现有文献表明这些微小的差异可能会随时间累积，可能破坏训练稳定性或导致崩溃（例如[博客 1](https://richardli.xyz/rl-collapse)和[博客 2](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)）。
 
-从这些角度来看，训推不一致应当被视为 RL 系统中一个不可忽视的问题。用户可以选择彻底消除它以确保正确性，或者采取缓解措施以兼顾效率。为了同时满足这两种需求，slime 提供了两种解决方案，允许用户根据自身系统的需求进行权衡选择。
+slime 将这种不匹配视为 RL 系统设计中不可忽视的一个方面。用户可以选择彻底消除它以确保正确性，或者采取缓解措施以兼顾效率。
 
-⚠️ 如同我们说过的，在各种规模的实验中，slime 对于训推不一致问题表现得非常稳定。我们花了超过一个月的时间，试图找出一个因不匹配而崩溃的 baseline，但始终未能如愿。如果您知道任何开源的 RL 任务会因为不匹配增加而在若干步后崩溃，并且能在单节点上复现，欢迎随时联系我们。
+⚠️ 注：slime 在各种规模的任务中，即便存在训推不一致，其稳定性都相当出色。我们花费了大量时间和算力来寻找能够让 slime 因为训推不一致而崩溃的任务，但未能成功。如果您知道任何开源 RL 任务因不匹配而在单节点上可复现地崩溃，请随时联系我们。
 
 ## 为什么训练和推理结果会不同？
 
-原因多种多样。例如，当批次较小时，算子可能会使用分割归约（Split-reduction）优化，这种优化会根据输入大小改变归约顺序。由于浮点运算不满足结合律，不同的累加顺序会引入数值差异。每个 Tensor Core 指令在内部执行归约时，顺序也可能不同。（感谢 Thinking Machine Lab 的[博客](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)提供的详细解释）。
+原因多种多样，我们倾向于认为根本原因是浮点加法不满足结合律。例如，当批次较小时，算子可能会使用分割归约（Split-reduction）优化，这种优化会根据输入大小改变归约顺序。由于浮点运算不满足结合律，不同的累加顺序会引入数值差异。每个 Tensor Core 指令在内部执行归约时，顺序也可能不同（参考：Thinking Machine Lab 的[博客](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)）。
 
 因此，即使在 SGLang 中，使用不同的批次大小对同一样本进行多次推理，也可能产生略微不同的数值输出。此外，Rollout 和 Training 在 RL 中的负载特征截然不同：Rollout 是decode process, 一次生成一个 Token，涉及的有效矩阵计算极小；而 Training 则是 prefill process, 大批量处理完整序列。这种矩阵形状的巨大差异导致框架之间选择不同的 GPU 算子，进一步放大了 Rollout 与 Training 之间的不匹配。
 
@@ -31,7 +33,9 @@
 鉴于训推不一致的存在及其成因，我们提出两种解决方案：
 
 1.  **Truly On Policy**：我们将 Rollout 和 Training 之间的每一个算子后端都进行对齐，确保 Rollout 的对数概率与 Training 的对数概率在比特级上完全一致。这实现了训推 KL = 0，从而提供 100% 真正的同策略（Truly On Policy）行为。
-2.  **算法修正**：强制在 Rollout 和 Training 中使用完全对齐的算子会对 efficiency 有不可忽视的影响。而 RL 社区的研究者们提出了算法修正方案，将 Rollout 的对数概率视为 Behavior Policy，并利用 Importance Sampling 或 Rejection Sampling 来进行异策略 Rollout 的修正。
+2.  **算法修正**：强制在 Rollout 和 Training 中使用完全对齐的算子会对效率产生一定影响。因此，我们将 Rollout 的对数概率视为权威的行为策略，并使用重要性采样或拒绝采样来进行异策略 Rollout 修正。
+
+我们为社区提供这些选项，并尽力使 RL 训练更加稳定和可调试。
 
 ## 完美的 Truly On Policy 训练
 
@@ -139,9 +143,9 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 在标准重要性采样中，每个批次的平均 Importance Ratio 可能会因采样数据在行为策略下是“高概率”还是“低概率”而剧烈波动，导致有效学习率震荡，破坏训练稳定性。对权重进行自归一化（使其均值始终为 1）可以保持更新步长的一致性，并大幅降低批次间的方差。由于这种归一化已经抑制了方差，我们可以放宽 Clip 或 Mask 的阈值，从而减少它们引入的偏差。随着批次增大，仅靠自归一化就能使估计器既稳定又近乎无偏，无需依赖激进的截断操作。
 
-### Masked / Rejection Importance Sampling
+### Masked Importance Sampling
 
-除了基于裁剪的重要性采样外，我们还提供了**掩码（Masking）**和**拒绝采样（Rejection Sampling, RS）**，作为应对训推不匹配的更强力保障。当 Rollout 引擎为某个采样 Token 分配的概率极低时，Importance Ratio 可能会增长到不安全的数量级 (比如 1e12)。即使经过裁剪，这类情况仍可能向训练中注入错误的梯度。RS 通过在比率超过预设信任阈值时直接丢弃这些 Token（必要时甚至丢弃整个序列）来彻底规避此问题，防止有害更新生效。
+除了基于裁剪的重要性采样外，我们还提供了**掩码（Masking）**和**拒绝采样（Rejection Sampling, RS）**，作为应对训推不匹配的更强力保障。当 Rollout 引擎为某个采样 Token 分配的概率极低时，Importance Ratio 可能会增长到不安全的数量级（例如 1e12）。即使经过裁剪，这类情况仍可能向训练中注入错误的梯度。RS 通过在比率超过预设信任阈值时直接丢弃这些 Token（必要时甚至丢弃整个序列）来彻底规避此问题，防止有害更新生效。
 
 这种机制强制执行了一个更有原则的信任域（Trust Region）：如果采样的行为偏离近端策略太远，我们干脆不从该样本中学习。这保证了所有有效的训练数据都与假设的 Rollout 分布保持一致，并在不匹配变得极端时保护优化过程免于崩溃。
 
@@ -151,10 +155,11 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 
 ## 实验
 
-在介绍实验之前，有必要讨论为什么这半年才逐渐有人讨论训推不一致问题。事实上，很长一段时间，RL 社区都没有获取到正确的 Rollout 引擎产出的对数概率。确切来说，我们需要得到在 Rollout Engine 侧，用于最终实际采样的 log probs，这可能进过了各种 sampling parameters 的调整。而先前，RL 社区长期误用了 rollout engine 未经 sampling parameters 调整的 log probs。没能获取到正确的 sampling parameters 的 log probs，让训推不一致的问题一直潜伏在 RL 训练中，直到最近才逐渐被发现。
+在介绍实验之前，有必要讨论为什么训练-推理不匹配直到最近才成为广泛讨论的话题。很长一段时间，RL 社区都没有获取到*正确的* Rollout 引擎对数概率（log probs）——具体来说，是应用各种采样参数后实际采样 Token 对应的对数概率。历史上，许多流程错误地使用了 Rollout 引擎的原始（在 sampling parameters 作用前的）对数概率。这一缺失使得不匹配问题在 RL 训练中悄然存在，直到最近才被系统地发现和研究。
 
 即便如此，为了获得用于最终实际采样的 log probs，意味着不允许对模型输出进行任何后处理（Post-processing），否则采样得到的 sequence 可能会出现某些 token 没有对应 log probs 的情况。遗憾的是，许多现有的 Agent 基线确实依赖一些轻量级的后处理，如修剪、移除前缀或补全部分响应。这些操作在经典 Agent 示例中很常见，但它们会使 Importance Sampling 无法正确进行。例如：
 
+例如：
 - Search-R1 在响应中执行后处理：[链接](https://github.com/PeterGriffinJin/Search-R1/blob/main/search_r1/llm_agent/generation.py#L54)
 - Retool 也是如此：[链接](https://github.com/THUDM/slime/blob/main/examples/retool/generate_with_retool.py#L147)
 
@@ -218,9 +223,7 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
 - **True On-Policy (FSDP)**：[链接](https://github.com/THUDM/slime/tree/main/examples/true_on_policy)
 - **算法不匹配修正 (Megatron)**：[链接](https://github.com/THUDM/slime/tree/main/examples/train_infer_mismatch_helper)
 
-如果您的目标是完全消除训推不匹配，我们推荐使用**True-On Policy**解决方案，我们接下来也会做出更多关于 True On Policy 的探索。
-
-如果您倾向于在缓解不匹配的同时保持高性能，像 MIS 这样的**算法缓解**是一个轻量级且有效的选择。
+如果您的目标是完全消除训推不匹配，我们推荐使用 **Truly On Policy** 解决方案，我们接下来也会做出更多关于 Truly On Policy 的探索。如果您倾向于在缓解不匹配的同时保持高性能，像 [MIS](https://richardli.xyz/rl-collapse-3) 这样的**算法修正**是一个轻量级且有效的选择。
 
 以下是可用选项的简要概述。
 
@@ -269,20 +272,25 @@ CUSTOM_ARGS=(
   - 使用所有 Token 权重的几何平均值作为序列权重。
   - 特点：一种折衷方案。它保留了序列级信息，同时避免了乘积方法的数值不稳定性，在偏差和方差之间取得平衡。对于长上下文任务，它还提供了一定的长度不变性（length-invariant）属性。
 
-2. 拒绝采样与掩码（Rejection Sampling & Masking）
+2. 重要性权重约束与信任域（Importance Weight Constraints & Trust Regions）
 
-为了防止极端的重要性权重破坏训练稳定性并强制执行硬信任域，我们对权重施加约束。
+为了防止极端的重要性权重破坏训练稳定性并强制执行硬信任域，我们对权重施加特定约束。
+
 - **IS Mode（重要性采样模式）**
-  - `--tis-mode`：选项包括 `clip`（裁剪）或 `truncate`（截断）。这将强制权重保持在 `[lower_bound, upper_bound]` 范围内。
-- **RS Mode（拒绝采样模式）**
-  - `--use-rs`：RS 不限制权重，而是直接mask（丢弃）落在阈值之外的 Token 或序列。这确保了有效数据的梯度纯度，但会减少有效的训练样本量。
+  - `--tis-mode`：策略包括 `clip`（裁剪）或 `truncate`（截断）。这将约束重要性权重保持在 $[lower\_bound, upper\_bound]$ 范围内，以缓解高方差。
 
-MIS 的工作引入了不同层级的 IS 和 RS 组合。
+- **RS Mode（拒绝采样模式）**
+  - `--use-rs`：RS 不裁剪权重，而是严格丢弃落在指定阈值之外的 Token 或序列。虽然这会减少有效样本量，但它确保梯度更新仅使用信任域内的数据计算（"梯度纯度"）。
+
+- **Mask Mode（掩码模式）**
+  - `--use-mask`：此模式对落在阈值之外的 Token 或序列在梯度更新时应用掩码。与 RS 不同，这保留了原始批次结构（和名义样本量），同时有效地将无效数据的梯度贡献置零。
+
+[MIS](https://richardli.xyz/rl-collapse-3) 引入了不同层级的 IS 和 RS/掩码组合。
 
 3. 否决机制（Veto Mechanism）
 
 这是独立于 IS/RS 设置的底层安全网。
-- **机制**：如果序列中包含任何在旧策略下概率低于否决阈值（例如 $$p < 10^{-6}$$）的 Token，则丢弃整个序列。
+- **机制**：如果序列中包含任何在旧策略下概率低于否决阈值（例如 $p < 10^{-6}$）的 Token，则丢弃整个序列。
 - **必要性**：防止“灾难性更新”。即使经过裁剪，分母中接近零概率的 Token 也可能引入数值不稳定性或破坏性梯度。
 
 4. 自归一化（Self-Normalization）
@@ -293,15 +301,17 @@ MIS 的工作引入了不同层级的 IS 和 RS 组合。
 
 ## 更多关于不匹配解决的功能
 
-- slime 还支持来自 Deepseek V3.2 的无偏 KL 估计：[链接](https://github.com/THUDM/slime/pull/1004)
-- slime 还支持 Rollout 路由回放（Rollout Routing Replay）：[链接](https://github.com/THUDM/slime/pull/715)
-- slime 甚至还支持 VLM 的 True On Policy 训练：[链接](https://github.com/THUDM/slime/tree/main/examples/true_on_policy_vlm)
+在 slime 中，您还可以找到其他与不匹配相关的工具，例如：
+
+- 来自 Deepseek V3.2 的无偏 KL 估计：[链接](https://github.com/THUDM/slime/pull/1004)
+- Rollout 路由回放（Rollout Routing Replay）：[链接](https://github.com/THUDM/slime/pull/715)
+- VLM 的 Truly On Policy 训练：[链接](https://github.com/THUDM/slime/tree/main/examples/true_on_policy_vlm)
 
 任何不匹配解决工具都能在 slime 中找到！
 
 ## 致谢
 
-字节跳动：Yingru Li, Jiacai Liu, Ziheng Jiang, Qian Liu, Hongyu Lu, Yuxuan Tong
+字节跳动：Yingru Li, Jiacai Liu, Yuxuan Tong, Qian Liu, Hongyu Lu, Ziheng Jiang
 
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 
@@ -315,9 +325,11 @@ RadixArk: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
   - Part 1: Why Off-Policy Breaks RL — An SGA Analysis Framework [blog](https://richardli.xyz/rl-collapse-1)
   - Part 2: Applying the SGA Framework — Token v.s. Sequence-level Correction [blog](https://richardli.xyz/rl-collapse-2)
   - Part 3: Trust Region Optimization via Sequence Masking [blog](https://richardli.xyz/rl-collapse-3)
+  - Mathematical Formulations of Rollout Correction Methods [docs](https://verl.readthedocs.io/en/latest/algo/rollout_corr_math.html)
 2. Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
 3. Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
 4. Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
 5. Small Leak Can Sink a Great Ship—Boost RL Training on MoE with 𝑰𝒄𝒆𝑷𝒐𝒑! [blog](https://ringtech.notion.site/icepop)
 6. Batch size-invariance for policy optimization [link](https://arxiv.org/abs/2110.00641)
 7. AReaL: A Large-Scale Asynchronous Reinforcement Learning System for Language Reasoning [link](https://arxiv.org/abs/2505.24298)
+8. [K3 KL-Definition](http://joschu.net/blog/kl-approx.html): $ k_3(x) = \frac{p(x)}{q(x)} - 1 - \log \frac{p(x)}{q(x)}$
