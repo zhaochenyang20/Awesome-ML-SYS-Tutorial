@@ -14,7 +14,7 @@ Training Inference Mismatch, in this post, refers to the numerical inconsistency
 
 > It is widely said that training inference mismatch could lead to RL collapse. But to be honest, we never encounter this even in the post-training of the frontier model like GLM 4.6.
 
-We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (at least some frameworks collapsed, see [blog 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33) and [blog 2](https://richardli.xyz/rl-collapse-3)).
+We use K3 KL to measure the discrepancy between the log probs used in rollout and those used in training (see Appendix for details). In dense models, K3 KL is usually between 1e-5 and 1e-3; in MoE models, K3 KL is usually between 1e-3 and 1e-1. Even though this mismatch is not always significant, it still introduces a subtle off-policy effect: the policy used for sampling is not exactly the same as the one used for computing loss. On difficult tasks, such as multi-turn agents, it is said that this small discrepancy could sometimes accumulate over time and eventually destabilize or even collapse the entire training process (at least some frameworks collapsed, see [blog 1](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33) and [blog 2](https://richardli.xyz/rl-collapse)).
 
 In all these senses, the Training Inference Mismatch should be treated as a non-negligible issue of an RL system. Users may choose to eliminate entirely for correctness, or mitigate for efficiency. To support both needs, Miles provides two solutions, allowing users to choose the trade-offs that best match their system requirements.
 
@@ -141,7 +141,7 @@ In standard importance sampling, the average weight of each batch can vary drama
 
 Because this normalization already suppresses variance, we can relax clipping or masking thresholds and therefore reduce the bias they introduce. As the batch size grows large, self-normalization alone can make the estimator both stable and nearly unbiased, without relying on aggressive truncation.
 
-### Masked / Rejection Importance Sampling
+### Masked Importance Sampling
 
 In addition to clipping-based importance sampling, we provide masking and rejection sampling (RS) as a stronger safeguard against training-inference mismatch. When the rollout engine assigns extremely low probability to a sampled token, the importance ratio can grow to an unsafe magnitude (i.e. 1e12). Even if clipped, such cases still inject incorrect gradients into training. RS avoids this issue entirely by discarding those tokens—or the entire sequence, if necessary—when the ratio exceeds a preset trust threshold, preventing harmful updates from taking effect.
 
@@ -199,8 +199,8 @@ Below are the four configurations we evaluated:
 
 1. Baseline
 2. Token-level Importance Sampling(IS)
-3. Token-level IS + Masking/Rejection Sampling(RS) [a.k.a MIS]
-4. Token-level IS + Masking/Rejection Sampling(RS) + Batch Normalization(BN) [a.k.a MIS]
+3. Token-level IS + Sequence Masking/Rejection Sampling(RS) [a.k.a [MIS](https://richardli.xyz/rl-collapse-3)]
+4. Token-level IS + Sequence Masking/Rejection Sampling(RS) + Batch Normalization(BN) [a.k.a [MIS](https://richardli.xyz/rl-collapse-3)]
 
 Across all settings, we consistently observed stable training curves. All four configurations successfully reproduced the characteristic length increase after ~100 steps, indicating that enabling IS does not negatively impact the learning dynamics. Based on these results, we recommend enabling IS as a default configuration, as it provides mismatch correction without sacrificing performance.
 
@@ -224,7 +224,7 @@ For more details, we provide complete guides and runnable examples:
 
 If your goal is to fully eliminate the rollout–training mismatch, we recommend the Truly On Policy solution.
 
-If you prefer to retain high performance while mitigating mismatch, algorithmic correction such as MIS is a lightweight and effective choice.
+If you prefer to retain high performance while mitigating mismatch, algorithmic correction such as [MIS](https://richardli.xyz/rl-collapse-3) is a lightweight and effective choice.
 
 Below is a brief overview of the available options.
 
@@ -279,8 +279,10 @@ To prevent extreme importance weights from destabilizing training and enforce a 
   - `--tis-mode`: Options include `clip` or `truncate`. This forces weights to stay within the `[lower_bound, upper_bound]` range.
 - **RS Mode (Rejection Sampling)**
   - `--use-rs`: Instead of capping weights, RS directly masks (drops) tokens or sequences that fall outside the threshold. This ensures gradient purity for valid data but reduces the effective training sample size.
+- **Mask Mode (Masking)**
+  - `--use-mask`: Mask mode masks tokens or sequences that fall outside the threshold. This ensures gradient purity for valid data and keep the effective training sample size.
 
-MIS introduces combinations of IS and RS at different levels.
+[MIS](https://richardli.xyz/rl-collapse-3) introduces combinations of IS and RS/Masking at different levels.
 
 3. Veto Mechanism
 
@@ -305,7 +307,7 @@ Any mismatch solving tool can be found in Miles (or its upstream slime)!
 
 ## Acknowledgments
 
-Bytedance Inc: Yingru Li, Jiacai Liu, Ziheng Jiang, Qian Liu, Hongyu Lu, Yuxuan Tong
+Bytedance Inc: Yingru Li, Jiacai Liu, Yuxuan Tong, Hongyu Lu, Ziheng Jiang
 
 SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
 
@@ -319,6 +321,7 @@ We sincerely thanks Qiwei Di, Xuheng Li, Heyang Zhao and Prof. Quanquan Gu from 
   - Part 1: Why Off-Policy Breaks RL — An SGA Analysis Framework [blog](https://richardli.xyz/rl-collapse-1)
   - Part 2: Applying the SGA Framework — Token v.s. Sequence-level Correction [blog](https://richardli.xyz/rl-collapse-2)
   - Part 3: Trust Region Optimization via Sequence Masking [blog](https://richardli.xyz/rl-collapse-3)
+  - Mathematical Formulations of Rollout Correction Methods [docs](https://verl.readthedocs.io/en/latest/algo/rollout_corr_math.html)
 2. Your Efficient RL Framework Secretly Brings You Off-Policy RL Training [blog](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)
 3. Simple statistical gradient-following algorithms for connectionist reinforcement learning. [link](https://link.springer.com/article/10.1007/BF00992696)
 4. Defeating Nondeterminism in LLM Inference [blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)
