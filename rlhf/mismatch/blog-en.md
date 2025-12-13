@@ -183,7 +183,12 @@ We first confirm that as the training goes on, the K3 KL will increase. Our sett
   <img src="pics/mismatch-existence.png" alt="Existence of Mismatch" width="50%">
 </div>
 
-You can see in the initial step of training, as the model learns and perplexity drops, mis k3 kl actually drops. But after 600 steps, although the train and eval reward remains stable, the mis K3 KL metrics start to increase dramatically, indicating the existence of training and rollout mismatch. [TODO: add reward curves here to show training is not collapsing—KL alone is not fully convincing.]
+<p align="center">
+  <img src="pics/base-eval.png" width="45%" />
+  <img src="pics/base-reward.png" width="45%" />
+</p>
+
+You can see in the initial step of training, as the model learns and perplexity drops, mis k3 kl actually drops. But after 600 steps, although the train and eval reward remains stable, the mis K3 KL metrics start to increase dramatically, indicating the existence of training and rollout mismatch.
 
 ### IS Won't Harm Performance
 
