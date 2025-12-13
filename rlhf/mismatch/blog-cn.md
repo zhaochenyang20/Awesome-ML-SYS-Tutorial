@@ -302,10 +302,12 @@ MIS 的工作引入了不同层级的 IS 和 RS 组合。
 ## 致谢
 
 字节跳动：Yingru Li, Jiacai Liu, Ziheng Jiang, Qian Liu, Hongyu Lu, Yuxuan Tong
-SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
-Miles Team: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
 
-我们真诚感谢 UCLA 的 Qiwei Di 和 Quanquan Gu 老师，以及 Thinking Machines Lab 的 Liyuan Liu 和 Feng Yao 对我们的宝贵建议和讨论。
+SGLang RL Team: Changyi Yang, Chenxing Xie, Zilin Zhu, Ji Li, Yuzhen Zhou
+
+RadixArk: Chenyang Zhao, Yueming Yuan, Jiajun Li, Banghua Zhu, Tom, Yusheng Su
+
+我们真诚感谢 UCLA 的 Qiwei Di, Xuheng Li, Heyang Zhao 和 Quanquan Gu 老师，以及 Thinking Machines Lab 的 Liyuan Liu 和 Feng Yao 对我们的宝贵建议和讨论。
 
 ## 参考文献
 
