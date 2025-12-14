@@ -2,7 +2,7 @@
 
 ## [English README](./README.md) | [简体中文](./README-cn.md)
 
-My learning notes/codes for ML SYS.
+My learning notes for ML SYS.
 
 断断续续写这个系列的博客一年多了，这个博客也几乎快要写成 RL Infra Learning Note 了 😂
 
