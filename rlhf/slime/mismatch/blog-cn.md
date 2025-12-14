@@ -2,6 +2,18 @@
 
 > TL;DR：我们系统性研究了 LLM-RL 中的“训练-推理不匹配"问题——一种由 Rollout 引擎与训练引擎之间的数值不一致所导致的、可能威胁训练稳定性的现象。我们介绍了 slime 框架中实现的两种全面解决方案：Truly On Policy 训练（通过后端对齐实现比特级精度）和算法缓解（通过 TIS/MIS 进行修正）。尽管 slime 在实践中表现出色且稳定，我们仍然为更广泛的 RL 社区提供这些强大的工具，以确保正确性和效率。
 
+大家好，SGLang RL Team 近期已经在 slime 上进行了多项 RL 训练稳定性与加速的探索与工作，包括：
+
+- [完美对齐 SGLang 与 FSDP 的精度](https://github.com/THUDM/slime/tree/main/examples/true_on_policy)：实现了 Rollout 与 Training 过程 **KL 散度严格为零**，达成了完美的训推一致。
+
+- [将 Speculative Decoding 引入 RL 采样流程](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/slime/spec/readme-en.md)：在 batch size 合适的情况下，显著提升了采样速度。
+
+- [在 RL 中完全使用 FP8 进行采样（Rollout）和训练（Training）](https://github.com/THUDM/slime/tree/main/examples/low_precision)：缓解了量化误差导致的训推不一致性，提升了 RL 训练的效率、资源消耗和吞吐量。
+
+- [为 slime 新增 FSDP2作为灵活的训练后端](https://lmsys.org/blog/2025-12-03-miles-fsdp/)：为 slime 添加了 FSDP2 作为训练后端以支持架构灵活的前沿模型，并与 Megatron 完成分数对齐。
+
+我们在本文中进一步对上述第一篇工作进行展开讨论，分享我们在实践过程中对训推不一致问题的理解，以及我们提出的解决方案。
+
 训练-推理不匹配是指 Rollout（推理）引擎与训练引擎之间存在的数值不一致。即使使用相同的模型权重，这些引擎也经常为相同的 Token 序列产生不同的对数概率。在本文中，我们分析了这种差异的根本原因，并介绍了 slime 的双重方法解决方案。
 
 对于追求绝对正确性的用户，我们提供了 [Truly On Policy 模式](https://github.com/THUDM/slime/blob/main/examples/true_on_policy/README.md)，实现了 SGLang 与 FSDP 之间的比特级对齐。对于更看重吞吐量的用户，我们提供了算法缓解策略，如[掩码重要性采样（MIS）](https://richardli.xyz/rl-collapse-3)和[截断式重要性采样（TIS）](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33)。我们的实验表明，MIS 能有效抑制训练后期的不匹配增长，同时保持高性能，使其成为 RL 实践者的稳健默认选择。

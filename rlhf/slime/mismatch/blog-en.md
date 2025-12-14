@@ -2,6 +2,19 @@
 
 > TL;DR: We investigate the "Training-Inference Mismatch" in LLM-RL--a phenomenon where numerical inconsistencies between rollout and training engines threaten stability. We introduce two comprehensive solutions implemented in Miles: Truly On Policy training (backend alignment for bitwise precision) and Algorithmic Mitigation (correction via TIS/MIS). While Miles demonstrates impressive stability in practice, we provide these robust tools to ensure correctness and efficiency for the broader RL community.
 
+The SGLang RL Team and the Miles community have recently conducted some interesting explorations around RL training stability and acceleration:
+
+- [Aligning the SGLang and FSDP backends for strictly zero KL divergence](https://github.com/radixark/miles/tree/main/examples/true_on_policy): achieving perfect train–inference consistency on dense models.
+
+- [Power Up Speculative Decoding into Reinforement Learning](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/slime/spec/readme-en.md): significantly speeding up sampling under suitable configurations.
+
+- [Unified FP8: Moving Beyond Mixed Precision for Stable and Accelerated MoE RL](https://lmsys.org/blog/2025-11-25-fp8-rl/): eliminating quantization error and improving both speed and stability of RL training.
+
+- [Support FSDP2 as A Flexible Training Backend for Miles](https://lmsys.org/blog/2025-12-03-miles-fsdp/): adding FSDP2 as a flexible training backend to support architecture-innovative models and align with Megatron.
+
+
+In this post, we further discuss the first work and share our understanding of the training-inference mismatch problem and our proposed solutions.
+
 "Training-Inference Mismatch" refers to the numerical inconsistencies that arise between the rollout (inference) engine and the training engine. Even when utilizing identical model weights, these engines often produce divergent log-probabilities for the same token sequence. In this post, we analyze the root causes of this divergence and present Miles' dual-approach solution.
 
 For those seeking absolute correctness, we offer a [Truly On Policy mode](https://github.com/radixark/Miles/blob/main/examples/true_on_policy/README.md) that achieves bitwise-exact alignment between SGLang and FSDP. For those prioritizing throughput, we provide Algorithmic Mitigation strategies, such as [Masked Importance Sampling (MIS)](https://richardli.xyz/rl-collapse-3) and [Truncated Importance Sampling (TIS)](https://fengyao.notion.site/off-policy-rl#279721e3f6c48092bbe2fcfe0e9c6b33). Our experiments demonstrate that MIS effectively suppresses mismatch growth during late-stage training while preserving high performance, making it a robust default for RL practitioners.
