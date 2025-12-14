@@ -62,6 +62,8 @@ slime 将这种不匹配视为 RL 系统设计中不可忽视的一个方面。�
 -   **Torch.compile()**：为了在启用 Truly On Policy 模式时提升效率，我们使用 `torch.compile` 来避免大量细碎算子的开销。部分操作（例如 RoPE）也经过编译加速。
 -   **数值对齐**：为了简化问题，我们还对齐了两个系统间的数值操作细节，例如算子数据类型（dtype）、具体的算子实现等。
 
+【TODO：补充 tom 之前 Truly On Policy 的实验结果，其实对着 https://github.com/THUDM/slime/tree/main/examples/true_on_policy，贴上图，总结实验效果就好了】
+
 ## 缓解训推不一致的修正算法
 
 <div align="center">
