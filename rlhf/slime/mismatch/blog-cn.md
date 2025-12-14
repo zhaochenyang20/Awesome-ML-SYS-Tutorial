@@ -243,6 +243,8 @@ $$\mathcal{L}_{\text{PPO-decoupled}}(\theta)
   <img src="pics/is-kl-suppression.png" alt="IS Can Supress KL Increase" width="50%">
 </div>
 
+⚠️：由于在学术界资源有限，目前我们的实验主要在小规模 dense model 上展开，得出的结论可能与大规模 MOE training 的结果有一定区别。请期待我们后续博客中与更多工业界伙伴的合作。
+
 ## 使用指南
 
 如果想要了解更多细节，我们提供了完整的指南和可运行的示例：

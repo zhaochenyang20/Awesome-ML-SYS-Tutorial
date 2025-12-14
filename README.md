@@ -33,6 +33,7 @@ $$
 - [Pending Review] [PPO 中 GAE 的分 chunk 并行计算（基于 slime 的实现）](./rlhf/slime/batch-GAE/ppo-gae-chunk.md)：将标准 GAE 的后向递推改写为基于 chunk 的并行前缀扫描，在长序列场景下大幅缓解 GAE 计算瓶颈，在 slime 中实现约 100×–300× 加速。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1975237289425798560)。
 
 ### AReal 框架
+
 - [AReal Code Walk Through](./rlhf/areal/code-walk-through_CN.md) AReal 源码赏析，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1983417813080236770)和[英文版本](./rlhf/areal/code-walk-through_EN.md)。
 
 

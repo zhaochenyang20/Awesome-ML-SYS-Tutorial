@@ -246,6 +246,8 @@ To test whether MIS (IS + RS + BN) works, we continue training on step 650, and 
   <img src="pics/is-kl-suppression.png" alt="IS Can Suppress KL Increase" width="50%">
 </div>
 
+⚠️: Due to limited resources and time in academia, our experiments are primarily conducted on small-scale dense models, and the conclusions may differ from those of large-scale MOE training. Please look forward to our future blogs with collaboration across more industrial partners.
+
 ## Usage
 
 For more details, we provide complete guides and runnable examples:
