@@ -94,6 +94,10 @@ SGLang dLLM supports streaming output just like SGLang AR models: but it outputs
   <em>SGLang dLLM animation</em>
 </p>
 
+【TOOD： 有没有一个更直观的gif图片展示inference speed和样式什么的？比如原来那个gif可以分成两个，一个是spin up sglang server，然后是query sglang server以后生成回复很快？甚至可以把gptoss和100b这个inference speed对比一下？比如mercury之前就有个对比 】
+
+【TODO：能不能做那种 AR 和 DLLM 左右对比的】
+
 This figure is not accelerated, and the output speed is representative.
 
 ## Usage
