@@ -96,9 +96,9 @@ SGLang dLLM supports streaming output just like SGLang AR models: but it outputs
 
 This figure is not accelerated, and the output speed is representative.
 
-## How to Use
+## Usage
 
-### Example Launch Command
+### Launch Command Example
 
 ```shell
 python3 -m sglang.launch_server \
@@ -108,9 +108,10 @@ python3 -m sglang.launch_server \
   --host 0.0.0.0 \
   --port 30000
 ```
-> NOTE: Use `--dllm-algorithm-config` for advanced configuration of the selected `--dllm-algorithm`. This feature decouples configuration from code, enabling flexible customization and argument passing for user-defined algorithms via a unified entry point.
 
-### Example Client Code Snippet
+> ⚠️ **NOTE:** Use `--dllm-algorithm-config` for advanced configuration of the selected `--dllm-algorithm`. This feature decouples configuration from code, enabling flexible customization and argument passing for user-defined algorithms via a unified entry point.
+
+### Client Code Snippet Example
 
 Just like other supported models, dLLMs can be used via the REST API or offline engine API.
 
@@ -160,6 +161,7 @@ if __name__ == '__main__':
 ```
 
 ## Performance
+
 <p align="center">
   <img src="./pics/llada2_flash_main_bench-1.png" alt="LLaDA2.0-flash main results", width="50%">
   <br>
@@ -177,9 +179,11 @@ highly competitive, but also shows a promising trend of closing the performance 
   <em> LLaDA2.0-flash performance in SGLang. Average score and tokens-per-forward (TPF) for LLaDA2.0-flash with and without Confidence-Aware Parallel(CAP) training across 12 benchmarks. Inference speed (tokens per second) of LLaDA2.0-flash compared with similarly sized AR models on 4 code and math benchmarks</em>
 </p>
 
-We compared the average inference throughput (TPS) of LLaDA2.0-flash models against  AR baselines (Ling-flash-2.0 and Qwen3-30B-A3B-Instruct-2507) on HumanEval, MBPP, GSM8K, and CRUXEval. All models were served using **SGLang** for a fair comparison.
+We compared the average inference throughput (TPS) of LLaDA2.0-flash models against  AR baselines (Ling-flash-2.0 and Qwen3-30B-A3B-Instruct-2507) on HumanEval, MBPP, GSM8K, and CRUXEval. All models were served using SGLang for a fair comparison.
 
 With a 0.95 threshold decoder, LLaDA2.0-flash-CAP achieved 535 TPS, significantly outperforming standard LLaDA2.0-flash (383 TPS) and delivering up to a 2.1× speedup over AR baselines (256 TPS and 237 TPS). This demonstrates that **dLLMs can surpass AR models in inference speed within the SGLang framework.**
+
+【TODO：这里还是要补充下 setting】
 
 ## Roadmap
 
@@ -198,12 +202,15 @@ The current implementation fully supports the following critical serving feature
 
 ### Mid & Long-term Roadmaps
 
+【TODO：这里放上 roadmap 的 link 和 RFC link】
+
 - [ ] Support more system optimizations that autoregressive language models already have
 - [ ] Integrate additional common diffusion decoding strategies/algorithms (e.g, Fast-dLLM v2[2])
 - [ ] Add compatibility for non-block-wise dLLMs (e.g., LLaDA & RND1)
 
 
 ## Reference
+
 [0] LLaDA 1: [technique report](https://arxiv.org/pdf/2502.09992)
 
 [1] LLaDA 2: [technique report](https://github.com/inclusionAI/LLaDA2.0/blob/main/tech_report.pdf)
@@ -216,6 +223,3 @@ The current implementation fully supports the following critical serving feature
 - Ant Group inclusionAI Team: Kun Chen, Zenan Huang, Lin Liu, Fuyuan Chen, Lun Du, Da Zheng 
 - SGLang dLLM Team: [Jinwei Yao](https://kivi-yao.github.io/), [Mick Qian](https://github.com/mickqian), [Liangsheng Yin](https://www.lsyin.me/), [BBuf](https://github.com/BBuf), [Chenyang Zhao](https://zhaochenyang20.github.io/Chayenne/)
 - NVIDIA Fast-dLLM Team: [Chengyue Wu](https://hills-code.github.io/), [Hao Zhang](https://research.nvidia.com/person/hao-zhang), [Enze Xie](https://xieenze.github.io/), [Song Han](https://hanlab.mit.edu/songhan)
-
-## Learn more
-- [Roadmap for 2025-Q4 and 2026-Q1](https://github.com/sgl-project/sglang/issues/14199)
