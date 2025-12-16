@@ -1,4 +1,4 @@
-# Power Up Diffusion LLM in SGLang: Day0 Support for the 100B LLaDA2
+<!-- # Power Up Diffusion LLM in SGLang: Day0 Support for the 100B LLaDA2
 
 ## Preview
 
@@ -226,4 +226,4 @@ The current implementation fully supports the following critical serving feature
 - Ant Group DeepXPU Team: [Zehuan Li](https://github.com/Clawseven), [Tiwei Bie](https://github.com/btw616), Zhonghui Jiang, Yusong Gao, [Mingliang Gong](https://github.com/brightcoder01), Jianfeng Tan
 - Ant Group inclusionAI Team: Kun Chen, Zenan Huang, Lin Liu, Fuyuan Chen, Lun Du, Da Zheng 
 - SGLang dLLM Team: [Jinwei Yao](https://kivi-yao.github.io/), [Mick Qian](https://github.com/mickqian), [Liangsheng Yin](https://www.lsyin.me/), [BBuf](https://github.com/BBuf), [Chenyang Zhao](https://zhaochenyang20.github.io/Chayenne/)
-- NVIDIA Fast-dLLM Team: [Chengyue Wu](https://hills-code.github.io/), [Hao Zhang](https://research.nvidia.com/person/hao-zhang), [Enze Xie](https://xieenze.github.io/), [Song Han](https://hanlab.mit.edu/songhan)
+- NVIDIA Fast-dLLM Team: [Chengyue Wu](https://hills-code.github.io/), [Hao Zhang](https://research.nvidia.com/person/hao-zhang), [Enze Xie](https://xieenze.github.io/), [Song Han](https://hanlab.mit.edu/songhan) -->
