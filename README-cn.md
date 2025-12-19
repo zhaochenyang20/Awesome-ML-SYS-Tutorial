@@ -91,7 +91,7 @@ $$
 
 ### SGLang Diffusion 学习笔记
 
-- [Power Up Diffusion LLMs: Day‑0 Support for LLaDA 2.0](./sglang/diffusion-llm/readme.md)：介绍 SGLang 中支持 LLaDA2.0-flash-CAP 的实现，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1982441236066480797)和[英文版本](./sglang/diffusion-llm/readme-en.md)。
+- [基于 SGLang Chunked-Prefill 支持 Block-Wise Diffusion LLM](./sglang/diffusion-llm/readme.md)：介绍 SGLang 中支持 LLaDA2.0-flash-CAP 的实现，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1985516215326749534)和[英文版本](./sglang/diffusion-llm/readme-en.md)。
 - [SGLang Diffusion Code Walk Through](./sglang/code-walk-through/sgl_diffusion.md)：diffusion model 的基础原理，以及一个请求被 SGLang-Diffusion 处理的全过程，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1982441236066480797)和[英文版本](./sglang/code-walk-through/sgl_diffusion_en.md)。
 
 ### 核心架构与优化

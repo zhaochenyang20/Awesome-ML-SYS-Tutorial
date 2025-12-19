@@ -78,6 +78,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 
 ### SGLang Diffusion Learning Notes
 
+- [Power Up Diffusion LLMs: Day‑0 Support for LLaDA 2.0](./sglang/diffusion-llm/readme-en.md): Introduction to the implementation of LLaDA2.0-flash-CAP in SGLang. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1985516215326749534) and in [Chinese version](./sglang/diffusion-llm/readme.md).
 - [SGLang Diffusion Code Walk Through](./sglang/code-walk-through/sgl_diffusion_en.md): Basic principles of the diffusion model, and the entire process of a request being handled by SGLang-Diffusion. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1982441236066480797) and in [Chinese version](./sglang/code-walk-through/sgl_diffusion.md).
 
 ### Core Architecture and Optimization
