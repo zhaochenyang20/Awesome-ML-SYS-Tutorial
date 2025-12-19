@@ -4,7 +4,7 @@
 
 我们很高兴在 SGLang 中引入了扩散大语言模型（dLLM）框架的设计与实现。通过利用现有的分块预填充（Chunked-Prefill）机制，我们的系统实现了：
 
-- **无缝集成**：内置于 SGLang 生态系统中，无需更改核心架构。
+- **无缝集成**：内置 SGLang 框架，不改动核心架构。
 - **性能继承**：该框架受益于 SGLang 现有的推理优化技术。
 - **极高灵活性**：为用户定义和自定义扩散解码算法提供了充分的灵活性。
 
@@ -13,7 +13,7 @@
 
 今年早些时候，[LLaDA](https://arxiv.org/pdf/2502.09992) 的发布引起了学术界和工业界的广泛关注。中国人民大学与蚂蚁集团的研究者们证明了 dLLM 独特的执行范式同样具有卓越的数据理解能力。此外，与自回归（Auto-Regressive, AR）模型相比，dLLM 在低延迟场景（如极端小 Batch Size）下能够实现更快的推理速度。
 
-同时，随着 dLLM 参数规模的不断增长，我们也观察到了与 AR LLM 类似的 Scaling law。为了追求更强大的 dLLM，蚂蚁团队训练了拥有 100B 参数的 [LLaDA2.0-flash](https://github.com/inclusionAI/LLaDA2.0/blob/main/tech_report.pdf) 模型。在训练 LLaDA2.0-flash 的过程中，我们遇到了一系列严峻的 AI 基础设施工程挑战。其中最重要的挑战是模型评估和 RL 的效率与稳定性。
+同时，随着 dLLM 参数规模的不断增长，我们也观察到了与 AR LLM 类似的 Scaling law。为了追求更强大的 dLLM，蚂蚁团队训练了拥有 100B 参数的 [LLaDA2.0-flash](https://huggingface.co/papers/2512.15745) 模型。在训练 LLaDA2.0-flash 的过程中，我们遇到了一系列严峻的 AI 基础设施工程挑战。其中最重要的挑战是模型评估和 RL 的效率与稳定性。
 
 在 SGLang 支持 dLLM 之前，可用的 dLLM 推理引擎不足以支持大规模 dLLM 的评估和 RL 后训练需求。[Fast-dLLM](https://github.com/NVlabs/Fast-dLLM) 等框架是优秀的科研工具，更适合算法研究人员调试和验证各种扩散解码算法，但在提供生产级的服务能力（如 Batching、Scheduling、RL 生态集成和并行化）方面尚有欠缺。
 
@@ -23,25 +23,21 @@
 2.  **技术领先**：SGLang 自身集成了大量先进的推理优化技术，且社区不断涌现新的优化方案。
 3.  **生态完整**：与 RL 后训练生态集成度极高，特别是在分布式权重 GPU P2P 更新等领域。
 
-然而，在我们（蚂蚁集团与 SGLang dLLM 小组）的工作之前，SGLang 仅支持自回归计算范式，尚未适配 LLM 的扩散计算方法。
-因此，如何在不破坏现有架构的前提下，在 SGLang 框架内引入对 dLLM 的支持，也即：
+然而，在我们（蚂蚁集团 DeepXPU 与 SGLang dLLM 小组）的工作之前，SGLang 仅支持自回归计算范式，尚未适配 LLM 的扩散计算方法。因此，如何在不破坏现有架构的前提下，在 SGLang 框架内引入对 dLLM 的支持，也即：
 
 1. 让 dLLM 受益于 SGLang 提供的所有优化优势。
-2. 避免为了适配扩散计算而对 SGLang 框架进行大规模、伤筋动骨的修改。
+2. 避免为了适配扩散的解码方式对 SGLang 框架进行大规模的修改。
 
 ## 方案设计
 
-基于对 dLLM 当前的发展状况，我们确定了几个关键点：
+对于 dLLM 当前的发展趋势，我们发现了一些重要的insights：
 
 1.  由于全向注意力扩散（Bidirectional Attention Diffusion）计算成本巨大且 KV Cache 利用率低，主流 dLLM 正在转向**块扩散（Block Diffusion）**架构。
-2.  块扩散的计算模式与 SGLang 现有的 **Chunked-Prefill（分块预填充）** 过程高度相似。
-3.  与自回归模型不同，扩散模型使用多种解码策略，需要专用接口进行灵活的解码算法自定义。
-
-【todo】
+2.  块扩散的计算模式与 SGLang 现有的自回归过程中 **Chunked-Prefill（分块预填充）** 高度相似。
 
 ### 系统架构
 
-我们的方案是利用 SGLang 现有的 Chunked-Prefill 流水线来实现对块扩散 LLM 的计算支持。这种方法使我们能够将 dLLM 无缝集成到 SGLang 生态中，无需更改核心框架，让 dLLM 直接从 SGLang 积累的所有推理优化技术中获益。
+我们当前的方案是利用 SGLang Chunked-Prefill 执行流来实现对 Block Diffusion LLM 的计算支持。这种方法使我们能够将 dLLM 无缝集成到 SGLang 生态中，无需更改核心框架，让 dLLM 直接从现有的推理优化技术中获益，避免重复造轮子。
 
 <p align="center">
   <img src="./pics/main-flow.png" alt="main execution flow", width="50%">
@@ -70,10 +66,10 @@
 
 在单次模型前向传递中，块扩散与分块预填充（Chunk Prefill）之间最大的区别在于对注意力掩码的处理。
 
-- **块扩散**利用块级因果掩码。
-- **AR 模型的分块预填充**使用传统的逐 token 因果掩码。
+- **块扩散** 利用块级因果掩码。
+- **AR 模型的分块预填充** 使用传统的逐 token 因果掩码。
 
-我们可以将块扩散视为对 SGLang 现有分块预填充机制的功能扩展。关于具体的注意力计算，单次前向传递涉及两个计算部分，其最终输出被串联起来：
+我们可以将块扩散视为对 SGLang 现有分块预填充机制的功能扩展。关于具体的注意力计算，单次前向传递涉及两个计算部分，其最终输出被拼接起来：
 
 1.  **上下文查询 (Context Query)**：使用当前的 `Q_curr`（当前块的查询向量）对现有的 KV Cache 进行双向注意力计算。对于块扩散和分块预填充，此计算完全一致。目标是确保当前块能关注到所有历史信息。
 2.  **块内查询 (Intra-Block Query)**：使用当前的 `Q_curr` 对其自身的 KV（即当前块内的键和值）进行前向计算。
@@ -88,7 +84,7 @@
 
 以下是 LLaDA2.0-flash (100B / BF16) 与 gpt-oss-120B (117B / MXFP4) 流式输出对比的动画。LLaDA2.0-flash 在 8 × H20 上使用 SGLang dLLM（TP8）运行，而 gpt-oss-120B 在相同硬件上使用 SGLang 标准 AR 流程运行。
 
-两个模型都被要求用 10 种编程语言实现快速排序算法——这是一项特别适合扩散 LLM 的任务。如图所示，在这种场景下，LLaDA2.0-flash 实现了显著更高的吞吐量（935 tokens/s），而 gpt-oss-120B 为 263 tokens/s。
+两个模型都被要求用 10 种编程语言实现快速排序算法——这是一项比较适合 dLLM 的任务。如图所示，在这种场景下，LLaDA2.0-flash 实现了显著更高的吞吐量（935 tokens/s），而 gpt-oss-120B 为 263 tokens/s。
 
 <p align="center">
   <img src="./pics/llada2-vs-gpt-oss.gif" alt="LLaDA2.0-flash vs gpt-oss-120B animation", width="50%">
@@ -173,24 +169,12 @@ if __name__ == '__main__':
 
 <p align="center">
 <img src="./pics/llada2_flash_main_bench.png" alt="LLaDA2.0-flash main results", width="50%">
-
-
-
-
-
 </p>
 
-我们通过在广泛的标准评估任务上，将 LLaDA2.0-flash 与同等规模的先进自回归 (AR) 模型进行基准测试，评估了其任务效能。
-
-总体结果表明，LLaDA2.0 架构不仅极具竞争力，而且展现出了缩小与 AR 模型能力差距的良好趋势。
+我们通过在广泛的标准评估任务上，将 LLaDA2.0-flash 与同等规模的先进自回归 (AR) 模型进行基准测试，评估了其任务效能。总体结果表明，LLaDA2.0 性能能够追平同尺寸的模型，而在吞吐上更有优势。
 
 <p align="center">
 <img src="./pics/llada2_despine_comparison.png" alt="LLaDA2.0-flash performance", width="50%">
-
-
-
-
-
 </p>
 
 该图表展示了 LLaDA2.0‑flash 的两个补充衡量指标：
@@ -200,7 +184,7 @@ if __name__ == '__main__':
 
 所有数据均在一致的服务环境（SGLang + TP8 + H20）下收集，确保了扩散 LLM 与自回归基准模型之间的公平比较。
 
-在使用 0.95 阈值解码器的情况下，LLaDA2.0-flash-CAP 达到了 500 TPS，显著优于标准的 LLaDA2.0-flash (383 TPS)，并且在小 Batch Size 下比 AR 基准（258 TPS 和 237 TPS）提升了高达 1.9 倍的速度。
+在使用 0.95 阈值解码器的情况下，LLaDA2.0-flash-CAP 达到了 500 TPS，显著优于标准的 LLaDA2.0-flash (383 TPS)，并且在小 Batch Size 下比 AR 基准（258 TPS 和 237 TPS）提升了 1.9 倍的速度。
 
 ## 发展路线图 (Roadmap)
 
@@ -209,48 +193,37 @@ if __name__ == '__main__':
 当前实现已完全支持以下关键服务功能：
 
 * 块扩散 LLM 框架主逻辑
-* 用于序列管理的完整 KV Cache 支持
+* KV Cache 支持
 * LLaDA-2.0-mini/flash 模型集成
 * 自定义解码算法支持
 * 完整的流式 I/O 能力
-* Batching 批处理支持（审核中）
-* 张量并行 (Tensor Parallelism) 支持
-* CUDA Graph 优化
+* Batching 批处理支持（review中）
+* 张量并行
+* CUDA Graph
 
 ### 中长期路线图
 
 [2025-Q4 与 2026-Q1 路线图](https://github.com/sgl-project/sglang/issues/14199)
 
-
-
-
 [RFC: SGLang 中的块扩散大语言模型 (dLLM) 框架](https://github.com/sgl-project/sglang/issues/12766)
 
-
-
-* 支持更多自回归模型已具备的系统优化
+* 支持更多现有的系统优化技术
 * 集成更多通用的扩散解码策略/算法（例如 [Fast-dLLM v2](https://arxiv.org/pdf/2509.26328)）
-* 增加对非块状 dLLM 的兼容性（如 LLaDA & RND1）
+* 增加对非块的扩散 LLM 的兼容性（如 LLaDA & RND1）
 
 ## 参考文献
 
 [LLaDA1 技术报告](https://arxiv.org/pdf/2502.09992)
 
-
-
-
-[LLaDA2 技术报告](https://github.com/inclusionAI/LLaDA2.0/blob/main/tech_report.pdf)
-
-
-
+[LLaDA2 技术报告](https://huggingface.co/papers/2512.15745)
 
 [Fast-dLLM v2 技术报告](https://arxiv.org/pdf/2509.26328)
 
 ## 致谢
 
-* **蚂蚁集团 DeepXPU 团队**: [李泽焕 (Zehuan Li)](https://github.com/Clawseven), [别提威 (Tiwei Bie)](https://github.com/btw616), 蒋忠辉, 姚景华, 高宇松, [龚明亮 (Mingliang Gong)](https://github.com/brightcoder01), 谭剑锋
-* **蚂蚁集团 inclusionAI 团队**: 陈坤, [黄泽南 (Zenan Huang)](https://lccurious.github.io/), 刘林, 陈福源, 杜伦, 郑达
-* **SGLang dLLM 团队**: [姚金纬 (Jinwei Yao)](https://kivi-yao.github.io/), [Mick Qian](https://github.com/mickqian), [尹良胜 (Liangsheng Yin)](https://www.lsyin.me/), [BBuf](https://github.com/BBuf), 朱邦华, [赵晨阳 (Chenyang Zhao)](https://zhaochenyang20.github.io/Chayenne/)
-* **NVIDIA Fast-dLLM 团队**: [吴承悦 (Chengyue Wu)](https://hills-code.github.io/), [张浩 (Hao Zhang)](https://research.nvidia.com/person/hao-zhang), [谢恩泽 (Enze Xie)](https://xieenze.github.io/), [韩松 (Song Han)](https://hanlab.mit.edu/songhan)
+* **蚂蚁集团 DeepXPU 团队**: [李泽寰 (Zehuan Li)](https://github.com/Clawseven), [别体伟 (Tiwei Bie)](https://github.com/btw616), 江忠辉, 姚菁华, 高玉嵩, [龚明亮 (Mingliang Gong)](https://github.com/brightcoder01), 谈鉴锋
+* **蚂蚁集团 inclusionAI 团队**: 陈琨, [黄泽楠 (Zenan Huang)](https://lccurious.github.io/), 刘琳, 陈福元, 杜仑, 郑达
+* **SGLang dLLM 团队**: [姚锦炜 (Jinwei Yao)](https://kivi-yao.github.io/), [Mick Qian](https://github.com/mickqian), [尹良升 (Liangsheng Yin)](https://www.lsyin.me/), [BBuf](https://github.com/BBuf), 朱邦华, [赵晨阳 (Chenyang Zhao)](https://zhaochenyang20.github.io/Chayenne/)
+* **NVIDIA Fast-dLLM 团队**: [吴成岳 (Chengyue Wu)](https://hills-code.github.io/), [张浩 (Hao Zhang)](https://research.nvidia.com/person/hao-zhang), [谢恩泽 (Enze Xie)](https://xieenze.github.io/), [韩松 (Song Han)](https://hanlab.mit.edu/songhan)
 
 
