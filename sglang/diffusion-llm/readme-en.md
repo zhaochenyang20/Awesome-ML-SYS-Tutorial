@@ -96,12 +96,12 @@ Simply put, if we visualize the attention mask as a geometric shape for the `Q_c
 
 ## Streaming output animation
 
-Here is an animation comparing the streaming output of LLaDA2.0-flash (100B / BF16) and gpt-oss-120B (117B / MXFP4). LLaDA2.0-flash is served using SGLang dLLM with TP8 on 8 × H20, while gpt-oss-120B is served using SGLang's standard AR process on the same hardware.
+Here is an animation comparing the streaming output of LLaDA2.0-flash-CAP (100B / BF16) and gpt-oss-120B (117B / MXFP4). LLaDA2.0-flash-CAP is served using SGLang dLLM with TP8 on 8 × H20, while gpt-oss-120B is served using SGLang's standard AR process on the same hardware.
 
-Both models are asked to implement the quicksort algorithm in 10 programming languages — a task particularly well-suited for diffusion LLMs. As shown, LLaDA2.0-flash achieves significantly higher throughput at 935 tokens/s, compared to gpt-oss-120B (263 tokens/s) in this scenario.
+Both models are asked to implement the quicksort algorithm in 10 programming languages — a task particularly well-suited for diffusion LLMs. As shown, LLaDA2.0-flash-CAP achieves significantly higher throughput at 935 tokens/s, compared to gpt-oss-120B (263 tokens/s) in this scenario.
 
 <p align="center">
-  <img src="./pics/llada2-vs-gpt-oss.gif" alt="LLaDA2.0-flash vs gpt-oss-120B animation", width="50%">
+  <img src="./pics/llada2-vs-gpt-oss.gif" alt="LLaDA2.0-flash-CAP vs gpt-oss-120B animation", width="50%">
   <br>
 </p>
 
@@ -176,6 +176,7 @@ if __name__ == '__main__':
 ```
 
 ## Performance
+
 <p align="center">
   <img src="./pics/llada2_flash_main_bench.png" alt="LLaDA2.0-flash main results", width="50%">
   <br>
@@ -191,6 +192,7 @@ The overall results indicate that the LLaDA2.0 architecture is not only highly c
 </p>
 
 The chart presents two complementary measurements for LLaDA2.0‑flash:
+
 - Average score and tokens‑per‑forward (TPF) obtained with and without Confidence‑Aware Parallel (CAP) training across 12 benchmark tasks.
 - Inference speed (tokens per second) of LLaDA2.0‑flash, benchmarked against AR models of comparable size on HumanEval, MBPP, GSM8K, and CRUXEval suites.
 
@@ -222,6 +224,7 @@ The current implementation fully supports the following critical serving feature
 - Add compatibility for non-block dLLMs (e.g., LLaDA & RND1)
 
 ## Reference
+
 [LLaDA1 technique report](https://arxiv.org/pdf/2502.09992)<br>
 [LLaDA2 technique report](https://github.com/inclusionAI/LLaDA2.0/blob/main/tech_report.pdf)<br>
 [Fast-dLLM v2 technique report](https://arxiv.org/pdf/2509.26328)

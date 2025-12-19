@@ -30,7 +30,7 @@
 
 ## 方案设计
 
-对于 dLLM 当前的发展趋势，我们发现了一些重要的insights：
+对于 dLLM 当前的发展趋势，我们发现了一些重要的 insights：
 
 1.  由于全向注意力扩散（Bidirectional Attention Diffusion）计算成本巨大且 KV Cache 利用率低，主流 dLLM 正在转向**块扩散（Block Diffusion）**架构。
 2.  块扩散的计算模式与 SGLang 现有的自回归过程中 **Chunked-Prefill（分块预填充）** 高度相似。
@@ -80,14 +80,14 @@
 - 分块预填充（因果掩码）的计算对应于一个梯形（或三角形）掩码。
 - 块扩散（双向注意力）的计算对应于一个矩形掩码。
 
-## 流式输出动画展示
+## 效果展示
 
-以下是 LLaDA2.0-flash (100B / BF16) 与 gpt-oss-120B (117B / MXFP4) 流式输出对比的动画。LLaDA2.0-flash 在 8 × H20 上使用 SGLang dLLM（TP8）运行，而 gpt-oss-120B 在相同硬件上使用 SGLang 标准 AR 流程运行。
+以下是 LLaDA2.0-flash-CAP (100B / BF16) 与 gpt-oss-120B (117B / MXFP4) 流式输出对比的动画。LLaDA2.0-flash-CAP 在 8 × H20 上使用 SGLang dLLM（TP8）运行，而 gpt-oss-120B 在相同硬件上使用 SGLang 标准 AR 流程运行。
 
-两个模型都被要求用 10 种编程语言实现快速排序算法——这是一项比较适合 dLLM 的任务。如图所示，在这种场景下，LLaDA2.0-flash 实现了显著更高的吞吐量（935 tokens/s），而 gpt-oss-120B 为 263 tokens/s。
+两个模型都被要求用 10 种编程语言实现快速排序算法——这是一项比较适合 dLLM 的任务。如图所示，在这种场景下，LLaDA2.0-flash-CAP 实现了显著更高的吞吐量（935 tokens/s），而 gpt-oss-120B 为 263 tokens/s。
 
 <p align="center">
-  <img src="./pics/llada2-vs-gpt-oss.gif" alt="LLaDA2.0-flash vs gpt-oss-120B animation", width="50%">
+  <img src="./pics/llada2-vs-gpt-oss.gif" alt="LLaDA2.0-flash-CAP vs gpt-oss-120B animation", width="50%">
   <br>
 </p>
 
