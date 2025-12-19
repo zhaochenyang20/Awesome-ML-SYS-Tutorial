@@ -60,5 +60,33 @@ $$dL = \text{Tr}(\mathbf{G}_X^\top d\mathbf{X})$$
 
 偏微分 $dS = (dQ)K^\top$。代入定义式：$dL = \text{Tr}(\mathbf{G}_S^\top dQ K^\top) = \text{Tr}(K^\top \mathbf{G}_S^\top dQ)$。因此 $\mathbf{G}_Q^\top = K^\top \mathbf{G}_S^\top \implies \mathbf{G}_Q = \mathbf{G}_S K$，结论 $dQ = \mathbf{G}_S K$。
 
-求 $dK$（即 $\frac{\partial L}{\partial K}$）。首先进行偏微分：$dS = Q d(K^\top) = Q(dK)^\top$。代入定义式：$dL = \text{Tr}(\mathbf{G}_S^\top Q (dK)^\top)$。整体转置：$\text{Tr}((G_S^\top Q (dK)^\top)^\top) = \text{Tr}(dK Q^\top G_S)$。循环移动：$\text{Tr}(Q^\top G_S dK)$。对比提取：$\mathbf{G}_K^\top = Q^\top \mathbf{G}_S \implies \mathbf{G}_K = \mathbf{G}_S^\top Q$。结论：$dK = dS^\top Q$（注：方佳瑞老师的[知乎博客](https://zhuanlan.zhihu.com/p/664061672)这里的推导存在问题）。
+求 $dK$（即 $\frac{\partial L}{\partial K}$）。首先进行偏微分：$dS = Q d(K^\top) = Q(dK)^\top$。代入定义式：$dL = \text{Tr}(\mathbf{G}_S^\top Q (dK)^\top) = \text{Tr}(dK Q^\top G_S)$。因此 $\mathbf{G}_K^\top = Q^\top \mathbf{G}_S \implies \mathbf{G}_K = \mathbf{G}_S^\top Q$，结论：$dK = \mathbf{G}_S^\top Q$。
 
+
+整理所有结论如下：
+
+$$
+\begin{aligned}
+    dV &= P^\top dO \\
+    dP &= dO V^\top \\
+    dQ &= \mathbf{G}_S K \\
+    dK &= \mathbf{G}_S^\top Q
+\end{aligned}
+$$
+
+### 记号说明
+
+在之前的记号中，我们将 $dV$ 视作了 $\frac{\partial L}{\partial V}$ 的简记，这在数学上混淆了微分算子和偏微分记号；但在深度学习领域，这种写法相当普遍。为了不写分式在数学推导中，最严谨的写法应该是 $\frac{\partial L}{\partial \mathbf{O}} \in \mathbb{R}^{N \times d}$，但在写复杂的反向传播算法（如 Flash Attention）时，如果满篇都是 $\frac{\partial L}{\partial Q}, \frac{\partial L}{\partial K}, \frac{\partial L}{\partial V}$，公式会变得非常臃肿，难以阅读。于是，深度学习领域习惯用“ d + 变量名”来直接表示“损失函数对该变量的偏导数矩阵”。$dO$ 实际上是 $\frac{\partial L}{\partial O}$ 的缩写。$dV$ 实际上是 $\frac{\partial L}{\partial V}$ 的缩写。这一写法与代码实现一一对应：如果你去写 PyTorch 的底层 C++ 算子或者 CUDA 核函数，你会发现变量名就是这么取的：
+
+```Python
+# O 是前向传播的输出
+# grad_output 是从上一层传回来的梯度 (即 dO)
+# grad_V 是我们要计算的梯度 (即 dV)
+
+def backward(grad_output):
+    # 根据公式 dV = P.T @ dO
+    grad_V = P.t() @ grad_output 
+    return grad_V
+```
+
+我们不会定义一个变量叫 `partial_L_over_partial_O`，而是直接叫它 `grad_output` 或者 `dO`。
