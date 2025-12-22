@@ -616,6 +616,7 @@ SGLang 的推理过程主要分为以下四个阶段：
    - 将 batch 发送到 GPU 上进行一步（即 Continue Batch 的一个 iter）推理(`Scheduler::run_batch()`)
 3. **Sample：**
    - 根据模型输出的 Logit 进行采样，生成下一步的 Token。(`ModelRunner::sample()`)
+   > 这里我们会应用 grammar 的 vocab mask 来确保采样的合法性，所以这里的采样会依赖模型的输出 Logits
 4. **Post schedule：**
    - 在一步推理完成后，动态检查请求是否满足结束条件（Check Finish Condition）。(`Scheduler::process_batch_result()`)
    - 将已完成的请求从批次中移除，并送入 Detokenizer 处理，最终将结果返回给前端。
@@ -624,12 +625,13 @@ SGLang 的推理过程主要分为以下四个阶段：
 
 Compute batch 和 Sample 这两个挨在一起的阶段是 GPU heavy 的，而 schedule 的两个阶段是 CPU heavy 的。当多个 batch 流水线化时，我们可以用 **GPU 的 Compute 和 Sample 来重叠上一个 batch 的 post scheduler 与当前 batch 的 pre scheduler**。
 
-> 实际上我们的 Prefill 请求进入并不依赖未完成的 batch，**第一个请求进来可以直接正常执行**
+> Prefill 阶段的 Grammar Mask 通常基于 Prompt，不依赖上一次 Decode 的输出，所以这里直接 sample 即可
 
-我们通过使用 Forward CUDA Stream 的方式来实现 overlap，具体来说：
+我们通过使用 CUDA Stream + FutureMap的方式来实现 overlap，具体来说：
 
 - Run Batch 中将两个操作提交到 forward_stream 队列：一个是从 FutureMap **获取上一次 batch 的 next token**；一个用这个 token 作为 `input_id` 进行下一次计算
-- Sample 中也把两个操作提交到 forward_stream 队列：一个是进行采样；一个是将得**到的 next token 写回 FutureMap**
+- Sample 中也把两个操作提交到 forward_stream 队列：一个是进行采样；一个是将**得到的 next token 写回 FutureMap**
+  - 我们需要注意，采样依赖于在 Post Schedule 阶段准备的词汇表掩码（vocab mask）。因此，我们需要确保前一个批次的 Post Schedule 在执行当前批次的采样之前完成。
 - 我们需要在 Post Schedule 处理数据前对 CPU 和 GPU 做一个同步，保证可以处理到 CPU 的 `next_token_ids`
   - 我们**在 Post Schedule 中进行同步操作**，确保后续的处理可以正常运行且不影响 GPU 的流水线工作
     ```python
@@ -692,6 +694,19 @@ class FutureMap:
         # A factor of 5 is used to ensure the buffer is large enough.
         self.future_buffer_len = max_running_requests * 5
 ```
+**工作流程**
+1. 分配 (Alloc) - CPU 阶段
+   - 执行`future_indices = self.future_map.alloc_future_indices(bs)`，得到一组负数索引（例如 [-1, -2, -3]），代表“未来的结果将存放在这里”。
+   - 这些负数索引会被作为下一个 batch 的`input_ids`
+
+2. 存储 (Store) - GPU 阶段 (Batch N)
+     - 当 Batch N 在 GPU 上执行 Forward + Sample后，真实的 token ID 已经在 batch 的结果里面了。
+     - 执行`self.future_map.store_to_map(future_indices, batch_result)`把 GPU 显存中刚刚生成的 `next_token_ids` 直接拷贝到 FutureMap 对应的缓冲区位置。
+     - GPU 上完成，不需要回传给 CPU。
+3. 解析 (Resolve) - GPU 阶段 (Batch N+1)
+     - 当 Batch N+1 开始在 GPU 上执行 Forward 之前，它需要先把输入数据里的负数 token 换成batch 中真实的 token。
+     - 执行 `self.future_map.resolve_future(model_worker_batch)`，将 `input_ids` 里的负数索引替换成 FutureMap 里对应位置的真实 token ID。
+     - 因为 GPU 命令是顺序执行的，Batch N 的 Store 一定发生在 Batch N+1 的 Resolve 之前。
 
 ### Overlap 事件循环
 
@@ -738,13 +753,14 @@ def event_loop_overlap(self):
   - 将得到的 `next_token_id` 存储到 FutureMap 的 `future_indices` 的对应位置
     - 为了下一次 batch 在 `run_batch` 中的 `resolve_future` 获取到真正的 token
 
-### 流同步
+### 依赖 & Solutions
 
-- decode 模式下前一次 batch 的 `batch.output_ids` 是后一次 batch 的 `batch.input_ids`
-- **First:** **last batch** 的 `output_id` **store in FutureMap 后**
-- **Second:** **current batch get `output_id` from FutureMap** 并作为下一次 batch 的 `input_id` 进行计算
-  - CUDA Stream 的本身的限制
-  - CPU 侧使用负数占位符实现，等待 GPU 进行真正 token 的填充
+**Sample 阶段的 vocab mask 依赖于上一轮的 Post Schedule 阶段**
+- 通过 CPU 侧调度逻辑保证本轮 Sample 阶段在 上一轮 Post Schedule阶段之后执行
+
+**Decode 阶段 Compute batch 阶段依赖于上一轮 batch 的 next token**
+- 通过 FutureMap 作为桥梁，CPU先填充负索引占位符，GPU 侧在 Sample 阶段存储真实 token，在 Compute batch 阶段获取真实 token
+- CUDA Stream 的顺序保证上一轮 Sample 一定在下一轮 Compute 之前完成，不会获取到错误的负数 "token"
 
 ```python
 # previous batch output is negative indices
@@ -769,7 +785,7 @@ with self.forward_stream_ctx:
 
 ### 与上一版 overlap 差异
 
-- 将 update_vocab_mask 移动到 GPU 进行计算，`vocab_mask` 也在 GPU 直接进行分配，不再进行传输
+- 将 update_vocab_mask 移动到 GPU 进行计算(**在 Sample 中进行**)，`vocab_mask` 也在 GPU 直接进行分配，不再进行传输
 - 现在的 GPU 额外负责向 FutureMap 存储(after sample)以及获取(before compute) `next_token_ids`
   - FutureMap 也是完全存储在 GPU 上
 - 对 GPU 调度由原来 CPU 进行 launch，变成直接将操作提交到 cuda stream，由 stream 自己来调度
