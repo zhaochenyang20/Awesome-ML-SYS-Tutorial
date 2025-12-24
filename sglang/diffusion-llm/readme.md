@@ -168,13 +168,13 @@ if __name__ == '__main__':
 ## 性能表现
 
 <p align="center">
-<img src="./pics/llada2_flash_main_bench.png" alt="LLaDA2.0-flash main results", width="50%">
+<img src="./pics/llada2_flash_main_bench-1.png" alt="LLaDA2.0-flash main results", width="50%">
 </p>
 
 我们通过在广泛的标准评估任务上，将 LLaDA2.0-flash 与同等规模的先进自回归 (AR) 模型进行基准测试，评估了其任务效能。总体结果表明，LLaDA2.0 性能能够追平同尺寸的模型，而在吞吐上更有优势。
 
 <p align="center">
-<img src="./pics/llada2_despine_comparison.png" alt="LLaDA2.0-flash performance", width="50%">
+<img src="./pics/llada2_despine_comparison-1.png" alt="LLaDA2.0-flash performance", width="50%">
 </p>
 
 该图表展示了 LLaDA2.0‑flash 的两个补充衡量指标：
