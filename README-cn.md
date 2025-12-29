@@ -77,6 +77,7 @@ $$
 - [Pending Review] [RL 系统深思：Megatron](./rlhf/sys-design/readme-3.md)：Megatron 的基本特性浅析，重点分析 Megatron 在 RL 框架中的使用。
 - [扩展 OpenRLHF 的推理引擎](./rlhf/OpenRLHF/develop-log.md)：将 SGLang 接入到 OpenRLHF 的开发笔记，整个过程非常痛苦，而且目前还有 nccl hang error，已经直接联系了 deepspeed core contributor 在修复了。
 - [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md)：介绍如何将 SGLang 作为 TRL 中 GRPO Trainer 的推理后端，GRPO 是 PPO 的变体，在优化数学推理能力的同时优化 PPO 的内存使用。
+- [Light-DuoAttention：用 CuTeDSL 实现高效长上下文推理](https://zhuanlan.zhihu.com/p/1984978732436431358)：介绍 DuoAttention，一种为了长上下文推理设计的解决方案，并使用 CuteDSL 实现 DuoAttention 并且在 SGLang 上支持并验证。
 
 ### 算法与理论
 
