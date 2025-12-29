@@ -64,6 +64,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 - [Pending Review] [Deep Thoughts on RL Systems: Megatron](./rlhf/sys-design/readme-3.md): Brief analysis of Megatron's basic features, focusing on its use in the RL framework.
 - [Extending the OpenRLHF Inference Engine](./rlhf/OpenRLHF/develop-log.md): Development notes on integrating SGLang into OpenRLHF. The entire process was very painful, and there's still an nccl hang error that a DeepSpeed core contributor is currently fixing.
 - [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md): Introduction on how to use SGLang as the inference backend for the GRPO Trainer in TRL. GRPO is a PPO variant that optimizes PPO's memory usage while improving mathematical reasoning capabilities.
+- [Light-DuoAttention: Achieves efficient Long-Context Inference using CuTeDSL and runs within SGLang](sglang/light-duoattention/light-duoattention.md): Introduction DuoAttention, a solution designed for Long-Context Inference, implemented with CuteDSL and supported in SGLang. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1984978732436431358).
 
 ### Algorithms and Theory
 
