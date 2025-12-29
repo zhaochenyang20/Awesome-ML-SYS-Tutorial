@@ -14,7 +14,7 @@
 
 DuoAttention 是 StreamingLLM 的一个延续性工作，DuoAttention 认为 StreamingLLM 尽管性能很好，但是在长上下文的应用中通常会丢失准确性。同时也无法和 GQA[4]这些优化方法相配合。
 
-![不同稀疏注意力方法在大海捞针测试中的准确率](assests/duoattention-niah.jpg)
+![不同稀疏注意力方法在大海捞针测试中的准确率](assets/duoattention-niah.jpg)
 
 **不同稀疏注意力方法在大海捞针测试中的准确率**
 
@@ -26,7 +26,7 @@ DuoAttention 是 StreamingLLM 的一个延续性工作，DuoAttention 认为 Str
 
 DuoAttention 的关键洞察是，LLM 能够被识别为两种类型的头，分别被称为检索头（Retrieval Heads）和流式头（Streaming Heads），检索头仅占一小部分，但需要对全部上下文进行处理；而流式头仅仅需要关注最近的词元（recent tokens）和注意力汇聚词元（attention sink）。DuoAttention 通过针对检索头和流式头的二分性，针对不同头使用不同的注意力，从而显著加速 LLM Inference 的 Prefill Decode 过程，并减少内存占用。
 
-![DuoAttention 针对 Decode 和 Chunked Prefill 的处理流程](assests/duoattention.jpg)
+![DuoAttention 针对 Decode 和 Chunked Prefill 的处理流程](assets/duoattention.jpg)
 
 **DuoAttention 针对 Decode 和 Chunked Prefill 的处理流程**
 
@@ -205,7 +205,7 @@ for i, layer in enumerate(layers):
 
 除此之外，我们还将 Streaming Attention 与 FlashAttention 做了一个简单的性能评估，评估结果如下：
 
-![使用 CuTeDSL 实现的 Streaming Attention 相比 FlashAttention 的性能评估](assests/performance.jpg)
+![使用 CuTeDSL 实现的 Streaming Attention 相比 FlashAttention 的性能评估](assets/performance.jpg)
 
 当前的实验配置为单卡 H800，sink_size=128, recent_token=256。
 
