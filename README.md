@@ -132,6 +132,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 ### Distributed Training & Communication
 
 - [Pending Review] [Implementing Tensor Parallelism From Scratch](./torch/tensor-parallelism/readme.md): Implementation and practice of Tensor Parallelism.
+- [Pending Review] [Expert Parallelism](./rlhf/sys-design/readme-4.md)
 - [NCCL and NVIDIA TOPO](./torch/nccl/readme.md): Introduction to NCCL and NVIDIA GPU detection. Also available on [NCCL and NVIDIA TOPO](https://zhuanlan.zhihu.com/p/6160835906).
 - [NCCL and SGLang](./torch/nccl/readme_en.md): Application of NCCL in SGLang. This is very similar to the Chinese content but includes some additional notes on parallel strategies. I probably won't complete this note and will write a separate one to record parallel strategies.
 - [PyTorch Distributed](./torch/torch-distributed/readme.md): Communication practice with `torch.distributed`, details on GIL and `all_reduce`. This part is also available on [Zhihu: PyTorch Communication Practice](https://zhuanlan.zhihu.com/p/5853094319).
