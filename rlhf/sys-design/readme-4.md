@@ -74,7 +74,7 @@ VeOmni/veomni/
 ```
 
 
-整个逻辑看下来还是比较清晰的，就是一个ep + fsdp的结构，对于专家先apply ep 在第0个维度（expert）上切分，然后再fsdp，非专家部分直接按照常规fsdp即可。
+整个逻辑看下来还是比较清晰的，就是一个ep + fsdp的结构，对于专家先apply ep 在第0个维度（expert）上切分，然后再fsdp，非专家部分直接按照常规fsdp即可。比较值得注意的一点是ep这里切分用的不是fsdp的fully_shard，而是自己在每个rank上去切tensor。
 ```text
     Applies EP (when enabled) + FSDP2 parallel strategy to the model.
 
@@ -125,6 +125,62 @@ def parallelize_model_fsdp2(model, enable_mixed_precision=True, basic_modules=No
             cur.set_modules_to_backward_prefetch(list(reversed(prev._fsdp_modules)))
 
     return model
+```
+还有就是all2all的通信，通信复杂度很大，[code](https://github.com/ByteDance-Seed/VeOmni/blob/e4e431d0/veomni/distributed/moe/moe_layer.py)
+
+Preprocess：在传输重数据之前，通过 all_gather 交换元数据，计算出 Input Splits和 Output Splits。
+
+Dispatch：根据路由索引在本地进行 Permute，利用 dist.all_to_all 完成传输，收到数据后需再次 Sort
+
+Combine：计算完成后，执行逆向的通信和 Unpermute 操作，将 Token 还原回原始序列顺序。
+
+```python
+
+def preprocess(expert_mask, num_experts, ep_group):
+    # expert_mask: [Batch, Tokens, Num_Experts] (哪些token去哪些专家)
+    
+    # 1. 算出本地要发给每个 rank 的 token 数量 (Input Splits)
+    ep_size = ep_group.size()
+    num_local_tokens_per_expert = expert_mask.sum(dim=(1, 2)) 
+    input_splits = num_local_tokens_per_expert.reshape(ep_size, -1).sum(dim=1).tolist()
+
+    # 2. # dist.all_gather: 收集所有卡上的 num_local_tokens_per_expert
+    num_global_tokens_per_expert = torch.zeros(...)
+    dist.all_gather_into_tensor(num_global_tokens_per_expert, num_local_tokens_per_expert, group=ep_group)
+
+    # 3. 算出本地将从每个 rank 接收多少 token (Output Splits)
+    rank = dist.get_rank(ep_group)
+    my_experts_range = slice(rank * num_local_experts, (rank + 1) * num_local_experts)
+    tokens_sent_to_me = num_global_tokens_per_expert[:, my_experts_range]
+    output_splits = tokens_sent_to_me.sum(dim=1).tolist()
+
+    return input_splits, output_splits, tokens_sent_to_me
+
+def token_pre_all2all(hidden_states, expert_mask, input_splits, output_splits, ...):
+    # 1. 本地重排 (Permute)
+    # local_permuted: [Token1_to_Exp1, Token2_to_Exp1, ..., TokenN_to_Exp99]
+    local_permuted, _ = permute(hidden_states, expert_mask.sum(dim=1))
+
+    # 2. All-to-All
+    # 发送：input_splits, 接收：output_splits
+    global_permuted = all_to_all(ep_group, local_permuted, output_splits, input_splits)
+
+    # 3. Sort by Expert
+    global_permuted = sort_chunks_by_idxs(global_permuted, ...)
+
+    return global_permuted # 准备好喂给 Group GEMM 了
+
+def tokens_post_all2all(expert_outputs, input_splits, output_splits, ...):
+    # 1. 算完的数据是按 Expert 排列的，要发回去得按来源 Rank 重排
+    expert_outputs = sort_chunks_by_idxs(expert_outputs, ...)
+
+    # 2. All-to-All Return
+    unpermute_outputs = all_to_all(ep_group, expert_outputs, input_splits, output_splits)
+
+    # 3. Unpermute
+    final_output = unpermute(unpermute_outputs, ...)
+
+    return final_output
 ```
 
 ## Automodel
