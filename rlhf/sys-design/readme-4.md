@@ -48,6 +48,85 @@ veomni, torchtitan, automodel 里都是先 ep，然后对 ep 完的每个块做 
 
 我(zhuorany)主要读了verOmni和Automodel
 
+
+## VeOmni
+
+```
+VeOmni/veomni/
+├── distributed/
+│   ├── parallel_state.py       ← 全局并行状态（ep_fsdp_device_mesh, ep_size）
+│   ├── parallel_plan.py        ← EP 切分计划（ParallelPlan.apply()）
+│   ├── torch_parallelize.py    ← EP + FSDP 整合入口
+│   │   ├── parallelize_model_fsdp2()  ← 主入口
+│   │   └── 手动 prefetch 配置
+│   ├── fsdp/
+│   │   ├── clip_grad_norm.py   ← FSDP1 EP 感知梯度裁剪
+│   │   └── extension.py        ← Checkpoint 扩展
+│   └── fsdp2/
+│       └── clip_grad_norm.py   ← FSDP2 EP 感知梯度裁剪
+├── models/
+│   └── transformers/
+│       └── qwen3_moe/
+│           └── parallel_plan.py  ← 模型特定的 EP 参数定义
+└── sequence_parallel/
+    ├── async_ulysses.py        ← 异步序列并行（与 EP 无关）
+    └── ulysses.py              ← 标准 Ulysses
+```
+
+
+整个逻辑看下来还是比较清晰的，就是一个ep + fsdp的结构，对于专家先apply ep 在第0个维度（expert）上切分，然后再fsdp，非专家部分直接按照常规fsdp即可。
+```text
+    Applies EP (when enabled) + FSDP2 parallel strategy to the model.
+
+    Flow:
+    1. Apply EP: Expert tensors [128,H,I] -> [32,H,I] local tensors per EP rank
+    2. Apply FSDP2 to expert modules: Shard expert tensors along dim-1 (hidden dim)
+    3. Apply FSDP2 to regular modules: Standard dim-0 sharding
+    4. Result: Expert params [32,H/fsdp_size,I], regular params use standard FSDP2
+```
+下面是parallelize_model_fsdp2重的关键部分和代码，[完整代码](https://github.com/ByteDance-Seed/VeOmni/blob/3bd8e6e48c2d741b2b8b4898f90645145bf4287b/veomni/distributed/torch_parallelize.py#L228)
+
+```python
+
+def parallelize_model_fsdp2(model, enable_mixed_precision=True, basic_modules=None, **kwargs):
+    # 【1】专家 128 -> 32 (EP)
+    if parallel_state.ep_enabled:
+        parallel_plan = model.get_parallel_plan()
+        parallel_plan.apply(model, parallel_state.ep_fsdp_device_mesh)
+        experts_map = parallel_plan.get_fsdp_no_shard_info(model)
+
+    # 【2. 循环分片】由内而外切分每一层
+    layer_pairs = []
+    for layer_fqn, layer_mod in decoder_blocks:
+        experts_mod = next((exp_mod for exp_fqn, exp_mod in experts_map.items() if ...), None)
+        layer_mod._fsdp_modules = []
+
+        if experts_mod:
+            fully_shard(experts_mod, **expert_fsdp_kwargs) # 切专家
+            layer_mod._fsdp_modules.append(experts_mod)
+        
+        fully_shard(layer_mod, **fsdp_kwargs) # 切整层
+        layer_mod._fsdp_modules.append(layer_mod)
+        layer_pairs.append(layer_mod)
+
+    # 【3. 切root model】
+    fully_shard(model, **fsdp_kwargs)
+
+    # 【4. 配置prefetch】
+    # 正向
+    for cur, nxt in zip(layer_pairs, layer_pairs[1:] + [None]):
+        if nxt:
+            cur.set_modules_to_forward_prefetch(list(reversed(nxt._fsdp_modules)))
+
+    # 反向
+    rev_blocks = list(reversed(layer_pairs))
+    for cur, prev in zip(rev_blocks, rev_blocks[1:] + [None]):
+        if prev:
+            cur.set_modules_to_backward_prefetch(list(reversed(prev._fsdp_modules)))
+
+    return model
+```
+
 ## Automodel
 
 ```
@@ -69,7 +148,7 @@ Automodel/nemo_automodel/
 │           └── moe_utils.py         ← permute/unpermute 工具
 ```
 
-automodel ep和fsdp切分都比较正常，比较值得一看的就是他是怎么用deepep的。Automodel 通过 `_DeepepManager` 集成了 DeepEP，利用 Fused Dispatch/Combine 算子替代了 NCCL All-to-All。
+automodel 比较值得一看的就是他是怎么用deepep的。Automodel 通过 `_DeepepManager` 集成了 DeepEP，利用 Fused Dispatch/Combine 算子替代了 NCCL All-to-All。
 
 `token_dispatcher.py` -> `MoEFlexTokenDispatcher` -> `_DeepepManager` -> `fused_dispatch`
 
@@ -174,82 +253,6 @@ class FusedDispatch(torch.autograd.Function):
         return grad_x, ...
 ```
 
-## VeOmni
-
-```
-VeOmni/veomni/
-├── distributed/
-│   ├── parallel_state.py       ← 全局并行状态（ep_fsdp_device_mesh, ep_size）
-│   ├── parallel_plan.py        ← EP 切分计划（ParallelPlan.apply()）
-│   ├── torch_parallelize.py    ← EP + FSDP 整合入口
-│   │   ├── parallelize_model_fsdp2()  ← 主入口
-│   │   └── 手动 prefetch 配置
-│   ├── fsdp/
-│   │   ├── clip_grad_norm.py   ← FSDP1 EP 感知梯度裁剪
-│   │   └── extension.py        ← Checkpoint 扩展
-│   └── fsdp2/
-│       └── clip_grad_norm.py   ← FSDP2 EP 感知梯度裁剪
-├── models/
-│   └── transformers/
-│       └── qwen3_moe/
-│           └── parallel_plan.py  ← 模型特定的 EP 参数定义
-└── sequence_parallel/
-    ├── async_ulysses.py        ← 异步序列并行（与 EP 无关）
-    └── ulysses.py              ← 标准 Ulysses
-```
-
-下面是parallelize_model_fsdp2重的关键部分和代码，[完整代码](https://github.com/ByteDance-Seed/VeOmni/blob/3bd8e6e48c2d741b2b8b4898f90645145bf4287b/veomni/distributed/torch_parallelize.py#L228)
-
-整个逻辑看下来还是比较清晰的，就是一个ep + fsdp的结构，对于专家先apply ep 在第0个维度（expert）上切分，然后再fsdp，非专家部分直接按照常规fsdp即可。
-
-```python
-"""
-    Applies EP (when enabled) + FSDP2 parallel strategy to the model.
-
-    Flow:
-    1. Apply EP: Expert tensors [128,H,I] -> [32,H,I] local tensors per EP rank
-    2. Apply FSDP2 to expert modules: Shard expert tensors along dim-1 (hidden dim)
-    3. Apply FSDP2 to regular modules: Standard dim-0 sharding
-    4. Result: Expert params [32,H/fsdp_size,I], regular params use standard FSDP2
-    """
-def parallelize_model_fsdp2(model, enable_mixed_precision=True, basic_modules=None, **kwargs):
-    # 【1】专家 128 -> 32 (EP)
-    if parallel_state.ep_enabled:
-        parallel_plan = model.get_parallel_plan()
-        parallel_plan.apply(model, parallel_state.ep_fsdp_device_mesh)
-        experts_map = parallel_plan.get_fsdp_no_shard_info(model)
-
-    # 【2. 循环分片】由内而外切分每一层
-    layer_pairs = []
-    for layer_fqn, layer_mod in decoder_blocks:
-        experts_mod = next((exp_mod for exp_fqn, exp_mod in experts_map.items() if ...), None)
-        layer_mod._fsdp_modules = []
-
-        if experts_mod:
-            fully_shard(experts_mod, **expert_fsdp_kwargs) # 切专家
-            layer_mod._fsdp_modules.append(experts_mod)
-        
-        fully_shard(layer_mod, **fsdp_kwargs) # 切整层
-        layer_mod._fsdp_modules.append(layer_mod)
-        layer_pairs.append(layer_mod)
-
-    # 【3. 切root model】
-    fully_shard(model, **fsdp_kwargs)
-
-    # 【4. 配置prefetch】
-    # 正向
-    for cur, nxt in zip(layer_pairs, layer_pairs[1:] + [None]):
-        if nxt:
-            cur.set_modules_to_forward_prefetch(list(reversed(nxt._fsdp_modules)))
-
-    # 反向
-    rev_blocks = list(reversed(layer_pairs))
-    for cur, prev in zip(rev_blocks, rev_blocks[1:] + [None]):
-        if prev:
-            cur.set_modules_to_backward_prefetch(list(reversed(prev._fsdp_modules)))
-
-    return model
-```
 
 ## TorchTitan
 
