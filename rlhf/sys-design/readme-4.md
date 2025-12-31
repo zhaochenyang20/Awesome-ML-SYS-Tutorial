@@ -46,7 +46,7 @@ veomni, torchtitan, automodel 里都是先 ep，然后对 ep 完的每个块做 
 - **TorchTitan**：fsdp 手动 prefetch 做 overlap，deepep，reshard policy
 - **Automodel**：deepep
 
-我(zhuorany)主要读了verOmni和Automodel
+我(zhuorany)主要读了VeOmni和Automodel
 
 
 ## VeOmni
@@ -84,7 +84,7 @@ VeOmni/veomni/
     3. Apply FSDP2 to regular modules: Standard dim-0 sharding
     4. Result: Expert params [32,H/fsdp_size,I], regular params use standard FSDP2
 ```
-下面是parallelize_model_fsdp2重的关键部分和代码，[完整代码](https://github.com/ByteDance-Seed/VeOmni/blob/3bd8e6e48c2d741b2b8b4898f90645145bf4287b/veomni/distributed/torch_parallelize.py#L228)
+下面是parallelize_model_fsdp2中的关键部分和代码，[完整代码](https://github.com/ByteDance-Seed/VeOmni/blob/3bd8e6e48c2d741b2b8b4898f90645145bf4287b/veomni/distributed/torch_parallelize.py#L228)
 
 ```python
 
