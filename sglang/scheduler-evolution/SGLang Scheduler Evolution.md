@@ -615,6 +615,7 @@ SGLang's inference process is mainly divided into the following four stages:
    - Send batch to GPU for one step (i.e., one iter of Continue Batch) inference. (`Scheduler::run_batch()`)
 3. **Sample:**
    - Sample based on Logit output from model to generate next Token. (`ModelRunner::sample()`)
+   > We will apply vocab mask during sampling to ensure invalid tokens are not sampled, so we need to update the vocab mask before sampling next batch.
 4. **Post schedule:**
    - After one inference step, dynamically check if requests meet finish condition (Check Finish Condition). (`Scheduler::process_batch_result()`)
 
@@ -624,12 +625,14 @@ SGLang's inference process is mainly divided into the following four stages:
 
 The `Compute batch` and `Sample` stages, which are adjacent, are GPU-heavy, while the two schedule stages are CPU-heavy. When multiple batches are pipelined, we can use **GPU Compute and Sample to overlap the post scheduler of the previous batch with the pre scheduler of the current batch**.
 
-> Actually, our Prefill request entry does not depend on unfinished batches; **the first request can execute normally**.
+> The Grammar Mask in the Prefill stage is usually based on the prompt, so we can just sample it here.
 
-We implement overlap by using Forward CUDA Stream, specifically:
+We implement overlap by using CUDA Stream + FutureMap, specifically:
 
 - In `Run Batch`, two operations are submitted to the `forward_stream` stream: one retrieves the next token of the previous batch from `FutureMap`; the other uses this token as `input_id` for the next calculation.
 - In `Sample`, two operations are also submitted to the `forward_stream` stream: one performs sampling; the other **writes the obtained next token back to FutureMap**.
+  - We should note that sampling is relied on the vocab mask, which is prepared in the `Post Schedule` stage. Therefore, we need to ensure that the `Post Schedule` of the previous batch is completed before executing sampling of the current batch.
+  - Actually, it is ensured by the logic in CPU event loop: `Post Schedule 1` is executed before `Launch Sample 2`.
 - We need to synchronize CPU and GPU before processing data in `Post Schedule` to ensure `next_token_ids` on CPU can be processed.
   - We **perform synchronization in Post Schedule**, ensuring subsequent processing runs normally without affecting GPU pipeline work.
     ```python
@@ -670,6 +673,21 @@ def init_overlap(self):
     self.batch_record_buf = [None] * 2
     self.batch_record_ct = 0
 ```
+**Workflow**
+1. Allocation (Alloc) — CPU stage
+  - Execute `future_indices = self.future_map.alloc_future_indices(bs)` to obtain a set of negative indices (e.g., [-1, -2, -3]) that indicate “where the future results will be stored.”
+  - These negative indices will be used as the `input_ids` for the next batch.
+
+2. Store — GPU stage (Batch N)
+  - After Batch N finishes Forward + Sample on the GPU, the real token IDs are available in the batch result.
+  - Execute `self.future_map.store_to_map(future_indices, batch_result)` to copy the newly generated `next_token_ids` in GPU memory directly into the corresponding buffer locations in the FutureMap.
+  - This is completed on the GPU; no copy back to the CPU is required.
+  
+3. Resolve — GPU stage (Batch N+1)
+  - Before Batch N+1 starts the Forward pass on the GPU, it needs to replace the negative tokens in its input with the real tokens produced by the previous batch.
+  - Execute `self.future_map.resolve_future(model_worker_batch)` to substitute the negative indices in `input_ids` with the real token IDs stored in the FutureMap.
+  - Because GPU commands on a stream execute in order, the Store of Batch N always happens before the Resolve of Batch N+1.
+  
 
 #### FutureMap
 
@@ -739,13 +757,14 @@ def event_loop_overlap(self):
   - Store obtained `next_token_id` to corresponding position in `FutureMap`'s `future_indices`.
     - For next batch to get real token in `resolve_future` during `run_batch`.
 
-### Stream Synchronization
+### Dependency & Solutions
 
-- In decode mode, `batch.output_ids` of previous batch is `batch.input_ids` of next batch.
-- **First:** After **last batch**'s `output_id` **stored in FutureMap**.
-- **Second:** **current batch gets `output_id` from FutureMap** and uses it as `input_id` for next batch calculation.
-  - Limitation of CUDA Stream itself.
-  - Implemented on CPU side using negative placeholders, waiting for GPU to fill real tokens.
+**The Sample stage depends on the previous batch's logits output**
+- The CPU-side scheduling logic guarantees that the current Sample stage is executed after the previous Post Schedule stage.
+
+**The Decode Compute batch stage depends on the previous batch's next token**
+- FutureMap acts as a bridge: the CPU first fills negative-index placeholders; the GPU stores real tokens during the Sample stage and then retrieves them during the next Compute batch stage.
+- CUDA Stream ordering guarantees that the previous Sample completes before the next Compute begins, so the Decode stage will not read incorrect negative “token” placeholders.
 
 ```python
 # previous batch output is negative indices
@@ -770,7 +789,7 @@ with self.forward_stream_ctx:
 
 ### Differences from previous overlap version
 
-- Moved `update_vocab_mask` to GPU for calculation, `vocab_mask` is also allocated directly on GPU, no longer transferred.
+- Moved `update_vocab_mask` to GPU for calculation(**Now in Sampling**), `vocab_mask` is also allocated directly on GPU, no longer transferred.
 - Current GPU is additionally responsible for storing (after sample) and retrieving (before compute) `next_token_ids` to/from `FutureMap`.
   - `FutureMap` is also completely stored on GPU.
 - GPU scheduling changed from CPU launch to directly submitting operations to the CUDA stream, scheduled by the stream itself.
