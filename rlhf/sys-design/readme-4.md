@@ -65,7 +65,7 @@ $k$：MoE 的 Top-$k$ 激活数（每个 Token 选择的专家数）。
 
 我们基于主流的 Ring All-Reduce 和 Standard Exchange All-to-All 计算每个 GPU 发送的数据量：
 
-TP 将每个专家的 FFN 矩阵切分，每经过一个专家层，需要两次 All-Reduce（分别在 $W_{up}$ 和 $W_{down}$ 之后）。每次 All-Reduce 对单个 rank 的通信量为 $2 \times \frac{N-1}{N} \times S$，总通信量为 $\text{Comm}_{TP} \approx 4 \times S = 4 \times (B \times L \times H)$。单个 rank 的总通信量与 $k$（激活专家数）完全无关。即使是稀疏计算，TP 也会产生固定的全量同步开销。
+TP 将每个专家的 FFN 矩阵切分，每经过一个专家层，需要一次 All-Reduce（在$W_{down}$ 之后）。每次 All-Reduce 对单个 rank 的通信量为 $2 \times \frac{N-1}{N} \times S$，总通信量为 $\text{Comm}_{TP} \approx 2 \times S = 2 \times (B \times L \times H)$。单个 rank 的总通信量与 $k$（激活专家数）完全无关。即使是稀疏计算，TP 也会产生固定的全量同步开销。
 
 EP 在进入 MoE 前进行一次 Dispatch，计算完成后进行一次 Combine。每次 All-to-All 的通信量取决于被路由的 Token 总量（$S \times k$）。单个 rank 的总通信量为 $\text{Comm}_{EP} = 2 \times \frac{N-1}{N} \times (S \times k) \approx 2k \times (B \times L \times H)$。通信量随 $k$ 线性增长。
 
