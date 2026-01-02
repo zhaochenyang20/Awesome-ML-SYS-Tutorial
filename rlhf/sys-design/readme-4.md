@@ -1,18 +1,120 @@
-# 专家并行（Expert Parallelism）
+# 深入浅出 DeepSeek MoE，EP 与经典 FSDP 的二次开发
 
-专家并行（Expert Parallelism）的概念非常straightforward，按照专家切分分配到不同的GPU上，实现计算负载的分布式处理，提高计算效率。
+这段时间在研究如何在 FSDP 上二次开发 TP 和 EP。这个需求听上去非常神奇，事实上 FSDP 本身只支持 DeepSpeed Zero 类型的 DP，而其他任何并行方式，TP PP EP 都没有官方实现，需要二次开发。就我所知，一些大厂内部有无数前赴后继的工程师，基于 HuggingFace Transformers 和 FSDP 进行了大量的二次开发，希望能够弥补原生 Transformers 和 FSDP 在 MOE 模型上的性能短板。感谢各位大佬的不懈努力，颇有一种为开源社区 xxx 的美感 😂 以上内容就是本文的写作背景，这段时间 SGLang RL 小组的朋友们一起浅浅研究了 EP，并且分析了一些经典开源框架对 FSDP 的二次开发。
 
-专家并行最大的不同在于，输入数据需要通过一个动态的路由选择机制分发给相应专家，此处会涉及到一个所有节点上的数据重分配的动作。在所有专家处理完成后，又需要将分散在不同节点上的数据按原来的次序整合起来。使用All-to-All的通信方式。专家并行可能存在负载不均衡的问题。
+## DeepSeek MoE
 
-## EP 流程
+在 Dense 模型中，每一层的所有参数都会参与每个 Token 的计算。而 MoE 架构将原本巨大的全连接层 FFN 拆分为多个规模较小且结构相同的独立单元，即专家 Experts。MoE 进一步引入稀疏激活（Sparse Activation）机制：对于输入的每一个 Token，只有一小部分专家（如 Top-k）会被选中参与计算。这使得模型可以在保持计算量（FLOPs）基本不变的情况下，通过增加专家数量极大地扩张参数总量，某种意义上兼备了更高的模型能力的上线和更低的计算开销。在这些基本的介绍之外，强烈推荐读者去学习 [DeepSeek MOE](https://arxiv.org/abs/2401.06066) 原文，其中进一步引入了一些新颖的 MOE 优化：
 
-光做ep的流程是：
+1. 在任意 forward 过程中，每层会有少量的 shared experts，永远被激活。某种意义上，这些 shared experts 存储着常识。
+2. 相较于在 DeepSeek MOE 之前的“传统 MOE”，将专家拆的更细，例如之前一层 FFN 拆成 8 个专家，现在拆成 64 个专家。
 
-1. Gate 选择 expert，按 expert 分桶
-2. all-to-all dispatch（把 token 发给 expert 所在 gpu）
-3. expert compute
-4. all-to-all return
-5. 按 gate 权重合并
+这篇文章还有个让我印象深刻的事情，就是如何在 MOE 和 dense 模型之间做公平的比较。这是个很有意思的事情，我们当然不能拿着 LLama 3.1 405B 和 DeepSeek V3 做比较，说 DeepSeek 碾压 Llama，所以 MOE 比起 Dense 强，因为这不 make sense，二者的变量差距远远不止 MOE/Dense 这一项。想要严格控制变量，比较 MOE 和 Dense 二者架构的优劣，必须得从 pretrain 时候就开始，做非常严格的控制，类似朱泽圆老师的《Physics of Language Model》，为了得到最严谨的科学结论，需要非常严格地控制变量。非常遗憾，在学术界，很难有这种从 pretrain 开始控制变量的机会，这也算是我一般不会认同各种学界对 Diffusion LLM，Dense Model，MOE，Hybird Model 孰优孰劣的争论。
+
+回到 DeepSeek MOE 这篇文章本身，我非常喜欢这篇文章，他们为了比较各种架构，也从 pretrain 的 tokens 数量开始做了控制变量。然后提出，对于总参数量为 X 而激活参数为 Y 的 MOE 模型，其模型表现能够比起总参数为 Y 的 Dense 模型高，而计算开销比起总参数为 X 的 Dense 模型低，甚至模型表现有接近并超越总参数为 X 的 Dense 模型的可能性。注意到，这篇文章发布于 2024 年的年初，到现在已经过去两年了，这几乎是这个 MOE 统治时代的开端之作。
+
+当然，如果 MOE 模型没有训好的话，一些 experts 在推理的过程中一直不激活，就会出现下图这种尴尬的情况：
+
+<div style="text-align: center;">
+<img src="./pics/MOE.png" alt="MoE Model" width="500">
+</div>
+
+对于这种情况，甚至可以选择剪枝掉那些一直没有用过的 experts，总参数量下降了，反而能力没有降低，又可以发一篇 ACL 了。
+
+## Expert Parallelism
+
+让我们回顾朴素的 MoE forward 流程：
+
+1. Gate（路由）计算：输入 Token 经过一个 Gate 网络，计算该 Token 与各个专家的相关性得分。
+2. 专家选择：Gate 根据得分选择出需要参与计算的专家。
+3. Token 分发：Token 被发送至选中的专家。
+4. 专家并行计算：选中的专家各自独立完成矩阵乘法运算。
+5. 结果合并：将各专家的输出按 Gate 的权重进行加权求和，传入下一层。
+
+
+在没有 EP 的情况下，每张 GPU 都必须存储该层所有专家的完整权重。对于参数量动辄上千亿的 MoE 模型（如数百个专家），单卡显存完全无法承载。因此，EP 的核心逻辑是将 Experts 集合在第 0 维度（专家维度）进行拆分，让不同的 Rank 维护不同的专家子集。由于专家被物理隔离在不同的显卡上，原本 gate 所做的逻辑分发变成了真实跨越 GPU rank 的物理分发：
+
+1. Dispatch (All-to-All)
+
+在训练阶段，虽然 Transformer 是 auto regressive 的，但 Causal Mask 实现了全序列的并行 Forward。此时，每个 Rank 都同时持有大量的 Token，且每个 token 都持有不同专家的 gate 分数。于是，在每个 Rank 独立运行 Gate 算法，计算本地 Token 所需的目标专家及其所在的 Rank。由于每个 Rank 都有 Token 需要发往其他 Rank，同时也要接收来自其他所有 Rank 发来的 Token，这构成了典型的 All-to-All 通信，完成了分布式转置（Distributed Transpose）过程，将数据分布从“按序列位置对齐”重组为“按 experts 索引对齐”。
+
+2. Expert Compute
+
+各 Rank 并行执行本地持有的专家计算（FFN）。不同 Rank 之间的专家计算是完全独立的，无需通信同步。但是，此时的计算效率极大地取决于路由分布。如果大量 Token 涌向同一个专家（Hotspot Expert），会导致严重的负载不均衡（Load Imbalance），计算慢的 Rank 会拖累整个集群的同步速度。
+
+3. Combine (All-to-All)
+
+计算完成后，专家输出的局部结果（Expert Latents）需要再次通过 All-to-All 通信进行回传每个专家 Rank 将计算结果发回给该 Token 原始出发的 Rank。这确保了数据的物理分布恢复到进入 MoE 层之前的状态，以便进行后续的加权求和（Combine）、残差连接以及下一层 Attention 的并行计算。
+
+注意到，虽然在 inference 的 Decoding 阶段，每次仅处理一个 Token，但在 Training 和 Pre-filling 阶段，高吞吐的并行计算使得 All-to-All 成为最有效、最常用的通信抽象，因此我们一般认为 EP 需要的是两次 All-to-All 通信。
+
+## EP vs TP
+
+为了降低单个 rank 上的显存负载，TP 也是常见的方案。为什么有了 TP 还需要 EP？对 MOE 而言，二者有什么区别？至少这个问题困扰了我一段时间。现在想来，虽然 TP 也可以切分专家权重（将每个专家的参数分到不同的 rank 上）。
+
+### 通讯量
+
+我们试图先从通讯的角度来分析 TP 和 EP 的优劣。我们定义以下变量：
+
+- $N$：并行组内的 GPU 数量（TP 组或 EP 组大小）。
+- $B \times L$：总 Token 数量（Batch Size $\times$ Sequence Length）。
+- $H$：Hidden Size（每个 Token 的向量维度）。
+$k$：MoE 的 Top-$k$ 激活数（每个 Token 选择的专家数）。
+- $S = B \times L \times H$：该层输入数据的总激活量（Activation Size）。
+
+
+我们基于主流的 Ring All-Reduce 和 Standard Exchange All-to-All 计算每个 GPU 发送的数据量：
+
+TP 将每个专家的 FFN 矩阵切分，每经过一个专家层，需要两次 All-Reduce（分别在 $W_{up}$ 和 $W_{down}$ 之后）。每次 All-Reduce 对单个 rank 的通信量为 $2 \times \frac{N-1}{N} \times S$，总通信量为 $\text{Comm}_{TP} \approx 4 \times S = 4 \times (B \times L \times H)$。单个 rank 的总通信量与 $k$（激活专家数）完全无关。即使是稀疏计算，TP 也会产生固定的全量同步开销。
+
+EP 在进入 MoE 前进行一次 Dispatch，计算完成后进行一次 Combine。每次 All-to-All 的通信量取决于被路由的 Token 总量（$S \times k$）。单个 rank 的总通信量为 $\text{Comm}_{EP} = 2 \times \frac{N-1}{N} \times (S \times k) \approx 2k \times (B \times L \times H)$。通信量随 $k$ 线性增长。
+
+这么看来，但凡专家数量稍微多一点，EP 的通讯量就会远远超过 TP。但是，主流的 MOE 模型仍旧广泛选择了 EP 为主。
+
+### 计算效率
+
+以 DeepSeek MoE 举例，$k=16$，EP 的理论通讯量远超 TP，但 EP 在算子效率和**硬件利用率（MFU）**上具有压倒性优势。
+
+1. 矩阵形状与算子吞吐（Operator Throughput）
+
+TP 的核心逻辑是将矩阵“横着切”或“竖着切”。在 MoE 场景下，单个专家的参数量通常较小。如果使用 TP，每个专家原本就不大的 $H \times \text{Hidden\_Size}$ 矩阵会被进一步切分成 $1/N$。这导致在 GPU 上执行的是极其“瘦长”的矩阵乘法（GEMM）。对于 NVIDIA Tensor Cores 而言，过小的维度无法充分填充计算流水线，实际算力利用率大幅下降。
+
+而 EP 能保持 expert 矩阵的完整性。尽管 Token 需要跨卡搬运，但一旦到达目标 GPU，它面对的是一个形状规整、足以触发高效计算内核的完整矩阵。对于 DeepSeek 这种**细粒度专家（Fine-grained Experts）**设计，每个专家极其微小，如果再套用 TP，计算效率将退化到难以忍受的地步。
+
+
+此外，对于 DeepSeek MoE 而言，其选择 EP 还有更多的 infra 创新，首先是 shared experts 被隔离，不需要参与 EP 通信，其次是 DeepEP 为 large $k$ 带来的极致通讯隐藏：
+
+1. DeepSeek 实现了计算与通讯的极致重叠。当 Dispatch 的第一批 Token 到达 GPU 时，计算内核立即启动，而不是等待 16 个专家的所有数据全部到齐。
+
+2. RDMA 直驱：DeepEP 绕过了传统的 NCCL 协议栈，利用 PTX 级别优化实现低延迟的跨节点数据交换。在 $k=16$ 产生的巨大吞吐下，DeepEP 依然能维持极高的带宽利用率，使得“通讯时间”几乎完全被“计算时间”掩盖。
+
+基于此，对于 MoE 模型而言，我们如下对比 TP 和 EP：
+
+| 维度 | TP 方案 | EP 方案 (DeepSeek 为例) |
+| --- | --- | --- |
+| 通讯量 (Bytes) | 低且固定 (≈4S) | 高且随 k 增长 (≈32S) |
+| 通讯延迟 (Latency) | 极高（高频 All-Reduce 同步锁） | 可控（粗粒度 All-to-All 异步掩盖） |
+| 计算效率 (MFU) | 低（矩阵切分导致算子不饱满） | 高（算子完整，易于硬件加速） |
+| 集群扩展性 | 局限于单机 NVLink 域 | 支持万卡集群 RDMA 扩展 |
+
+
+### ETP
+
+讨论了这么多 EP 和 TP 的区别，从中我们可以看出，对于 MoE 模型而言，EP 确实是更佳的选择。不过，如果你有留意过 SGLang 启动 DeepSeek R1 的指令的话，会有些诧异；比如说，在 2026 年 1 月 1 日的 SGLang cookbook 中，我们可以同时打开 DeepSeek R1 的 EP 和 TP，得到如下的启动指令：
+
+```bash
+python3 -m sglang.launch_server \
+  --model-path deepseek-ai/DeepSeek-R1-0528 \
+  --tp 8 \
+  --ep 8 \
+  --enable-symm-mem # Optional: improves performance, but may be unstable
+```
+
+这就让人有些费解，TP 和 EP 是如何同时开启的。
+
+实际上，从我们上述的讨论中，可以发觉，EP 将不同的 experts 物理分到不同的 rank 后，这些 experts 仍旧可以做 TP。比如说，EP 2 TP4，先把所有的专家分成两组，比如 0～3 卡负担前 1/2 的专家。接着，单个专家还会拆分到 4 个组内的 rank 上。这种策略确实存在，但是有个术语叫做 ETP，先做 EP，再对每个 expert 做 TP。
+
+很遗憾，这种策略并没有在开源社区被广泛采用，目前 SGLang 的上述指令中，TP 8 和 EP 8 是指 experts 会被分到 8 个 rank 上；而对非 MOE 的部分，比如 linear 层，则会按照 TP 分到 8 个 rank 上，执行的并不是 ETP 模式。
 
 ## FSDP2 + EP
 
