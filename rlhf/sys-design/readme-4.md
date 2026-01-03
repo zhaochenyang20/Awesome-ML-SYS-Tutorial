@@ -1,6 +1,8 @@
-# 深入浅出 DeepSeek MoE，EP 与经典 FSDP 的二次开发
+# 深入浅出 DeepSeek MoE，EP 与 FSDP 经典二次开发
 
 这段时间在研究如何在 FSDP 上二次开发 TP 和 EP。这个需求听上去非常神奇，事实上 FSDP 本身只支持 DeepSpeed Zero 类型的 DP，而其他任何并行方式，TP PP EP 都没有官方实现，需要二次开发。就我所知，一些大厂内部有无数前赴后继的工程师，基于 HuggingFace Transformers 和 FSDP 进行了大量的二次开发，希望能够弥补原生 Transformers 和 FSDP 在 MOE 模型上的性能短板。感谢各位大佬的不懈努力，颇有一种为开源社区 xxx 的美感 😂 以上内容就是本文的写作背景，这段时间 SGLang RL 小组的朋友们一起浅浅研究了 EP，并且分析了一些经典开源框架对 FSDP 的二次开发。
+
+【感谢 Xinyi Song 和 Zhuoran Yin 对本文的贡献，为了山姆奥特曼的海边大别野，还是再苦苦员工吧】
 
 ## DeepSeek MoE
 
@@ -65,24 +67,26 @@ $k$：MoE 的 Top-$k$ 激活数（每个 Token 选择的专家数）。
 
 我们基于主流的 Ring All-Reduce 和 Standard Exchange All-to-All 计算每个 GPU 发送的数据量：
 
-TP 将每个专家的 FFN 矩阵切分，每经过一个专家层，需要一次 All-Reduce（在$W_{down}$ 之后）。每次 All-Reduce 对单个 rank 的通信量为 $2 \times \frac{N-1}{N} \times S$，总通信量为 $\text{Comm}_{TP} \approx 2 \times S = 2 \times (B \times L \times H)$。单个 rank 的总通信量与 $k$（激活专家数）完全无关。即使是稀疏计算，TP 也会产生固定的全量同步开销。
+TP 将每个 expert 的 FFN 矩阵切分，每经过一个 expert 层，需要在 $W_{down}$ 之后做一次 All-Reduce。在 Ring 算法下，单卡通讯量为 $2 \times \frac{N-1}{N} \times S$，即 $\text{Comm}_{TP} \approx 2S$。注意，TP 的通讯量与 $k$（激活 expert 数）完全无关，哪怕你只激活 1 个 expert，TP 也要雷打不动地同步全量激活值。
 
-EP 在进入 MoE 前进行一次 Dispatch，计算完成后进行一次 Combine。每次 All-to-All 的通信量取决于被路由的 Token 总量（$S \times k$）。单个 rank 的总通信量为 $\text{Comm}_{EP} = 2 \times \frac{N-1}{N} \times (S \times k) \approx 2k \times (B \times L \times H)$。通信量随 $k$ 线性增长。
+EP 在专家维度进行显式拆分，在 Dispatch 阶段，每个 Rank 最初持有的数据量仅为 $S/N$。由于每个 Token 需要分发给 $k$ 个专家，单卡发出的数据量平均为 $k \times (S/N)$。算上 Combine 阶段的回传，单卡通讯量为 $\text{Comm}_{EP} = 2 \times \frac{N-1}{N} \times \frac{kS}{N} \approx \frac{2k}{N}S$。
 
-这么看来，但凡专家数量稍微多一点，EP 的通讯量就会远远超过 TP。但是，主流的 MOE 模型仍旧广泛选择了 EP 为主。
+在大规模并行时，$N$ 很大，如 $N=64$ 或 $256$，只要 $k < N$（DeepSeek每层激活 $k=8$，而专家总数为 $256$），EP 的单卡通讯字节数实际上远小于 TP。
+
+虽然 EP 的通讯量看上去更少，但是 EP 遇到的通讯瓶颈更严重：
+
+1. TP 通常死磕在单机 8 卡的 NVLink 域内，带宽起步 900GB/s；而 EP 往往要跨越节点走 RDMA，带宽通常只有 50GB/s ~ 100GB/s。带宽差了一个数量级。
+2. All-to-All 本质上是 $N^2$ 个小连接。在大规模集群下，握手开销、长尾延迟以及负载不均衡（Load Imbalance）带来的等待时间，可能比实际通讯耗时还要大。
 
 ### 计算效率
 
-以 DeepSeek MoE 举例，$k=16$，EP 的理论通讯量远超 TP，但 EP 在算子效率和**硬件利用率（MFU）**上具有压倒性优势。
+虽然以 DeepSeek MoE 举例，$k=16$，EP 和 TP 在通讯上各有问题，但 EP 在算子效率和**硬件利用率（MFU）**上具有压倒性优势。
 
-1. 矩阵形状与算子吞吐（Operator Throughput）
-
-TP 的核心逻辑是将矩阵“横着切”或“竖着切”。在 MoE 场景下，单个专家的参数量通常较小。如果使用 TP，每个专家原本就不大的 $H \times \text{Hidden\_Size}$ 矩阵会被进一步切分成 $1/N$。这导致在 GPU 上执行的是极其“瘦长”的矩阵乘法（GEMM）。对于 NVIDIA Tensor Cores 而言，过小的维度无法充分填充计算流水线，实际算力利用率大幅下降。
+TP 的核心逻辑是将矩阵“横着切”或“竖着切”。在 MoE 场景下，单个专家的参数量通常较小。如果使用 TP，每个专家原本就不大的 $H \times \text{Hidden\_Size}$ 矩阵会被进一步切分成 $1/N$。这导致在 GPU 上执行的是极其“瘦长”的矩阵乘法（GEMM）。对于 NVIDIA Tensor Cores 而言，过小的维度无法充分填充计算流水线，实际算力利用率大幅下降。这其实也是 TP 一般不做跨机的一大原因：机器之间的通讯远比机内更慢，这对于 TP 几乎恒定的通讯量来说是个灾难；以及，TP 切到更多机器上，让每个 rank 的形状更加瘦长，GEMM 效率也会大幅下降。
 
 而 EP 能保持 expert 矩阵的完整性。尽管 Token 需要跨卡搬运，但一旦到达目标 GPU，它面对的是一个形状规整、足以触发高效计算内核的完整矩阵。对于 DeepSeek 这种**细粒度专家（Fine-grained Experts）**设计，每个专家极其微小，如果再套用 TP，计算效率将退化到难以忍受的地步。
 
-
-此外，对于 DeepSeek MoE 而言，其选择 EP 还有更多的 infra 创新，首先是 shared experts 被隔离，不需要参与 EP 通信，其次是 DeepEP 为 large $k$ 带来的极致通讯隐藏：
+此外，对于 DeepSeek MoE 而言，其选择 EP 还有更多的 infra 创新，首先是 shared experts 被隔离，不需要参与 EP 通信；其次是 DeepEP 为 large $k$ 带来的极致通讯隐藏：
 
 1. DeepSeek 实现了计算与通讯的极致重叠。当 Dispatch 的第一批 Token 到达 GPU 时，计算内核立即启动，而不是等待 16 个专家的所有数据全部到齐。
 
@@ -118,44 +122,57 @@ python3 -m sglang.launch_server \
 
 很遗憾，这种策略并没有在开源社区被广泛采用，目前 SGLang 的上述指令中，TP 8 和 EP 8 是指 experts 会被分到 8 个 rank 上；而对非 MOE 的部分，比如 linear 层，则会按照 TP 分到 8 个 rank 上，执行的并不是 ETP 模式。
 
-## FSDP2 + EP
+⚠️ 最后，给 SGLang cookbook 打个小小的广告，以往的 [SGLang 文档](https://docs.sglang.io/)是按照 feature 纵向编写的，比如说分析 EP TP DPA 等等各种并行策略，但是很难系统性知道一个给定的 LLM，究竟要横向组合哪些并行策略，才能达到最佳配置。现在我们有了 [SGLang cookbook](hhttps://cookbook.sglang.io/docs/intro)，在模型的维度进行编写，丰富并且详细展开了主流模型的各种配置组合。
+
+## 经典的 FSDP 二次开发：EP
+
+回到本文痛苦的出发点，SGLang RL 小组在一段时间内多次讨论是否要在 slime 已经支持的 FSDP 基础上，进一步支持 EP。如我所说的：
+
+> 这个需求听上去非常神奇，事实上 FSDP 本身只支持 DeepSpeed Zero 类型的 DP，而其他任何并行方式，TP PP EP 都没有官方实现，需要二次开发。就我所知，一些大厂内部有无数前赴后继的工程师，基于 HuggingFace Transformers 和 FSDP 进行了大量的二次开发，希望能够弥补原生 Transformers 和 FSDP 在 MOE 模型上的性能短板。感谢各位大佬的不懈努力，颇有一种为开源社区 xxx 的美感
+
+这里只分享我们的调研流程，我们研究学习了社区其他开源项目基于 FSDP 的 EP 实现，并在此分享。
+
+我们先来看看有了 EP 后的 forward 和 backward 流程：
 
 | forward | backward |
 | --- | --- |
 | gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br><br><br>release<br><br>all-to-all return<br><br>merge | gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br>reduce-scatter<br><br>release<br><br>all-to-all return<br><br>merge |
 
+其实没有什么显著区别，就是加入了 EP 的 all-2-all 通讯。注意到，Backward 中的 Reduce-Scatter 是 FSDP 的标准动作，和 EP 无关。将计算出的完整梯度需要在 DP 组内聚合（Reduce）并重新切分（Scatter）回各个 Rank，以确保梯度占用的显存与参数一样是 Sharded 状态。
 
-## 优化点
+遍览各大框架，读下来大家做出的优化一般有：
 
-最大的问题在于all to all 产生的大量的 gpu 间通信，应该怎么优化？读下来主要的优化点是：
+1. EP 切分 dim 0 experts，而 FSDP 切分 dim 1 hidden size （见 VeOmni）
 
-1. ep切分 dim0 （专家），fsdp 切分 dim1 hiddensize （见VeOmni）
-2. prefetch，指在计算第n层的时候，预先把第n+1层的参数gather起来。只用fsdp的话可以很直白的做prefetch。但是因为ep计算开始之前有通信，可能会乱掉，需要手动做一些操作来前向和反向的prefetch （见VeOmni）
-3. 用deepep，苦nccl久矣 （见Automodel）
-   Deepep:
-https://www.cnblogs.com/CQzhangyu/p/18741625
-https://zhuanlan.zhihu.com/p/28867733102
-https://zhuanlan.zhihu.com/p/27777601573
+2. prefetch：在计算第 n 层的时候，预先把第 n+1 层的参数 gather 起来。只用 FSDP 的话可以很直白的做 prefetch。但是因为 EP 计算开始之前有通信，需要手动做一些操作来保证前向和反向的 prefetch （见 VeOmni）
 
+3. DeepEP：苦 NCCL 久矣，使用 RDMA 直驱 （见 Automodel）
 
-4. eplb ep下的load balance （TODO 还要读一下）https://zhuanlan.zhihu.com/p/29963005584
-5. fused moe, 这个在ep之外了，指的是gpu负责n个专家，然后用fused moe kernel来加速对他持有的这几个专家的计算
+4. EPLB：通过专家冗余来解决专家计算负载不均衡
+
+5. fused MoE：其实和 EP 关系不大，单个 GPU 负责多个专家，用 Fused MoE kernel 来加速这些专家的计算
+
+背后的技术有一系列可以参考的优秀文章：
+
+[Deepseek 的 All-to-all 通信: DeepEP 代码解读](https://www.cnblogs.com/CQzhangyu/p/18741625)
+
+[一点浅见：DeepEP 为什么快？](https://zhuanlan.zhihu.com/p/28867733102)
+
+[DeepSeek AI Infra(3) - DeepEP的原理与代码剖析](https://zhuanlan.zhihu.com/p/27777601573)
+
+[MoE 并行负载均衡：EPLB 的深度解析与可视化](https://zhuanlan.zhihu.com/p/29963005584)
 
 
 ## 实现对比
 
-veomni, torchtitan, automodel 里都是先 ep，然后对 ep 完的每个块做 fsdp。
-
-- **VeOmni**：fsdp 手动 prefetch 做 overlap，reshard policy
-- **TorchTitan**：fsdp 手动 prefetch 做 overlap，deepep，reshard policy
-- **Automodel**：deepep
-
-我(zhuorany)主要读了VeOmni和Automodel
+我们这里对比三个社区的高光项目：[VeOmni](https://github.com/ByteDance-Seed/VeOmni), [TorchTitan](https://github.com/pytorch/torchtitan), [Automodel](https://github.com/NVIDIA-NeMo/Automodel)，它们都是先 EP，然后对 EP 完的每个块做 FSDP。
 
 
-## VeOmni
+### VeOmni
 
-```
+我们学习时的代码结构如下：
+
+```text
 VeOmni/veomni/
 ├── distributed/
 │   ├── parallel_state.py       ← 全局并行状态（ep_fsdp_device_mesh, ep_size）
@@ -178,17 +195,21 @@ VeOmni/veomni/
 ```
 
 
-整个逻辑看下来还是比较清晰的，就是一个ep + fsdp的结构，对于专家先apply ep 在第0个维度（expert）上切分，然后再fsdp，非专家部分直接按照常规fsdp即可。比较值得注意的一点是ep这里切分用的不是fsdp的fully_shard，而是自己在每个rank上去切tensor。
-```text
-    Applies EP (when enabled) + FSDP2 parallel strategy to the model.
+整个逻辑看下来还是比较清晰的，就是一个 EP + FSDP 的结构，对于专家先 apply EP，在第 0 个维度（expert）上切分，然后再 FSDP，非专家部分直接按照常规 FSDP 即可。这里有个比较有意思的点，注意到 FSDP 采用的 `fully_shard` 是隐式切分（有人叫做动态逻辑切分），希望对上层是一种无感的并行优化。以 `shape=[128, H, I]` 的一组专家为例，在模型的 forward 开始前，FSDP 内部会偷偷发起一次 all-gather，临时把 8 张卡上的碎片拼回完整的 `[128, H, I]`。而对于上层而言，看到的还是一个完整的 Tensor，不需要关心分布式通信。而 EP 是一个显式切分，或者说静态物理切分，原本 `shape=[128, H, I]` 的一组专家，在每个 Rank 上物理上变成了 `[32, H, I]`。模型代码必须感知到这个变化，比如 MoE 层代码一定要知道，“我这台机器上只有 32 个专家”，并根据这个数量去计算。
 
-    Flow:
-    1. Apply EP: Expert tensors [128,H,I] -> [32,H,I] local tensors per EP rank
-    2. Apply FSDP2 to expert modules: Shard expert tensors along dim-1 (hidden dim)
-    3. Apply FSDP2 to regular modules: Standard dim-0 sharding
-    4. Result: Expert params [32,H/fsdp_size,I], regular params use standard FSDP2
+
+```text
+Applies EP (when enabled) + FSDP2 parallel strategy to the model.
+
+Flow:
+1. Apply EP: Expert tensors [128,H,I] -> [32,H,I] local tensors per EP rank
+2. Apply FSDP2 to expert modules: Shard expert tensors along dim-1 (hidden dim)
+3. Apply FSDP2 to regular modules: Standard dim-0 sharding
+4. Result: Expert params [32, H/fsdp_size, I], regular params use standard FSDP2
 ```
-下面是parallelize_model_fsdp2中的关键部分和代码，[完整代码](https://github.com/ByteDance-Seed/VeOmni/blob/3bd8e6e48c2d741b2b8b4898f90645145bf4287b/veomni/distributed/torch_parallelize.py#L228)
+
+下面是这一实现的关键函数 `parallelize_model_fsdp2` 节选，[完整代码](https://github.com/ByteDance-Seed/VeOmni/blob/3bd8e6e48c2d741b2b8b4898f90645145bf4287b/veomni/distributed/torch_parallelize.py#L228)：
+
 
 ```python
 
@@ -230,25 +251,26 @@ def parallelize_model_fsdp2(model, enable_mixed_precision=True, basic_modules=No
 
     return model
 ```
-还有就是all2all的通信，通信复杂度很大，[code](https://github.com/ByteDance-Seed/VeOmni/blob/e4e431d0/veomni/distributed/moe/moe_layer.py)
 
-Preprocess：在传输重数据之前，通过 all_gather 交换元数据，计算出 Input Splits和 Output Splits。
+讨论完切分逻辑，我们接着考虑通讯逻辑。All 2 All 通讯的复杂度不低，相关通讯可见[代码](https://github.com/ByteDance-Seed/VeOmni/blob/e4e431d0/veomni/distributed/moe/moe_layer.py)： 
 
-Dispatch：根据路由索引在本地进行 Permute，利用 dist.all_to_all 完成传输，收到数据后需再次 Sort
+1. Preprocess：在传输重数据之前，通过 all_gather 交换元数据，计算出 Input Splits 和 Output Splits；
 
-Combine：计算完成后，执行逆向的通信和 Unpermute 操作，将 Token 还原回原始序列顺序。
+2. Dispatch：根据路由索引在本地进行 Permute，利用 dist.all_to_all 完成传输，收到数据后需再次 Sort；
+
+3. Combine：计算完成后，执行逆向的通信和 Unpermute 操作，将 Token 还原回原始序列顺序；
 
 ```python
 
 def preprocess(expert_mask, num_experts, ep_group):
-    # expert_mask: [Batch, Tokens, Num_Experts] (哪些token去哪些专家)
+    # expert_mask: [Batch, Tokens, Num_Experts] (哪些 token 去哪些专家)
     
     # 1. 算出本地要发给每个 rank 的 token 数量 (Input Splits)
     ep_size = ep_group.size()
     num_local_tokens_per_expert = expert_mask.sum(dim=(1, 2)) 
     input_splits = num_local_tokens_per_expert.reshape(ep_size, -1).sum(dim=1).tolist()
 
-    # 2. # dist.all_gather: 收集所有卡上的 num_local_tokens_per_expert
+    # 2. dist.all_gather: 收集所有卡上的 num_local_tokens_per_expert
     num_global_tokens_per_expert = torch.zeros(...)
     dist.all_gather_into_tensor(num_global_tokens_per_expert, num_local_tokens_per_expert, group=ep_group)
 
@@ -287,9 +309,11 @@ def tokens_post_all2all(expert_outputs, input_splits, output_splits, ...):
     return final_output
 ```
 
-## Automodel
+### Automodel
 
-```
+我们学习时的代码结构如下，比较逆天的是，这个 repo 目前仍旧只有 200 多 star...
+
+```text
 Automodel/nemo_automodel/
 ├── components/
 │   ├── distributed/
@@ -308,15 +332,11 @@ Automodel/nemo_automodel/
 │           └── moe_utils.py         ← permute/unpermute 工具
 ```
 
-automodel 比较值得一看的就是他是怎么用deepep的。Automodel 通过 `_DeepepManager` 集成了 DeepEP，利用 Fused Dispatch/Combine 算子替代了 NCCL All-to-All。
+Automodel 对 DeepEP 的使用可圈可点。Automodel 通过 `_DeepepManager` 集成了 DeepEP，利用 Fused Dispatch/Combine 算子替代了 NCCL All-to-All：`token_dispatcher.py -> MoEFlexTokenDispatcher -> _DeepepManager -> fused_dispatch`
 
-`token_dispatcher.py` -> `MoEFlexTokenDispatcher` -> `_DeepepManager` -> `fused_dispatch`
+**DeepepManager from token_dispatcher.py**
 
-### DeepepManager(token_dispatcher.py)
-
-有状态的通信上下文管理器，它封装了 DeepEP 库与上层模型逻辑之间的交互。
-
-在 dispatch 阶段，DeepEP 底层返回一个 handle 对象（包含了通信布局信息。在 combine 阶段，直接取出 self.handle 传给底层。
+有状态的通信上下文管理器，它封装了 DeepEP 库与上层模型逻辑之间的交互。在 dispatch 阶段，DeepEP 底层返回一个 handle 对象，包含通信布局信息。在 combine 阶段，直接取出 self.handle 传给底层。
 
 ```python
 # token_dispatcher.py 第 90-191 行
@@ -367,7 +387,7 @@ class _DeepepManager(_DispatchManager):
         return hidden_states
 ```
 
-### DeepEP 封装 (fused_a2a.py)
+**FusedDispatch from fused_a2a.py**
 
 ```python
 # fused_a2a.py 第 80-148 行
@@ -414,9 +434,9 @@ class FusedDispatch(torch.autograd.Function):
 ```
 
 
-## TorchTitan
+### TorchTitan
 
-```
+```text
 torchtitan/
 ├── distributed/
 │   ├── expert_parallel.py      ← 核心！EP 类定义
@@ -430,9 +450,12 @@ torchtitan/
 │       └── parallelize.py      ← EP + FSDP 整合入口
 ```
 
-[完整代码](https://github.com/pytorch/torchtitan/blob/7e4ab85998576c68902603058adada28fb0ed226/torchtitan/models/llama4/infra/parallelize.py#L494)
+完整逻辑可见[此处](https://github.com/pytorch/torchtitan/blob/7e4ab85998576c68902603058adada28fb0ed226/torchtitan/models/llama4/infra/parallelize.py#L494)。TorchTitan 实现了全链路的 pre-fetch：
 
-### fsdp+ep 代码 (torchtitan/models/llama4/infra/parallelize.py)
+1. MoE 感知预取：大多框架可能只预取下一层 Block，但 TorchTitan 在前向传播时，会显式地同时预取下一层 Block 及其内部的 Experts（[next_transformer_block, next_transformer_block.moe.experts]）；
+2. 最大限度计算覆盖：从最开始的 Embedding 层到最后的 Output 层，甚至在反向传播（Backward）过程中，都有对应的 set_modules_to_backward_prefetch 逻辑。这种密不透风的预取最大限度地让计算掩盖通信。
+
+**Parallelize from parallelize.py**
 
 ```python
 for layer_id, transformer_block in model.layers.items():
@@ -466,7 +489,7 @@ for layer_id, transformer_block in model.layers.items():
     )
 ```
 
-### prefetch 代码
+**Prefetch from parallelize.py**
 
 ```python
 transformer_blocks = list(model.layers.values())
