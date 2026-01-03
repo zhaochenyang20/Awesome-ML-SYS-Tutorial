@@ -35,6 +35,15 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 - [AReal Code Walk Through](./rlhf/areal/code-walk-through_EN.md) AReal source code appreciation. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1983417813080236770) and in [Chinese version](./rlhf/areal/code-walk-through_CN.md).
 
 
+### System Design and Optimization
+
+- [Deep Dive into DeepSeek MoE with Classic Secondary Development of EP on FSDP](./rlhf/sys-design/readme-4-en.md): Deep dive into DeepSeek MoE with classic secondary development of EP on FSDP. Also available in [Chinese version](./rlhf/sys-design/readme-4.md) and [zhihu]().
+- [Deep Thoughts on RL Systems: In-Depth Understanding of Weight Update Mechanism](./rlhf/sys-design/readme-1-EN.md): Summary of half a year's work, in-depth understanding of the weight update mechanism. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1925210722704531547) and in [Chinese version](./rlhf/sys-design/readme-1.md).
+- [Deep Thoughts on RL Systems: FSDP Training Backend](./rlhf/sys-design/readme-2-en.md): Discusses the principles and implementation of FSDP, and analyzes verl's use of FSDP. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1929115059113693341) and in [Chinese version](./rlhf/sys-design/readme-2.md).
+- [Pending Review] [Deep Thoughts on RL Systems: Megatron](./rlhf/sys-design/readme-3.md): Brief analysis of Megatron's basic features, focusing on its use in the RL framework.
+- [Extending the OpenRLHF Inference Engine](./rlhf/OpenRLHF/develop-log.md): Development notes on integrating SGLang into OpenRLHF. The entire process was very painful, and there's still an nccl hang error that a DeepSpeed core contributor is currently fixing.
+- [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md): Introduction on how to use SGLang as the inference backend for the GRPO Trainer in TRL. GRPO is a PPO variant that optimizes PPO's memory usage while improving mathematical reasoning capabilities.
+
 ### verl Framework
 
 - [Analyzing VLM RL Training Memory Leaks via Torch Memory Snapshot](./torch/mem-snapshot/readme-en.md): Analysis of SGLang memory leak issues and solutions. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1943202817247519535) and in [Chinese version](./torch/mem-snapshot/readme.md).
@@ -57,13 +66,6 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 - [Illustrated Series on LLM RLHF: PPO Principles and Source Code Interpretation for Everyone](https://zhuanlan.zhihu.com/p/677607581) and [Illustrated Distributed Training Process based on Ray in OpenRLHF](https://zhuanlan.zhihu.com/p/12871616401): Excellent RLHF introductory resources by Ms. Mengyuan. After reading, you will have a good understanding of RLHF's computational flow and the OpenRLHF PPO framework. I have also added my own understanding in [RLHF Computational Flow](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/OpenRLHF#rlhf-%E7%9A%84%E8%AE%A1%E7%AE%97%E6%B5%81).
 - [Brief Analysis of the Computational Flow of Post-Training Systems Represented by OpenRLHF](./rlhf/OpenRLHF/readme.md): Further complement to Ms. Mengyuan's article. The Github native rendering is terrible; you might as well look at [Zhihu](https://zhuanlan.zhihu.com/p/16370000391).
 
-### System Design and Optimization
-
-- [Deep Thoughts on RL Systems: In-Depth Understanding of Weight Update Mechanism](./rlhf/sys-design/readme-1-EN.md): Summary of half a year's work, in-depth understanding of the weight update mechanism. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1925210722704531547) and in [Chinese version](./rlhf/sys-design/readme-1.md).
-- [Deep Thoughts on RL Systems: FSDP Training Backend](./rlhf/sys-design/readme-2-en.md): Discusses the principles and implementation of FSDP, and analyzes verl's use of FSDP. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1929115059113693341) and in [Chinese version](./rlhf/sys-design/readme-2.md).
-- [Pending Review] [Deep Thoughts on RL Systems: Megatron](./rlhf/sys-design/readme-3.md): Brief analysis of Megatron's basic features, focusing on its use in the RL framework.
-- [Extending the OpenRLHF Inference Engine](./rlhf/OpenRLHF/develop-log.md): Development notes on integrating SGLang into OpenRLHF. The entire process was very painful, and there's still an nccl hang error that a DeepSpeed core contributor is currently fixing.
-- [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md): Introduction on how to use SGLang as the inference backend for the GRPO Trainer in TRL. GRPO is a PPO variant that optimizes PPO's memory usage while improving mathematical reasoning capabilities.
 
 ### Algorithms and Theory
 

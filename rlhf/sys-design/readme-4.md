@@ -136,7 +136,7 @@ python3 -m sglang.launch_server \
 
 | forward | backward |
 | --- | --- |
-| gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br><br><br>release<br><br>all-to-all return<br><br>merge | gate<br><br>All-to-All Combine<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br>reduce-scatter<br><br>release<br><br>all-to-all return<br><br>merge |
+| gate<br><br>All-to-All Dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br><br><br>release<br><br>All-to-All Return<br><br>merge | gate<br><br>All-to-All Combine<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br>reduce-scatter<br><br>release<br><br>All-to-All Return<br><br>merge |
 
 其实没有什么显著区别，就是加入了 EP 的 all-2-all 通讯。注意到，Backward 中的 Reduce-Scatter 是 FSDP 的标准动作，和 EP 无关。将计算出的完整梯度需要在 DP 组内聚合（Reduce）并重新切分（Scatter）回各个 Rank，在数学上完成了梯度的平均（Reduce）和分发（Scatter）。在 MoE EP 场景下，只有在专家进一步被 FSDP 切分时，才会有对应的 FSDP 级别 Reduce-Scatter。而 experts 本身是不需要在 EP 组内做梯度聚合的，各自优化各自的梯度即可。
 
