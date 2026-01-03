@@ -9,7 +9,7 @@
 在 Dense 模型中，每一层的所有参数都会参与每个 Token 的计算。而 MoE 架构将原本巨大的全连接层 FFN 拆分为多个规模较小且结构相同的独立单元，即专家 Experts。MoE 进一步引入稀疏激活（Sparse Activation）机制：对于输入的每一个 Token，只有一小部分专家（如 Top-k）会被选中参与计算。这使得模型可以在保持计算量（FLOPs）基本不变的情况下，通过增加专家数量极大地扩张参数总量，某种意义上兼备了更高的模型能力的上线和更低的计算开销。在这些基本的介绍之外，强烈推荐读者去学习 [DeepSeek MOE](https://arxiv.org/abs/2401.06066) 原文，其中进一步引入了一些新颖的 MOE 优化：
 
 1. 在任意 forward 过程中，每层会有少量的 shared experts，永远被激活。某种意义上，这些 shared experts 存储着常识。
-2. 相较于在 DeepSeek MOE 之前的“传统 MOE”，将专家拆的更细，例如之前一层 FFN 拆成 8 个专家，现在拆成 64 个专家。
+2. 相较于在 DeepSeek MOE 之前的“传统 MOE”，将专家拆的更细，例如之前一层 FFN 拆成 8 个专家，现在拆成 64 个专家。（在 DeepSeek V3 中甚至是 256 个 experts）
 
 这篇文章还有个让我印象深刻的事情，就是如何在 MOE 和 dense 模型之间做公平的比较。这是个很有意思的事情，我们当然不能拿着 LLama 3.1 405B 和 DeepSeek V3 做比较，说 DeepSeek 碾压 Llama，所以 MOE 比起 Dense 强，因为这不 make sense，二者的变量差距远远不止 MOE/Dense 这一项。想要严格控制变量，比较 MOE 和 Dense 二者架构的优劣，必须得从 pretrain 时候就开始，做非常严格的控制，类似朱泽圆老师的《Physics of Language Model》，为了得到最严谨的科学结论，需要非常严格地控制变量。非常遗憾，在学术界，很难有这种从 pretrain 开始控制变量的机会，这也算是我一般不会认同各种学界对 Diffusion LLM，Dense Model，MOE，Hybird Model 孰优孰劣的争论。
 
@@ -88,7 +88,7 @@ TP 的核心逻辑是将矩阵“横着切”或“竖着切”。在 MoE 场景
 
 此外，对于 DeepSeek MoE 而言，其选择 EP 还有更多的 infra 创新，首先是 shared experts 被隔离，不需要参与 EP 通信；其次是 DeepEP 为 large $k$ 带来的极致通讯隐藏：
 
-1. DeepSeek 实现了计算与通讯的极致重叠。当 Dispatch 的第一批 Token 到达 GPU 时，计算内核立即启动，而不是等待 16 个专家的所有数据全部到齐。
+1. DeepSeek 实现了计算与通讯的极致重叠（Stream-K）。当 Dispatch 的第一批 Token 到达 GPU 时，计算内核立即启动，而不是等待 16 个专家的所有数据全部到齐。
 
 2. RDMA 直驱：DeepEP 绕过了传统的 NCCL 协议栈，利用 PTX 级别优化实现低延迟的跨节点数据交换。在 $k=16$ 产生的巨大吞吐下，DeepEP 依然能维持极高的带宽利用率，使得“通讯时间”几乎完全被“计算时间”掩盖。
 
@@ -122,7 +122,7 @@ python3 -m sglang.launch_server \
 
 很遗憾，这种策略并没有在开源社区被广泛采用，目前 SGLang 的上述指令中，TP 8 和 EP 8 是指 experts 会被分到 8 个 rank 上；而对非 MOE 的部分，比如 linear 层，则会按照 TP 分到 8 个 rank 上，执行的并不是 ETP 模式。
 
-⚠️ 最后，给 SGLang cookbook 打个小小的广告，以往的 [SGLang 文档](https://docs.sglang.io/)是按照 feature 纵向编写的，比如说分析 EP TP DPA 等等各种并行策略，但是很难系统性知道一个给定的 LLM，究竟要横向组合哪些并行策略，才能达到最佳配置。现在我们有了 [SGLang cookbook](hhttps://cookbook.sglang.io/docs/intro)，在模型的维度进行编写，丰富并且详细展开了主流模型的各种配置组合。
+⚠️ 最后，给 SGLang cookbook 打个小小的广告，以往的 [SGLang 文档](https://docs.sglang.io/)是按照 feature 纵向编写的，比如说分析 EP TP DPA 等等各种并行策略，但是很难系统性知道一个给定的 LLM，究竟要横向组合哪些并行策略，才能达到最佳配置。现在我们有了 [SGLang cookbook](https://cookbook.sglang.io/docs/intro)，在模型的维度进行编写，丰富并且详细展开了主流模型的各种配置组合。
 
 ## 经典的 FSDP 二次开发：EP
 
@@ -138,7 +138,7 @@ python3 -m sglang.launch_server \
 | --- | --- |
 | gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br><br><br>release<br><br>all-to-all return<br><br>merge | gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br>reduce-scatter<br><br>release<br><br>all-to-all return<br><br>merge |
 
-其实没有什么显著区别，就是加入了 EP 的 all-2-all 通讯。注意到，Backward 中的 Reduce-Scatter 是 FSDP 的标准动作，和 EP 无关。将计算出的完整梯度需要在 DP 组内聚合（Reduce）并重新切分（Scatter）回各个 Rank，以确保梯度占用的显存与参数一样是 Sharded 状态。
+其实没有什么显著区别，就是加入了 EP 的 all-2-all 通讯。注意到，Backward 中的 Reduce-Scatter 是 FSDP 的标准动作，和 EP 无关。将计算出的完整梯度需要在 DP 组内聚合（Reduce）并重新切分（Scatter）回各个 Rank，在数学上完成了梯度的平均（Reduce）和分发（Scatter）。在 MoE EP 场景下，只有在专家进一步被 FSDP 切分时，才会有对应的 FSDP 级别 Reduce-Scatter。而 experts 本身是不需要在 EP 组内做梯度聚合的，各自优化各自的梯度即可。
 
 遍览各大框架，读下来大家做出的优化一般有：
 
