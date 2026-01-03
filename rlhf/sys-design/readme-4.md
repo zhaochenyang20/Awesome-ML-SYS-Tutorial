@@ -96,7 +96,7 @@ TP 的核心逻辑是将矩阵“横着切”或“竖着切”。在 MoE 场景
 
 | 维度 | TP 方案 | EP 方案 (DeepSeek 为例) |
 | --- | --- | --- |
-| 通讯量 (Bytes) | 低且固定 (≈2S) | 高且随 k 增长 (≈32S) |
+| 通讯量 (Bytes) | 固定 (≈2S) | 随 k/N 缩放 (≈2kS/N) |
 | 通讯延迟 (Latency) | 极高（高频 All-Reduce 同步锁） | 可控（粗粒度 All-to-All 异步掩盖） |
 | 计算效率 (MFU) | 低（矩阵切分导致算子不饱满） | 高（算子完整，易于硬件加速） |
 | 集群扩展性 | 局限于单机 NVLink 域 | 支持万卡集群 RDMA 扩展 |
@@ -136,7 +136,7 @@ python3 -m sglang.launch_server \
 
 | forward | backward |
 | --- | --- |
-| gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br><br><br>release<br><br>all-to-all return<br><br>merge | gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br>reduce-scatter<br><br>release<br><br>all-to-all return<br><br>merge |
+| gate<br><br>all-to-all dispatch<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br><br><br>release<br><br>all-to-all return<br><br>merge | gate<br><br>All-to-All Combine<br><br>expert compute (FSDP2)<br><br>all gather<br><br>Expert FFN compute<br><br>reduce-scatter<br><br>release<br><br>all-to-all return<br><br>merge |
 
 其实没有什么显著区别，就是加入了 EP 的 all-2-all 通讯。注意到，Backward 中的 Reduce-Scatter 是 FSDP 的标准动作，和 EP 无关。将计算出的完整梯度需要在 DP 组内聚合（Reduce）并重新切分（Scatter）回各个 Rank，在数学上完成了梯度的平均（Reduce）和分发（Scatter）。在 MoE EP 场景下，只有在专家进一步被 FSDP 切分时，才会有对应的 FSDP 级别 Reduce-Scatter。而 experts 本身是不需要在 EP 组内做梯度聚合的，各自优化各自的梯度即可。
 
