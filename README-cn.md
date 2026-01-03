@@ -47,6 +47,16 @@ $$
 - [AReal Code Walk Through](./rlhf/areal/code-walk-through_CN.md) AReal 源码赏析，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1983417813080236770)和[英文版本](./rlhf/areal/code-walk-through_EN.md)。
 
 
+
+### 系统设计与优化
+
+- [深入浅出 DeepSeek MoE，EP 与 FSDP 经典二次开发](./rlhf/sys-design/readme-4.md)：深入浅出 DeepSeek MoE，EP 与 FSDP 经典二次开发，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1990790333823481023)和[英文版本](./rlhf/sys-design/readme-4-en.md)。考虑到知乎的公式渲染更好，欢迎大家优先阅读知乎版本。
+- [RL 系统深思：深入理解权重更新机制](./rlhf/sys-design/readme-1.md)：半年工作的总结，深入理解权重更新机制，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925210722704531547)和[英文版本](./rlhf/sys-design/readme-1-EN.md)。
+- [RL 系统深思：FSDP 训练后端](./rlhf/sys-design/readme-2.md)：讨论 FSDP 的原理和实现，以及分析 verl 的 FSDP 使用。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1929115059113693341)和[英文版本](./rlhf/sys-design/readme-2-en.md)。
+- [Pending Review] [RL 系统深思：Megatron](./rlhf/sys-design/readme-3.md)：Megatron 的基本特性浅析，重点分析 Megatron 在 RL 框架中的使用。
+- [扩展 OpenRLHF 的推理引擎](./rlhf/OpenRLHF/develop-log.md)：将 SGLang 接入到 OpenRLHF 的开发笔记，整个过程非常痛苦，而且目前还有 nccl hang error，已经直接联系了 deepspeed core contributor 在修复了。
+- [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md)：介绍如何将 SGLang 作为 TRL 中 GRPO Trainer 的推理后端，GRPO 是 PPO 的变体，在优化数学推理能力的同时优化 PPO 的内存使用。
+
 ### verl 框架
 
 - [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshot/readme.md)：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshot/readme-en.md)。
@@ -69,14 +79,6 @@ $$
 - [图解大模型RLHF系列之：人人都能看懂的PPO原理与源码解读](https://zhuanlan.zhihu.com/p/677607581)以及[图解OpenRLHF中基于Ray的分布式训练流程](https://zhuanlan.zhihu.com/p/12871616401)：猛猿小姐姐的非常好的 RLHF 入门资料，看了之后会对 RLHF 的计算流以及 OpenRLHF PPO 的框架有很好的理解，我自己也补充了写自己的理解在 [RLHF 的计算流](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/OpenRLHF#rlhf-%E7%9A%84%E8%AE%A1%E7%AE%97%E6%B5%81)。
 - [浅析以 OpenRLHF 为代表的 post-training 系统的计算流程](./rlhf/OpenRLHF/readme.md)：基于猛猿小姐姐的文章再做补充，Github native 渲染的巨烂，甚至看[知乎](https://zhuanlan.zhihu.com/p/16370000391)好了。
 
-
-### 系统设计与优化
-
-- [RL 系统深思：深入理解权重更新机制](./rlhf/sys-design/readme-1.md)：半年工作的总结，深入理解权重更新机制，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1925210722704531547)和[英文版本](./rlhf/sys-design/readme-1-EN.md)。
-- [RL 系统深思：FSDP 训练后端](./rlhf/sys-design/readme-2.md)：讨论 FSDP 的原理和实现，以及分析 verl 的 FSDP 使用。同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1929115059113693341)和[英文版本](./rlhf/sys-design/readme-2-en.md)。
-- [Pending Review] [RL 系统深思：Megatron](./rlhf/sys-design/readme-3.md)：Megatron 的基本特性浅析，重点分析 Megatron 在 RL 框架中的使用。
-- [扩展 OpenRLHF 的推理引擎](./rlhf/OpenRLHF/develop-log.md)：将 SGLang 接入到 OpenRLHF 的开发笔记，整个过程非常痛苦，而且目前还有 nccl hang error，已经直接联系了 deepspeed core contributor 在修复了。
-- [Pending Review] [SGLang as rollout engine of GRPO trainer](./rlhf/GRPO/SGLang_GRPO.md)：介绍如何将 SGLang 作为 TRL 中 GRPO Trainer 的推理后端，GRPO 是 PPO 的变体，在优化数学推理能力的同时优化 PPO 的内存使用。
 
 ### 算法与理论
 

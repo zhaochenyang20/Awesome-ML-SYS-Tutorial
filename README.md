@@ -37,7 +37,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 
 ### System Design and Optimization
 
-- [Deep Dive into DeepSeek MoE with Classic Secondary Development of EP on FSDP](./rlhf/sys-design/readme-4-en.md): Deep dive into DeepSeek MoE with classic secondary development of EP on FSDP. Also available in [Chinese version](./rlhf/sys-design/readme-4.md) and [zhihu]().
+- [Deep Dive into DeepSeek MoE with Classic Secondary Development of EP on FSDP](./rlhf/sys-design/readme-4-en.md): Deep dive into DeepSeek MoE with classic secondary development of EP on FSDP. Also available in [Chinese version](./rlhf/sys-design/readme-4.md) and [zhihu](https://zhuanlan.zhihu.com/p/1990790333823481023).
 - [Deep Thoughts on RL Systems: In-Depth Understanding of Weight Update Mechanism](./rlhf/sys-design/readme-1-EN.md): Summary of half a year's work, in-depth understanding of the weight update mechanism. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1925210722704531547) and in [Chinese version](./rlhf/sys-design/readme-1.md).
 - [Deep Thoughts on RL Systems: FSDP Training Backend](./rlhf/sys-design/readme-2-en.md): Discusses the principles and implementation of FSDP, and analyzes verl's use of FSDP. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1929115059113693341) and in [Chinese version](./rlhf/sys-design/readme-2.md).
 - [Pending Review] [Deep Thoughts on RL Systems: Megatron](./rlhf/sys-design/readme-3.md): Brief analysis of Megatron's basic features, focusing on its use in the RL framework.
