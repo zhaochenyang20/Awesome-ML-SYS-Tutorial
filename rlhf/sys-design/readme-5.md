@@ -238,7 +238,7 @@ weight_mr_dict[name] = (
 
 **训练侧**（Miles/Megatron）：(1) 完成一个训练步骤。(2) 创建一个与 SGLang 相同并行配置的"Engine Replica"——通过 **PR #16860** 暴露并行信息来实现。(3) 将 Megatron 参数名映射到 SGLang 分片名——通过 **PR #17326**（统一权重映射）实现。(4) 对每个参数：AllGather TP/EP 分片，转换为 HF 格式，对参数做 bucket，然后 RDMA 写入 SGLang 引擎的已注册内存地址。
 
-**SGLang 推理侧**：(5) 引擎的权重位置可查询，包括跨节点场景——由 **PR #17389** 修复 `nnode > 1` 的情况。(6) 权重直接出现在 GPU 显存中，零拷贝，无需 NCCL group， 甚至无需调用推理测api接口。
+**SGLang 推理侧**：(5) 引擎的权重位置可查询，包括跨节点场景——由 **PR #17389** 修复 `nnode > 1` 的情况。(6) 权重直接出现在 GPU 显存中，零拷贝，无需 NCCL group，甚至无需调用推理侧 API 接口。
 
 ### 第二部分自查清单
 
