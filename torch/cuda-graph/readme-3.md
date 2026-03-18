@@ -1,23 +1,27 @@
-# 从 S2-Pro 双头架构到 SGLang CudaGraphRunner：CUDA Graph 深度实战
+# 再探 CUDA Graph：TTS 模型中的双 CUDA Graph 优化
 
-因为工作需要，最近在 SGLang-Omni 框架中为 Fish Audio 的 S2-Pro TTS 模型添加 CUDA Graph 支持（[PR #153](https://github.com/sgl-project/sglang-omni/pull/153)）。这个 PR 前前后后迭代了 7 个 commit，经历了深度 review 讨论，还催生了后续的 [Issue #172](https://github.com/sgl-project/sglang-omni/issues/172)（Framework-level torch.compile 蓝图）。~~本以为加个 CUDA Graph 就完事了，结果越挖越深。~~
+去年 8 月，我浅浅写过一篇从虚拟地址保护角度来理解 CUDA Graph 的文章，[基于 torch-memory-savor 浅析 CUDA Graph](./readme.md)（本系列第一篇）：覆盖了 CUDA Graph 基本概念、推理常用/训练少用的原因、torch-memory-saver 如何通过 `cuMemMap` 保护虚拟地址稳定性。无奈当时我对 CUDA Graph 的理解尚且浅薄，最近在 SGLang-Omni 框架中为 Fish Audio 的 S2-Pro TTS 模型添加 CUDA Graph 支持（[PR #153](https://github.com/sgl-project/sglang-omni/pull/153)），才发现 CUDA Graph 的博大精深。我们将 S2 Pro 模型通过双 CUDA Graph 同时执行，TPS 从 55.6 提高到了 88。在 [153](https://github.com/sgl-project/sglang-omni/pull/153) 相关的讨论中，我们更进一步结合 `torch.compile` 测试了同时开启 `torch.compile` 和 CUDA Graph 的性能：
 
-在这个过程中，暴露了一系列我理解不够深入的问题：deferred graph capture 的初始化顺序约束、persistent buffer 的指针稳定性设计、torch.compile 四种 mode 与 CUDA Graph 的共存策略、inductor CUDAGraph Trees 与 SGLang CudaGraphRunner 的冲突机制。坦诚说，写完 PR 后回头看，发现自己当时的很多设计选择更多是靠直觉和试错，而非基于对底层机制的清晰理解。
 
-这篇文章就是对这些"知其然而不知其所以然"的地方做一次系统性的梳理。
+| Configuration | Startup time | Steady-state throughput |
+|---------------|--------------|-------------------------|
+| No compile (CUDA graph only) | ~33s | 88 tok/s |
+| Partial compile (fast head only) | ~54s | 121 tok/s |
+| Full-model compile | ~137s | 126 tok/s |
 
-照理，感谢参与本文档讨论和撰写的所有朋友们：
+> 注：此处的 TPS 衡量的是 TTS 模型 LLM backbone（语言模型骨干网络）产生 speech codec tokens 的速度，不包含 vocoder 阶段。这个模型的具体架构会在后文详细阐述。
 
-Ratish1（SGLang），sdli1995（SGLang），以及 SGLang-Omni 的所有 reviewer 们。
+效果令人感到极度舒适。有感于此，本文将会结合 153 PR 来分享我个人对 CUDA Graph 的更多理解。关于 `torch.compile` 的讨论，我们会留作后文分析：
 
-实际上，我已经写过两篇 CUDA Graph 相关的前序文章：
+1. deferred graph capture 的初始化顺序约束
+2. persistent buffer 的指针稳定性设计
+3. torch.compile 四种 mode 与 CUDA Graph 的共存策略
+4. inductor CUDAGraph Trees 与 SGLang CudaGraphRunner 的冲突机制
 
-- [基于 torch-memory-savor 浅析 CUDA Graph](./readme.md)（本系列第一篇）：覆盖了 CUDA Graph 基本概念、推理常用/训练少用的原因、torch-memory-saver 如何通过 `cuMemMap` 保护虚拟地址稳定性。
-- [CUDA Graph vs torch.compile: S2-Pro TTS 模型实战分析](./readme-2.md)（本系列第二篇）：从 S2-Pro 的实际问题出发，对比了两种优化技术消除的开销类型。
+acknowledgement：
 
-本文是这系列的第三篇，将从 PR #153 的 7 个 commit 作为叙事主线，逐层深入。本文首先深入解析 S2-Pro 的 Dual-AR 双头架构和两种 KV cache 的共存设计，接着分析 deferred graph capture 和 persistent buffer 的 CUDA Graph 安全性机制，然后从 GPU 执行流水线的五层开销模型出发剖析 CUDA Graph 与 torch.compile 的深层关系，之后走读 SGLang CudaGraphRunner 的源码实现，最后落地到 PR #153 的 torch.compile 兴衰故事和 Issue #172 的框架级工程蓝图。欢迎大家批评指正。
+Jingwen Gu, Yitong Guan, Ratish P, Shidong Li, 还有我本人，以及 SGLang-Omni 的各位大哥。
 
-本文基于 SGLang-Omni commit [`cd9aaf3`](https://github.com/sgl-project/sglang-omni/commit/cd9aaf3) 进行分析。
 
 ## S2-Pro Dual-AR 架构深入解析
 
