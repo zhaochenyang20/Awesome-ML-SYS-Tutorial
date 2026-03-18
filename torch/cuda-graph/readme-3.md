@@ -20,26 +20,32 @@
 
 acknowledgement：
 
-Jingwen Gu, Yitong Guan, Ratish P, Shidong Li, 还有我本人，以及 SGLang-Omni 的各位大哥。
+Jingwen Gu, Yitong Guan, Ratish P, Shidong Li, Yue Leng, Shuai Shi, Junrong Lin, Shenggui Li, 还有我本人
 
 
-## CUDA Graph 概念框架：分析工具箱
+## CUDA Graph 核心机制
 
-在进入具体的模型和代码之前，我们先回顾并提炼 CUDA Graph 的核心机制。系列第一篇已经覆盖了基本概念，这里重点是提炼出**五条核心约束**，作为后续所有工程分析的参照系。
+在[浅析 CUDA Graph](./readme.md)一文中，已经讨论了 CUDA Graph 的基本概念。简单来说，CUDA Graph 将一段 GPU kernel 序列录制为静态 DAG，之后只需一次 CPU launch 即可重放整个计算流，以此消除逐个 kernel launch 的 CPU 开销。在此基础上，我们更进一步理解 CUDA Graph 的一些核心机制。
 
-### capture → instantiate → replay 三阶段
+### 构造过程
 
-1. **Capture**：调用 `cudaStreamBeginCapture()` 后，CUDA runtime 不再真正执行 kernel，而是**录制**所有 kernel launch 及其参数（包括输入/输出 tensor 的 GPU 虚拟地址），形成一个 DAG。
-2. **Instantiate**：调用 `cudaStreamEndCapture()` 得到 `cudaGraph_t`，再编译为 `cudaGraphExec_t`，此时进行 kernel 参数绑定和 dependency analysis。
-3. **Replay**：调用 `cudaGraphLaunch()` 一次性提交整个 DAG 中的所有 kernel——**CPU 只发出一次 launch 指令**，消除了逐个 kernel launch 的 CPU 开销。
+1. **Capture**：捕获或者是录制 CUDA Graph。调用 `cudaStreamBeginCapture()` 后，CUDA runtime 进入录制模式——后续所有提交到该 stream 的操作（kernel launch、memcpy、memset 等）都不会真正执行，而是被记录为 DAG 中的节点。每个节点保存的信息包括：要调用哪个 kernel、grid/block 维度、以及所有参数的值（对 tensor 而言就是其 GPU 虚拟地址）。节点之间的边由 stream 上的提交顺序和跨 stream 的 event 同步自动推断。录制结束时，调用 `cudaStreamEndCapture()` 返回一个 `cudaGraph_t` 作为纯粹的拓扑关系的描述，不能直接执行。
 
-对于推理这种高度重复的固定计算流（每个 decode step 执行相同的 kernel 序列），capture 一次、replay 无数次——这就是 CUDA Graph 的核心价值。
+2. **Instantiate**：实例化 CUDA Graph。得到 `cudaGraph_t` 后，进一步调用 `cudaGraphInstantiate()` 将其编译为 `cudaGraphExec_t`。capture 类似于录制脚本，instantiate 则是编译脚本为可执行二进制——前者是声明式的描述，后者是命令式的执行计划：
+   - 依赖分析与调度：遍历 DAG 拓扑，确定哪些 kernel 之间有真正的数据依赖、哪些可以并发执行，生成一份最优的执行计划。
+   - 参数绑定与固化：将 capture 阶段录制的所有 kernel 参数，比如 tensor 的 GPU 指针等等，烘焙（bake）进可执行对象中。从中我们也能看出，之后每次利用 CUDA Graph replay 时 tensor 的地址必须保持不变，因为虚拟地址已经被焊死在 `cudaGraphExec_t` 里了。
+   - 合法性校验：检查图中是否存在不支持的操作（如 host-device sync），不合法则 instantiate 返回失败。
 
-### 五条核心约束
 
-理解了三阶段机制，五条约束就自然浮现。后续每一个工程设计选择都可以映射到这张表：
+3. **Replay**：CUDA Graph 重放。调用 `cudaGraphLaunch(exec, stream)` 将整个 `cudaGraphExec_t` 一次性提交到指定 stream 上。CPU 只发出一次 launch 指令，GPU 端的调度器按 instantiate 阶段生成的执行计划依次（或并发地）执行所有 kernel，消除了逐个 kernel launch 的 CPU 开销。由于 replay 不经过 Python/PyTorch 的 dispatcher，也没有 CPU 端的逐 operation 调度，CPU overhead 几乎降为零。
 
-| 约束 | 含义 | 为什么是约束 |
+对于推理这种高度重复的固定计算流（每个 decode step 执行相同的 kernel 序列），capture 一次、instantiate 一次、replay 无数次，节省下大量 CPU launch 开销，这就是 CUDA Graph 的核心价值。
+
+### 约束条件
+
+启动阶段执行的操作能够进一步推导出 CUDA Graph 的约束条件，也即在什么情况下 CUDA Graph 会被破坏：
+
+| 约束 | 含义 | 为什么 |
 |---|---|---|
 | **指针稳定性** | replay 时必须保证 GPU 虚拟地址不变 | capture 时录制的是地址，地址变了 kernel 就读写错误内存 |
 | **不能有动态内存分配** | capture 期间所有 tensor 必须预分配 | 动态 `torch.zeros(...)` 会触发 allocator，地址不可预测 |
@@ -47,11 +53,13 @@ Jingwen Gu, Yitong Guan, Ratish P, Shidong Li, 还有我本人，以及 SGLang-O
 | **静态控制流** | 循环次数、分支条件在 capture 时固化 | graph 是静态 DAG，不支持运行时条件分支 |
 | **graph 录制后不会自动更新** | 改了代码路径必须重新 capture | 录制完的 kernel 序列被固化，不会因为 Python 代码变化而改变 |
 
-> 这五条约束会在后续章节中反复出现。每当看到一个工程设计选择，都可以追问"它对应的是哪条约束？"
+总的来说，CUDA Graph 是一个较为脆弱的静态图操作，需要仔细保护。
+
+上述约束进一步得到一个直接推论：一份 graph 只能服务一种 batch size。具体来说，考虑到 capture 阶段录制 kernel 参数（grid 维度、tensor shape/地址）会被固化进 `cudaGraphExec_t`，而 batch size 改变，则这些参数会全部失效。SGLang 的 decode 阶段每个请求每步只产出一个 token，`bs=4` 意味着 input tensor 第一维为 4——对应的 kernel grid size、中间 tensor shape、内存布局都是按 4 来的，和 `bs=8` 时的布局完全不同。换言之，一份 graph 只能服务一种 batch size，SGLang 会为一组离散的 decode batch size（如 `bs ∈ {1, 2, 4, 8, ...}`）各 capture 一份 graph。当实际请求数恰好命中某个预录的 bs 时，走 graph replay；否则 fallback 到 eager mode——即 PyTorch 默认的逐 op 执行方式，每个 kernel 由 CPU 逐个 launch，没有 graph 的一次性提交优化，但胜在对任意动态 shape 都能正确执行。
 
 ### PyTorch 封装与 Memory Pool
 
-PyTorch 将 CUDA runtime 的 graph API 封装为 Python 友好的接口：
+PyTorch 将 CUDA runtime 的 graph API 进一步封装为 Python 友好的接口：
 
 | PyTorch API | CUDA Runtime API |
 |---|---|
@@ -60,7 +68,13 @@ PyTorch 将 CUDA runtime 的 graph API 封装为 Python 友好的接口：
 | `graph.capture_end()` | `cudaStreamEndCapture()` |
 | `graph.replay()` | `cudaGraphLaunch()` |
 
-一个重要的机制是 **Memory Pool 共享**：`torch.cuda.graph(pool=...)` 允许多个 graph 共享同一个 memory pool。不共享的代价是每个 graph 独立持有一份中间 tensor 内存——如果有 12 个不同 batch size 的 graph，就是 12 倍的显存浪费。共享的前提是同一时间只有一个 graph 在 replay。这些概念会在后续 SGLang CudaGraphRunner 源码走读中具体落地。
+### CUDA Graph 显存开销与共享机制
+
+讲到这里，不得不提到[兰青老师](https://www.linkedin.com/in/lanking/)曾给我分享过的一种定义——CUDA Graph 就是一种 cache。既然是 cache，一定是空间换时间的。每个 graph 在 capture 阶段执行的所有中间计算都会产生中间 tensor（attention score、FFN 中间激活、残差加法的输出等）。这些中间 tensor 的地址会被写入 `cudaGraphExec_t`，replay 时 kernel 直接读写这些固定地址。因此，capture 期间 memory pool 分配出的这块显存区域会被 CUDA Graph 整体锁定，不会还给 PyTorch 的通用 allocator。
+
+此外，注意到 CUDA Graph 所持有的显存并非所有中间 tensor 大小的总和。我们可以将 CUDA Graph 的 memory pool 视作一块封闭的独立显存区域：graph 内部的 tensor 只能使用 pool 内的显存，外部 tensor 不能占用 pool 里的空间，内外隔离。但在这个围起来的区域内部，PyTorch 的 caching allocator 仍然正常工作：先产生的中间 tensor 如果后续不再被引用，其地址可以被后面的 tensor 复用。因此，单个 graph 持有的显存约等于 capture 期间的显存峰值（high-water mark），而非所有曾经出现过的 tensor 的简单加总。举个例子，一个 32 层 Transformer 的 forward，每层的中间激活在下一层开始后就可以被复用，high-water mark 可能只相当于几层的中间 tensor，而远非 32 层的总和。
+
+尽管如此，如果有 12 个不同 batch size 的 graph 且各自独立持有一份 high-water mark 的显存，总占用仍然是 12 倍——这在大模型推理中依然不可接受。这里进一步引出不同 Graph 之间的显存共享机制。前文提及的内外隔离，是指 graph pool 与非 graph 的普通 PyTorch 代码之间的隔离，但多个 graph 之间并不需要隔离。PyTorch 通过 `torch.cuda.graph(pool=...)` 允许多个 graph 共享同一个 pool，它们的中间 tensor 都从同一块显存区域中分配。这之所以安全，是因为 decode 阶段每个 step 只会选择一个 batch size 对应的 graph 来 replay，不同 graph 的中间 tensor 不会同时存活，可以轮流复用。这样，不管有多少个 graph，显存开销只相当于最大那个 graph 的一份 high-water mark。这些概念会在后续 SGLang CudaGraphRunner 源码中具体展开。
 
 ## S2-Pro 模型架构与双 CUDA Graph 的动机
 
