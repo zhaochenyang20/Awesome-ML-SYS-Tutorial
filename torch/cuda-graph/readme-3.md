@@ -78,7 +78,7 @@ PyTorch 将 CUDA runtime 的 graph API 进一步封装为 Python 友好的接口
 
 ## S2-Pro 模型架构与双 CUDA Graph 的动机
 
-有了概念工具箱，我们来看 S2-Pro 的模型架构。这不是一个普通的 LLM，而是一个 **Dual-AR（双自回归）TTS 模型**。理解它的架构特点，是理解"为什么需要双 CUDA Graph"的前提。
+上文建立了 CUDA Graph 的核心机制：构造过程、五条约束、"一 bs 一 graph"推论、以及显存共享。接下来我们用这套工具来分析一个具体模型——S2-Pro。这不是一个普通的 LLM，而是一个 **Dual-AR（双自回归）TTS 模型**。理解它的架构特点，是理解"为什么需要双 CUDA Graph"的前提。
 
 ### 整体架构：为什么叫 Slow Head / Fast Head
 
@@ -182,7 +182,7 @@ graph TD
 
 ## Deferred Graph Capture：为什么初始化顺序如此重要
 
-有了对模型架构和双 CUDA Graph 动机的理解，我们进入工程实现。首先是一个至关重要的设计——deferred graph capture。这直接对应五条约束中的最后一条：**graph 录制后不会自动更新**。
+上一章确立了"把 slow head 和 fast head 统一到一个 graph"的核心决策，并列出了它引入的四项工程复杂性。从这一章开始，我们逐项展开这些工程挑战。第一个是 deferred graph capture——它直接对应五条约束中的最后一条：**graph 录制后不会自动更新**。
 
 ### `factory.py` 的初始化时序
 
@@ -238,7 +238,7 @@ if want_cuda_graph:
 
 ## Persistent Buffer 与 CUDA Graph 安全性
 
-buffer 分配好了，下一个关键问题：为什么就地操作（`copy_()`、`fill_()`、`zero_()`）就能保证 CUDA Graph 安全？
+上一章解决了"什么时候分配 buffer"和"分配哪些 buffer"的问题。但 buffer 分配只是故事的一半——运行时每个 decode step 都需要往这些 buffer 里写入新的动态数据（上一步的 codebook values、semantic mask 等），然后让 graph replay 读取。这就引出下一个问题：为什么就地操作（`copy_()`、`fill_()`、`zero_()`）就能保证 CUDA Graph 安全？答案仍然要回到第一章的"指针稳定性"约束。
 
 ### 就地操作清单
 
@@ -308,13 +308,15 @@ PR #153 将 codebook 的采样策略从 `_sample_with_topk`（temperature + top_
 
 ## SGLang CudaGraphRunner 源码走读
 
-有了对 persistent buffer 和约束映射的理解，我们来看 SGLang 如何在框架层面管理 CUDA Graph 的 capture 和 replay。
+前两章从 S2-Pro 的视角展示了 CUDA Graph 约束如何落地为具体的代码设计。现在我们拉高一层视角，看 SGLang 框架如何管理这些 graph。
+
+回顾第一章推导出的两个关键结论：**一份 graph 只能服务一种 batch size**（所以需要为多个 bs 各 capture 一份），以及**多个 graph 可以共享 memory pool**（否则显存占用是 N 倍 high-water mark）。`CudaGraphRunner` 正是这两个概念的源码级落地。
 
 ### 多 Batch Size 的 Graph 管理
 
-SGLang 的 `CudaGraphRunner` 为每个 batch size 维护一个独立的 `cudaGraphExec_t`。默认的 capture_bs 列表包含 12 个 batch size（如 `[1, 2, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64]`）。
+SGLang 的 `CudaGraphRunner` 为每个 batch size 维护一个独立的 `cudaGraphExec_t`——这正是"一 bs 一 graph"推论的直接体现。默认的 capture_bs 列表包含 12 个 batch size（如 `[1, 2, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64]`）。
 
-**Capture 顺序**：从大到小。大 bs 需要更多内存，先 capture 大 bs 可以让 memory allocator "看到" 最大的内存需求，后续小 bs 的 capture 可以复用已分配的内存（通过共享 memory pool）：
+**Capture 顺序**：从大到小——这来自第一章 memory pool 共享机制的推论。先 capture 大 bs，让 memory pool 看到最大的显存需求，后续小 bs 的 capture 可以复用已分配的内存：
 
 ```python
 # cuda_graph_runner.py capture() 中的关键逻辑
@@ -329,14 +331,14 @@ for bs in capture_range:
 
 ### Memory Pool 共享
 
-`CudaGraphRunner` 使用 `torch.cuda.graph(pool=...)` 让多个 graph 共享同一个 memory pool：
+第一章已经深入讨论了 CUDA Graph 的显存共享机制（high-water mark、内外隔离、`pool=...`）。在 `CudaGraphRunner` 中，这体现为所有 bs 的 graph 共享同一个 pool：
 
 ```python
 with self.device_module.graph(cuda_graph=graph, pool=pool, stream=stream):
     out = run_once_fn()
 ```
 
-对 S2-Pro 的意义：12 个 bs 的 graph 共享 audio decoder 的 KV cache 中间结果内存，不需要 12 份独立分配。
+对 S2-Pro 而言，12 个 bs 的 graph 共享 audio decoder 的 KV cache 中间结果内存——显存开销只相当于最大 bs graph 的一份 high-water mark，而非 12 份。
 
 ### Replay 中的 BS Padding
 
@@ -366,7 +368,7 @@ CUDA Graph 主要加速的是 **decode 阶段的稳态吞吐**——恰好是 S2
 
 ## CUDA Graph 与 torch.compile 的深层关系
 
-在 PR #153 的迭代过程中，torch.compile 曾经被加入又被移除。这个决策背后的技术逻辑需要从 GPU 执行流水线的开销模型说起。
+回顾开篇的 benchmark 表格：CUDA Graph only 达到 88 tok/s，但 partial compile 还能在此基础上再提升 36% 到 121 tok/s。CUDA Graph 已经消除了所有 kernel launch overhead——那这 36% 的增量从何而来？这说明 **CUDA Graph 消除不了的开销另有其人**。要回答这个问题，需要建立一个更完整的 GPU 执行开销模型。
 
 ### GPU 执行流水线的五层开销
 
@@ -393,7 +395,7 @@ graph LR
 
 ### 为什么 SGLang 使用 `max-autotune-no-cudagraphs`
 
-SGLang 有自己的 `CudaGraphRunner` 负责 graph capture/replay。如果 inductor 也自己做 graph capture（`reduce-overhead` 或 `max-autotune` mode），就会产生 **"graph 里套 graph"** 的冲突。因此 SGLang 选择 `no-cudagraphs` 后缀：让 inductor 只负责 **kernel 优化**（算子融合 + Triton autotune），而 **graph 管理** 留给 SGLang 自己：
+上一章我们详细走读了 SGLang 的 `CudaGraphRunner`——它自己管理 graph 的 capture/replay、memory pool、multi-bs 调度。如果 inductor 也自己做 graph capture（`reduce-overhead` 或 `max-autotune` mode），就会产生 **"graph 里套 graph"** 的冲突。因此 SGLang 选择 `no-cudagraphs` 后缀：让 inductor 只负责 **kernel 优化**（算子融合 + Triton autotune），而 **graph 管理** 留给 SGLang 自己：
 
 ```mermaid
 graph TD
@@ -406,7 +408,7 @@ graph TD
 
 ## torch.compile 在 S2-Pro 中的兴衰
 
-有了上面的理论框架，我们来看 PR #153 中 torch.compile 从加入到移除的故事。
+上一章建立了五层开销模型和 `no-cudagraphs` 的分工原则。这一章用 PR #153 的实际迭代过程和 benchmark 数据来**验证**这个模型。
 
 ### 七个 Commit 的叙事线
 
@@ -430,15 +432,15 @@ Commit 3 加入了 `server_args.enable_torch_compile = True`，导致**整个 mo
 | Partial compile（fast head only） | 54.4s | 16.4s | 120.6 tok/s | 118.7 tok/s |
 | Full-model compile | 137.0s | 107.0s | 125.7 tok/s | 122.5 tok/s |
 
-结合五层开销模型：
+用上一章建立的五层开销模型逐条解读这些数据：
 
-1. **Partial compile 的 36% 吞吐提升**：CUDA Graph 已消除开销①②③，但 codebook loop 小算子之间的中间 tensor 仍然需要显存读写（开销④）。torch.compile 将这些算子融合，减少了 GPU-side 的显存 round-trip。**即使 launch overhead 为零，带宽优化仍有 36% 的收益空间**。
+1. **Partial compile 的 36% 吞吐提升从何而来？** 回顾五层开销表：CUDA Graph 已消除开销①②③，但 codebook loop 的 9 步循环中，每步的小算子之间的中间 tensor 仍然需要经过显存读写——这正是开销④（显存带宽）。torch.compile 的 inductor 将这些小算子融合为更少的 Triton kernel，减少了 GPU-side 的显存 round-trip。**即使 launch overhead 已经为零，带宽优化仍有 36% 的收益空间**——这精确验证了五层模型中"CUDA Graph 不影响④，torch.compile 显著优化④"的预测。
 
-2. **Full compile vs Partial compile 仅 4% 差异**：transformer 的大 GEMM 已被 cuBLAS 高度优化，autotune 日志证实 cuBLAS 在多数 shape 下击败 Triton kernel。
+2. **Full compile vs Partial compile 仅 4% 差异**：回顾第二章 slow head 的计算特征——大 GEMM 已被 cuBLAS 高度优化（开销⑤接近最优），torch.compile 在 transformer 上唯一的收益是融合 layernorm + residual 等小算子链，占比很小。
 
-3. **103.7s 的额外启动时间**：`max-autotune-no-cudagraphs` mode 对每个 GEMM shape × 每个 bs 做 autotune，总量 ≈ 31,000+ benchmark runs。
+3. **103.7s 的额外启动时间**：`max-autotune-no-cudagraphs` mode 对每个 GEMM shape × 每个 bs 做 Triton autotune，总量 ≈ 12 bs × 36 layers × ~4 linear layers × 18 candidates ≈ 31,000+ benchmark runs。这是 autotune 的固有成本。
 
-4. **Partial compile 仅 +21s**：只编译 fast head 的少量小算子，搜索空间远小于 full model。
+4. **Partial compile 仅 +21s**：只编译 fast head 的少量小算子，autotune 搜索空间远小于 full model。
 
 ### 为什么最终选择不 Compile
 
@@ -450,7 +452,7 @@ Commit 3 加入了 `server_args.enable_torch_compile = True`，导致**整个 mo
 
 ## Issue #172：Framework-Level torch.compile 蓝图
 
-PR #153 中被 defer 的 torch.compile 优化，最终以 [Issue #172](https://github.com/sgl-project/sglang-omni/issues/172) 的形式提出了三阶段系统性方案：
+上一章的结论是"不在这里做 torch.compile，推迟到框架层面"。那框架层面怎么做？[Issue #172](https://github.com/sgl-project/sglang-omni/issues/172) 给出了三阶段系统性方案，正是对上述三层决策逻辑的逐一回应：
 
 - **Phase 1（Partial Compile）**：模型通过 `get_compile_targets()` 声明可编译的 auxiliary modules（如 codebook decoder），框架侧用 `torch.compile(mode="max-autotune-no-cudagraphs", fullgraph=True)` 编译。预期 ~121 tok/s，启动 ~54s。
 - **Phase 2（Global Compile）**：编译整个 `model.forward()`，前提是 SGLang 的 RadixAttention 等组件全部 compile-clean。预期 ~126 tok/s。
@@ -460,7 +462,7 @@ PR #153 中被 defer 的 torch.compile 优化，最终以 [Issue #172](https://g
 
 ## Piecewise CUDA Graph：SGLang 主仓库的另一条路径
 
-前面所有章节都在讨论 **monolithic CUDA Graph**——将整个 `forward()` 作为一个 graph 捕获。这对 S2-Pro 的 decode 阶段效果很好，但 SGLang 主仓库面对的是更广泛的场景。在这些场景下，monolithic graph 有根本性的局限，SGLang 为此引入了 Piecewise CUDA Graph（PCG）。
+回顾前文，我们在多个地方遇到了 monolithic CUDA Graph 的边界：第一章推导出"一 bs 一 graph"的限制——prefill 阶段 token 数量变化范围大，不可能穷举所有 size；CudaGraphRunner 一章指出 prefill 阶段只能 fallback 到 eager；Issue #172 的 Phase 2 中 RadixAttention 可能 graph break。这些局限自然引出一个问题：**有没有比 monolithic 更灵活的 CUDA Graph 方案？** SGLang 主仓库的 Piecewise CUDA Graph（PCG）正是对这个问题的回答。
 
 ### Monolithic Graph 的三个局限
 
@@ -615,7 +617,7 @@ Piecewise CUDA Graph 的思路对 SGLang-Omni 有什么意义？
 
 ## 设计复盘
 
-最后，串联所有知识，对 S2-Pro 的优化路径做完整复盘。
+从第一章的五条约束出发，我们推导出了"一 bs 一 graph"和显存共享机制；用这些概念分析了 S2-Pro 的双头架构和"为什么需要双 CUDA Graph"；深入了 deferred capture、persistent buffer、CudaGraphRunner 的工程实现；引入五层开销模型解释了 torch.compile 的 36% 增量；最后看到了 piecewise 方案对 monolithic 局限性的回应。现在我们把这条推导链收束为一张设计决策矩阵。
 
 ### 设计决策矩阵
 
@@ -671,6 +673,17 @@ Piecewise CUDA Graph 的思路对 SGLang-Omni 有什么意义？
   - [x] 致谢随意自然
   - [x] 每个工程设计选择显式回指五条约束
   - [x] 设问句引导读者思考
+
+递进推导检查：PASS
+  - [x] Section 2 从 Section 1 的约束工具推导模型分析
+  - [x] Section 3 从 Section 2 的"统一引入工程复杂性"推导 deferred capture
+  - [x] Section 4 从 Section 3 的"buffer 分配好了"推导"运行时如何安全读写"
+  - [x] Section 5 从 Section 1.2 的"一 bs 一 graph"和 1.4 的 memory pool 推导 CudaGraphRunner
+  - [x] Section 6 从开篇 benchmark 数据悬念（36% 增量从何而来）推导五层开销模型
+  - [x] Section 7 用 benchmark 数据验证 Section 6 的五层模型
+  - [x] Section 8 从 Section 7 的"不在这里做"推导"框架层面怎么做"
+  - [x] Section 9 从前文多处 monolithic 局限性推导 piecewise 的动机
+  - [x] Section 10 收束全文推导链
 
 深度检查：[理解复现级 + 修改扩展级混合] → [实际深度匹配] PASS
   - CUDA Graph 概念框架：理解复现级
