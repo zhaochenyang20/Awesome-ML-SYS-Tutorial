@@ -1,10 +1,30 @@
-# CUDA Graph 深入学习计划：从 S2-Pro 双头架构到 SGLang CudaGraphRunner 实现
+# 再探 CUDA Graph：TTS 模型中的双 CUDA Graph 优化——学习计划
 
 ## 动机定位
 
-这篇学习计划的起因是我在 SGLang-Omni 框架中为 Fish Audio S2 Pro 模型添加 CUDA Graph 支持的过程（[PR #153](https://github.com/sgl-project/sglang-omni/pull/153)）。在这个过程中，我们将 S2-Pro 的两阶段 decode——slow head（36 层 Qwen3 transformer）和 fast head（9 步 codebook loop）——统一到一个 `forward()` 调用中，让整个 decode step 被单个 CUDA Graph 捕获。最终实现了 ~88 tok/s 的稳态吞吐，启动时间仅 33s（graph capture 3.3s）。
+本系列第一篇（[基于 torch-memory-savor 浅析 CUDA Graph](./readme.md)）停留在虚拟地址保护的角度，对 CUDA Graph 的理解尚且浅薄。最近在 SGLang-Omni 框架中为 Fish Audio S2 Pro 模型添加 CUDA Graph 支持（[PR #153](https://github.com/sgl-project/sglang-omni/pull/153)），才发现 CUDA Graph 的博大精深。通过双 CUDA Graph 同时执行 S2 Pro 的 slow head 和 fast head，TPS 从 55.6 提高到了 88。结合 torch.compile 的进一步测试：
 
-然而这个 PR 的迭代过程（7 个 commit + 深度 review 讨论），以及后续的 [Issue #172](https://github.com/sgl-project/sglang-omni/issues/172)（Framework-level torch.compile 蓝图），暴露了一系列我理解不深的问题：
+| Configuration | Startup time | Steady-state throughput |
+|---|---|---|
+| No compile (CUDA graph only) | ~33s | 88 tok/s |
+| Partial compile (fast head only) | ~54s | 121 tok/s |
+| Full-model compile | ~137s | 126 tok/s |
+
+> 注：TPS 衡量的是 TTS 模型 LLM backbone 产生 speech codec tokens 的速度，不包含 vocoder 阶段。
+
+### 开篇风格要点
+
+写作时，开篇应：
+1. **先回顾前序文章**，建立系列连续性（"去年 8 月，我浅浅写过..."），而不是"因为工作需要"这种模板化开头
+2. **开篇就亮 benchmark 数据**（TPS 提升 + 三配置对比表格），用成果抓读者
+3. **路线图用精炼编号列表**（4 条以内），不要用长段落描述文章结构
+4. **torch.compile 讨论明确留作后文**——本文核心聚焦 CUDA Graph 本身
+5. **致谢随意自然**（"各位大哥"风格），不需要标注公司/组织
+6. **不要写"本文基于 commit xxx 进行分析"**这类模板声明——commit hash 在代码引用时自然出现即可
+
+### 核心问题
+
+这个 PR 暴露了一系列需要深入理解的问题：
 
 1. **deferred graph capture 模式**：为什么 `factory.py` 需要先 `disable_cuda_graph=True` 初始化 ModelWorker，再调用 `setup_vq_decode()` 和 `setup_caches()` 之后才 `init_device_graphs()`？这背后的 CUDA Graph 约束是什么？
 2. **persistent buffer 设计**：`sglang_model.py` 中的 `_vq_codes`、`_vq_mask`、`_output_codes`、`_output_semantic_ids` 四个 persistent tensor 是 CUDA Graph 安全的核心，但为什么 pre-allocate + `copy_()` 就能保证 graph 中的指针稳定性？
@@ -13,12 +33,14 @@
 5. **CUDA Graph 与 torch.compile 的深层关系**：为什么 SGLang 选择 `max-autotune-no-cudagraphs` 而不是 `reduce-overhead`？inductor 的 CUDAGraph Trees 与 SGLang 的 `CudaGraphRunner` 为什么不能共存？`fullgraph=True` 对 codebook loop 的 trace 有什么具体挑战？
 6. **Framework-level compile 的工程蓝图**（Issue #172）：如何设计 `get_compile_targets()` 协议让模型声明可编译的 target？三阶段计划（partial compile → global compile → mega cache）各自的技术挑战和 trade-off 是什么？
 
-在我的知识体系中，已有两篇 CUDA Graph 相关文章：
+### 系列定位
 
-- [基于 torch-memory-savor 浅析 CUDA Graph](./readme.md)（系列第一篇）：覆盖了 CUDA Graph 基本概念、推理常用/训练少用的原因、torch-memory-saver 如何通过 `cuMemMap` 保护虚拟地址稳定性。
-- [CUDA Graph vs torch.compile: S2-Pro TTS 模型实战分析](./readme-2.md)（系列第二篇，即本次草稿）：从 S2-Pro 的实际问题出发，对比了两种优化技术消除的开销类型。
+已有两篇 CUDA Graph 相关文章：
 
-但这两篇文章都停留在"使用层"分析，缺乏对 **CUDA Graph 与具体工程实现结合** 以及 **CUDA Graph 与 torch.compile 深层交互机制** 的理解。本次学习要做的是：以 PR #153 的 7 个 commit 作为叙事主线，从 S2-Pro 双头模型架构出发，逐层深入到 CUDA runtime 机制、PyTorch 封装、SGLang `CudaGraphRunner`、CUDA Graph 与 torch.compile 的四种 mode 关系、inductor CUDAGraph Trees 机制，最终落地到 Issue #172 的框架级 torch.compile 工程蓝图。
+- [基于 torch-memory-savor 浅析 CUDA Graph](./readme.md)（系列第一篇）：CUDA Graph 基本概念、推理常用/训练少用的原因、torch-memory-saver 的 `cuMemMap` 虚拟地址保护。
+- [CUDA Graph vs torch.compile: S2-Pro TTS 模型实战分析](./readme-2.md)（系列第二篇，即本次草稿）：两种优化技术消除的开销类型对比。
+
+这两篇都停留在"使用层"分析。本次学习聚焦 **CUDA Graph 与具体工程实现的结合**——**先建立 CUDA Graph 的五条核心约束作为概念框架**，再以 PR #153 为叙事主线，用概念框架分析 S2-Pro 双头架构的挑战，最后深入 deferred capture、persistent buffer、SGLang CudaGraphRunner 等工程落地代码。关于 torch.compile 的讨论（四种 mode、CUDAGraph Trees、Issue #172 蓝图），本文只做概要引出，详细分析留给后续文章。
 
 此外，本 topic 还与以下已有文章产生关联：
 - [SGLang Code Walk Through](../../sglang/code-walk-through/readme.md)：SGLang 的整体架构，理解 ModelRunner → Model 的 forward 调用链路
@@ -35,13 +57,63 @@
 
 ## 学习路线图
 
-### 第一步：Fish Audio S2 Pro 模型架构深入解析
+> **核心原则：概念 → 模型 → 代码。** 必须先建立 CUDA Graph 的概念框架，让读者拿到"分析工具箱"，再介绍模型特点并用概念框架解释其挑战，最后才进入工程代码。绝对不能反过来。
+
+### 第一步：CUDA Graph 概念框架——建立分析工具箱
+
+- **深度层级**：理解复现（CUDA Graph 是依赖的基础设施）
+- **目标**：让读者理解 capture/instantiate/replay 三阶段机制和五条核心约束，为后续所有工程分析提供概念基础
+- **方法**：概念框架为主，辅以简单示意
+- **写作位置**：文章第一个正文章节（开篇之后立即进入）
+
+#### 1.1 capture → instantiate → replay 三阶段
+
+1. **Capture**：CUDA runtime 录制所有 kernel launch 及其参数（包括 GPU 虚拟地址），形成 DAG
+2. **Instantiate**：编译为 `cudaGraphExec_t`，做 kernel 参数绑定和 dependency analysis
+3. **Replay**：`cudaGraphLaunch()` 一次性提交所有 kernel——CPU 只发一次 launch 指令
+
+#### 1.2 五条核心约束
+
+| 约束 | 含义 | 后续章节中的映射（此处仅提纲，不展开） |
+|---|---|---|
+| graph 录制的是指针地址 | replay 时必须保证 GPU 虚拟地址不变 | → persistent buffer 的 `copy_()` 设计 |
+| capture 期间不能有动态内存分配 | 所有 tensor 必须预分配 | → `setup_vq_decode()` 的 buffer 设计 |
+| capture 期间不能有 host-device sync | 不能调用 `.item()`、`torch.multinomial` 等 | → greedy decoding（`torch.argmax`）的选择 |
+| graph 中的控制流必须是静态的 | 循环次数、分支条件在 capture 时固化 | → codebook loop 的常量展开 |
+| graph 是静态的，录制后不会自动更新 | 改了代码路径必须重新 capture | → deferred graph capture 的初始化顺序 |
+
+#### 1.3 PyTorch 封装与 Memory Pool
+
+- `torch.cuda.CUDAGraph()` / `graph.capture_begin()` / `graph.replay()` 的 API 映射
+- Memory Pool 共享（`pool=...`）：多个 graph 复用同一块中间 tensor 内存的前提和好处
+- 这些概念会在后续 SGLang CudaGraphRunner 源码走读中具体落地
+
+> 注：系列第一篇已覆盖 CUDA Graph 的基本概念和虚拟地址保护。本步骤重点是**提炼出五条核心约束**，为后续 S2-Pro 分析建立明确的参照系。
+
+### 第二步：S2-Pro 模型架构与双 CUDA Graph 的动机
 
 - **深度层级**：修改扩展（SGLang-Omni 是自己开发的系统）
-- **目标**：从源码级理解 S2-Pro 的 Dual-AR 架构，建立"为什么需要两种不同 CUDA Graph 优化策略"的直觉
-- **方法**：代码分析 + 概念框架
+- **目标**：先让读者理解两个 head 各自的计算特征，再基于此回答"为什么需要双 CUDA Graph"
+- **方法**：模型架构 → 计算特征分析 → 核心问题推导
+- **写作顺序**：
+  1. **2.1 整体架构 + 为什么叫 slow/fast**：先让读者知道 S2-Pro 是 Dual-AR 模型，一个 decode step 要先跑一次大 transformer（slow head，因为慢所以叫 slow），再跑 9 次小 transformer（fast head，因为单次快所以叫 fast，但跑 9 次）。解释命名由来：slow/fast 指的是单次推理的速度——slow head 单次推理涉及 36 层大 transformer，慢；fast head 单次推理只有几层小 transformer，快，但需要自回归地跑 9 次来生成 9 个 codebook token
+  2. **2.2-2.3 分别深入两个 head 的架构和计算特征**
+  3. **2.4 两种 KV cache 共存**
+  4. **2.5 为什么 CUDA Graph 对这个模型有帮助**：结合第一步的概念，解释 S2-Pro decode 的特点（大量重复的 kernel 序列、固定的控制流）天然适合 CUDA Graph。这一点可能比较显然，但需要显式点出，作为 2.6 的铺垫
+  5. **2.6 为什么需要双 CUDA Graph**：核心论证——单 graph 只覆盖 slow head 远不够，fast head 的 launch overhead 才是瓶颈
+  6. **2.7 PR #153 前后架构对比**
+- **写作关键**：2.6 是本文的核心论证。但 2.5（为什么 CUDA Graph 有帮助）虽然显然，也不能跳过——它是从"概念"到"这个模型"的桥梁，让读者确认"CUDA Graph 适用于这个场景"之后，再追问"那为什么需要把两个 head 都放进去"
 
-#### 1.1 Slow Head：`S2ProSGLangTextModel`（基于 Qwen3）
+#### 2.1 S2-Pro Dual-AR 整体架构：为什么叫 Slow Head / Fast Head
+
+S2-Pro 是一个 **Dual-AR（双自回归）TTS 模型**。每个 decode step 的流程是：
+
+1. **Slow head**（text model）：一个 36 层 Qwen3 transformer，输入上一步的 token，输出下一个 semantic token 的 logits。**叫 slow 是因为单次推理慢**——36 层大 transformer，hidden_size=2560，每层 4 个大 GEMM。
+2. **Fast head**（audio decoder）：一个小型 transformer，接收 slow head 的 hidden states，自回归地生成 9 个 codebook token。**叫 fast 是因为单次推理快**——层数少、维度小，单次只需 μs 级。但它要连续跑 9 次（9 个 codebook）。
+
+命名的关键：slow/fast 描述的是**单次推理的延迟**，不是总耗时。Slow head 单次慢但只跑一次；fast head 单次快但跑 9 次。
+
+#### 2.2 Slow Head 细节：`S2ProSGLangTextModel`（基于 Qwen3）
 
 分析 `sglang_model.py`（commit `cd9aaf3`）中的 text model 实现：
 
@@ -51,7 +123,7 @@
 - **计算特征**：每层包含 4 个大 GEMM（qkv_proj、o_proj、gate_up_proj、down_proj），单个 kernel 耗时长（ms 级），launch overhead 相对占比小
 - **关键数值**：以 bs=8 为例，主要的 GEMM shape 是 `mm(8×2560, 2560×6144)` 和 `mm(8×4096, 4096×2560)` 等——这些在 cuBLAS 中已经高度优化
 
-#### 1.2 Fast Head：`FishQwen3AudioDecoder`（Codebook Loop）
+#### 2.3 Fast Head 细节：`FishQwen3AudioDecoder`（Codebook Loop）
 
 分析 audio decoder 的实现：
 
@@ -62,7 +134,7 @@
 - **`forward_kvcached()` 流程**：接收 `[bs, 1, dim]` 的 embedding，通过预分配的 `input_pos` buffer（`fill_(codebook_idx)` 实现 CUDA Graph 安全的标量更新），执行 attention with KV cache → norm → output projection
 - **9 步循环的计算特征**：每步只有一次小 GEMM（`[bs, 1, fast_dim]` 级别），计算量极小（μs 级），但需要 embedding lookup → linear projection → forward_kvcached → argmax → embedding lookup 的完整序列，产生大量 kernel launch
 
-#### 1.3 两种 KV Cache 的共存
+#### 2.4 两种 KV Cache 的共存
 
 这是一个值得深入理解的设计点：
 
@@ -70,7 +142,35 @@
 - **Static KV cache**（fast head）：由 `audio_decoder.setup_caches()` 预分配固定大小的 tensor，每次 `reset_caches()` 时 `zero_()` 清空，不参与 SGLang 的内存池管理
 - **关键问题**：两种 cache 在 CUDA Graph capture 期间如何保证地址稳定性？paged cache 通过 SGLang 的 `req_to_token_pool` 管理，static cache 通过 `setup_caches()` 一次性分配后不再变化——后者天然 CUDA Graph 安全
 
-#### 1.4 PR #153 之前 vs 之后的架构对比
+#### 2.5 为什么 CUDA Graph 对这个模型有帮助
+
+这一点可能比较显然，但需要显式点出，作为 2.6 的铺垫：
+
+- S2-Pro 的 decode 阶段是**高度重复的固定 kernel 序列**：每个 step 都执行相同的 36 层 transformer + 9 步 codebook loop，控制流完全静态——这正是 CUDA Graph（第一步中的"静态控制流"约束）最擅长的场景
+- Decode 阶段的 batch size 在一段时间内相对稳定，SGLang 的 multi-bs graph 管理可以很好地覆盖
+- 模型推理是 latency-sensitive 的（TTS 需要实时生成语音），消除 CPU 侧的 launch overhead 对端到端延迟有直接帮助
+
+确认了"CUDA Graph 适用于 S2-Pro"之后，下一个问题是：graph 应该覆盖哪些部分？
+
+#### 2.6 核心问题：为什么需要双 CUDA Graph
+
+**这是整篇文章的驱动问题。**
+
+PR #153 之前，SGLang 的 CUDA Graph 只覆盖 slow head（标准 LLM transformer forward）。Fast head（codebook loop）作为 per-request 后处理运行在 graph 之外。结合 2.2 和 2.3 的计算特征分析：
+
+- **Slow head 的 CUDA Graph 收益有限**：2.2 中分析过，slow head 的核心是 `mm(8×2560, 2560×6144)` 这样的大 GEMM，单 kernel 耗时 ms 级。消除 launch overhead 的相对收益小。
+- **Fast head 没有 CUDA Graph 才是真正的瓶颈**：2.3 中分析过，codebook loop 每步是 μs 级的小算子，9 步循环产生大量 kernel launch。Launch overhead 占执行时间的主要比例——**这正是 CUDA Graph 最擅长解决的问题**。
+- **两个 head 之间还有 CPU 调度开销**：slow head 的 graph replay 结束后，CPU 需要取回结果、逐 request 调用 codebook loop、再写回——这段 CPU 往返也是开销。
+
+因此，**核心洞察：把 slow head 和 fast head 统一到一个 `forward()` 中，让一个 CUDA Graph 同时捕获两者**。TPS 从 55.6 跃升到 88，增益主要来自 fast head 的 launch overhead 消除。
+
+但"统一到一个 graph"引入了巨大的工程复杂性——这正是后续章节存在的原因：
+- 两种 KV cache 必须在同一个 graph 中共存（2.4 已分析）
+- 所有动态输入必须通过 persistent buffer 传入（→ 第三步）
+- 初始化顺序必须保证 graph 捕获到完整路径（→ 第三步的 deferred capture）
+- Codebook loop 的循环和采样必须满足 CUDA Graph 的静态约束（→ 第四步）
+
+#### 2.7 PR #153 之前 vs 之后的架构对比
 
 **之前（分离的处理流程）**：
 ```
@@ -96,13 +196,13 @@ S2ProSGLangModelRunner._build_outputs()  ← 从 persistent buffers 读取 outpu
 
 **关键改变**：`_decode_codebooks()` 从外部的 per-request 后处理，变成了 `forward()` 内部的一个步骤。这意味着 CUDA Graph 可以将 transformer + sampling + codebook loop 一次性录制，消除整个 decode step 的所有 kernel launch overhead。
 
-### 第二步：PR #153 的 Deferred Graph Capture 模式——为什么顺序如此重要？
+### 第三步：PR #153 的 Deferred Graph Capture 模式——为什么顺序如此重要？
 
 - **深度层级**：修改扩展
 - **目标**：从 `factory.py` 源码理解 deferred graph capture 的设计动机，以及为什么 CUDA Graph 对初始化顺序有严格约束
 - **方法**：代码分析 + CUDA Graph 约束推理
 
-#### 2.1 `factory.py` 的初始化时序分析
+#### 3.1 `factory.py` 的初始化时序分析
 
 基于 commit `cd9aaf3` 的 `create_s2pro_sglang_engine()`：
 
@@ -122,7 +222,7 @@ Step 6: init_device_graphs()             ← 此时 capture，graph 包含完整
 - 后续即使调用了 `setup_vq_decode()`，graph 已经被录制，不会自动更新（CUDA Graph 是静态的）
 - 因此必须**先** attach audio decoder 和分配 buffers，**再** capture graph
 
-#### 2.2 `setup_vq_decode()` 的 Buffer 分配设计
+#### 3.2 `setup_vq_decode()` 的 Buffer 分配设计
 
 分析 `sglang_model.py` 中的 `setup_vq_decode()`：
 
@@ -140,7 +240,7 @@ Step 6: init_device_graphs()             ← 此时 capture，graph 包含完整
 
 **CUDA Graph 安全性分析**：所有 buffer 在 `setup_vq_decode()` 时一次性 `torch.zeros(...)` 分配，之后只通过 `copy_()`、index assignment (`tensor[:bs] = ...`)、`fill_()` 等**就地操作**修改值，不改变 tensor 的底层内存地址。这正是 CUDA Graph 要求的——graph 录制时记录的是指针地址，replay 时必须保证指针不变。
 
-#### 2.3 `_update_vq_buffers()` 和 `_build_outputs()` 的 Buffer 读写协议
+#### 3.3 `_update_vq_buffers()` 和 `_build_outputs()` 的 Buffer 读写协议
 
 分析 `s2pro_sglang_ar.py` 中 `S2ProSGLangModelRunner` 的 buffer 交互：
 
@@ -164,13 +264,14 @@ execute(scheduler_output):
 
 **关键洞察**：buffer 的读写发生在 CUDA Graph boundary 之外（`_update_vq_buffers` 在 forward 前，`_build_outputs` 在 forward 后），但 buffer 本身被 graph 内部的 kernel 引用。这种"外部写值、graph 内部读地址"的模式是 CUDA Graph 与动态输入兼容的标准做法。
 
-### 第三步：CUDA Graph 底层机制——从 Runtime API 到 S2-Pro 约束
+### 第四步：CUDA Graph 约束的工程落地——从概念到 S2-Pro 代码
 
-- **深度层级**：理解复现（CUDA Graph 是依赖的基础设施）
-- **目标**：理解 capture/instantiate/replay 三阶段机制，并将每个约束映射到 PR #153 的具体设计选择
-- **方法**：概念框架 + 代码分析
+- **深度层级**：理解复现 + 修改扩展
+- **目标**：将第一步建立的五条约束逐一映射到 PR #153 的具体设计选择，展示概念如何在代码中落地
+- **方法**：概念-代码双轨对照
+- **写作关键**：每个代码设计选择都要显式回指第一步的某条约束（"这正是第一步中提到的'指针稳定性'约束的体现"）
 
-#### 3.1 Stream Capture 机制与 S2-Pro 的约束映射
+#### 4.1 五条约束的工程映射表
 
 | CUDA Graph 约束 | PR #153 中的应对策略 |
 |---|---|
@@ -180,36 +281,30 @@ execute(scheduler_output):
 | graph replay 时必须保证 pointer 稳定性 | persistent buffers 只通过 `copy_()`、index assignment 修改值，不重新分配 |
 | graph 中的控制流必须是静态的 | codebook loop 的循环次数 `num_codebooks` 是常量（编译时确定），`for cb_idx in range(1, self._num_codebooks)` 在 capture 时被完全展开 |
 
-#### 3.2 capture → instantiate → replay 三阶段
+#### 4.2 Greedy Decoding：host-device sync 约束的体现
 
-1. **Capture**：SGLang 的 `CudaGraphRunner` 对每个 batch size 调用 `model.forward()`，此时 CUDA runtime 录制所有 kernel launch 及其参数（包括输入/输出 tensor 的 GPU 虚拟地址）
-2. **Instantiate**：将录制的 DAG 编译为 `cudaGraphExec_t`，此时进行 kernel 参数绑定和 dependency analysis
-3. **Replay**：每次 decode step，`CudaGraphRunner` 先将新的输入 `copy_()` 到预分配的 buffer 中（地址不变，只改值），然后 `cudaGraphLaunch()` 一次性提交所有 kernel
-
-#### 3.3 为什么 greedy decoding 是 CUDA Graph 安全的
-
-PR #153 将采样策略从 `_sample_with_topk`（temperature + top_k + top_p + repetition_penalty + RAS）切换为 `torch.argmax(biased_logits, dim=-1)`。这个改变不仅仅是简化——它是 CUDA Graph 兼容性的要求：
+PR #153 将采样策略从 `_sample_with_topk`（temperature + top_k + top_p + repetition_penalty + RAS）切换为 `torch.argmax(biased_logits, dim=-1)`。这个改变不仅仅是简化——它是第一步中"不能有 host-device sync"约束的直接体现：
 
 - `torch.argmax` 是确定性的、无状态的、不需要随机数生成器 → 完全可以被 CUDA Graph 录制
 - top_k/top_p sampling 涉及 `torch.multinomial`，可能需要 random state 管理和动态 shape 操作 → graph-incompatible
 - Copilot review 指出了这个 behavioral change（sampling parameters 被忽略），这是一个有意的 trade-off
 
-#### 3.4 audio decoder 的 `input_pos.fill_()` 模式
+#### 4.3 `input_pos.fill()` 模式：指针稳定性约束的体现
 
-`forward_kvcached()` 中使用 `self.input_pos.fill_(codebook_idx)` 来设置位置信息——这是一个精心设计的 CUDA Graph 兼容模式：
+`forward_kvcached()` 中使用 `self.input_pos.fill_(codebook_idx)` 来设置位置信息——这是第一步中"指针稳定性"约束的精心实践：
 
 - `input_pos` 是 `register_buffer` 注册的 persistent tensor，地址不变
 - `fill_()` 是就地操作，修改值而不重新分配
 - `codebook_idx` 是 Python 常量（循环展开后），在 capture 时被固化为 graph 的一部分
 - 这比 `torch.tensor([codebook_idx])` 安全得多——后者会创建新 tensor，破坏地址稳定性
 
-### 第四步：SGLang CudaGraphRunner 源码分析——与 S2-Pro 的交互
+### 第五步：SGLang CudaGraphRunner 源码分析——与 S2-Pro 的交互
 
 - **深度层级**：修改扩展（SGLang 是自己开发的系统）
 - **目标**：理解 `CudaGraphRunner` 如何管理多 batch size 的 graph 实例，以及 S2-Pro 的特殊需求如何与之配合
 - **方法**：源码走读
 
-#### 4.1 `CudaGraphRunner` 的 capture 流程
+#### 5.1 `CudaGraphRunner` 的 capture 流程
 
 分析 SGLang 源码 `sglang/srt/model_executor/cuda_graph_runner.py`：
 
@@ -217,7 +312,7 @@ PR #153 将采样策略从 `_sample_with_topk`（temperature + top_k + top_p + r
 - **capture 顺序**：从大到小（最大 bs 先 capture）。原因：大 bs 需要更多内存，先 capture 大 bs 可以让 memory allocator "看到" 最大的内存需求，后续小 bs 的 capture 可以复用已分配的内存
 - **warmup run**：每个 bs 在 capture 前先做一次 eager forward，触发所有可能的内存分配（包括 cuBLAS workspace、attention buffer 等），确保 capture 时不会有意外的 allocation
 
-#### 4.2 S2-Pro 对 capture 流程的影响
+#### 5.2 S2-Pro 对 capture 流程的影响
 
 当 `text_model._vq_ready = True` 时，capture 的 forward 包含：
 
@@ -233,7 +328,7 @@ PR #153 将采样策略从 `_sample_with_topk`（temperature + top_k + top_p + r
 
 **关键问题**：capture 一个包含 9 步 codebook loop 的 graph，意味着 graph 中包含了约 `36 × 4 (transformer GEMM) + 9 × N (codebook loop kernels)` 个 kernel node。这比普通 LLM 的 graph 显著更大。需要分析 graph size 对 replay latency 的影响。
 
-#### 4.3 Graph Replay 中的 bs padding
+#### 5.3 Graph Replay 中的 bs padding
 
 当 actual batch size < captured batch size 时：
 
@@ -241,7 +336,7 @@ PR #153 将采样策略从 `_sample_with_topk`（temperature + top_k + top_p + r
 - graph replay 仍然执行完整的 captured_bs 个 kernel，多余的行产生无效计算
 - 对于 S2-Pro，padding 意味着 `_decode_codebooks()` 也会对 padding 行执行完整的 9 步 codebook loop——这是额外的浪费。但由于 codebook loop 是小矩阵运算，额外开销很小
 
-#### 4.4 `can_run_cuda_graph` 判断逻辑
+#### 5.4 `can_run_cuda_graph` 判断逻辑
 
 分析什么情况下 S2-Pro 会 fallback 到 eager mode：
 
@@ -250,13 +345,13 @@ PR #153 将采样策略从 `_sample_with_topk`（temperature + top_k + top_p + r
 - chunked prefill：不走 graph
 - S2-Pro 的 extend 模式（`forward_batch.forward_mode.is_extend()`）：走 eager
 
-### 第五步：CUDA Graph 与 torch.compile 的深层关系——两套优化体系如何共存
+### 第六步：CUDA Graph 与 torch.compile 的深层关系——两套优化体系如何共存
 
 - **深度层级**：理解复现（CUDA Graph 和 torch.compile 都是依赖的基础设施）
 - **目标**：从 PyTorch 内部机制理解 CUDA Graph 和 torch.compile 各自管理 GPU 执行的方式、两者的正交性与冲突点，为后续的工程决策（PR #153 和 Issue #172）提供理论基础
 - **方法**：概念框架 + PyTorch 源码分析
 
-#### 5.1 两套优化体系的本质差异
+#### 6.1 两套优化体系的本质差异
 
 首先需要建立一个清晰的概念框架——CUDA Graph 和 torch.compile 解决的是 **GPU 执行流水线中不同阶段** 的开销：
 
@@ -287,7 +382,7 @@ CPU 侧                                    GPU 侧
 - CUDA Graph alone 对 codebook loop（③是瓶颈）效果极好
 - 但 CUDA Graph + torch.compile（④的额外优化）仍然有 36% 的增量——因为 codebook loop 的小算子链仍然有大量的中间 tensor 显存读写
 
-#### 5.2 torch.compile 的四种 mode 与 CUDA Graph 的关系
+#### 6.2 torch.compile 的四种 mode 与 CUDA Graph 的关系
 
 | Mode | 含义 | CUDA Graph 行为 | S2-Pro 适用性 |
 |---|---|---|---|
@@ -310,7 +405,7 @@ SGLang CudaGraphRunner.capture() → 将这些优化后的 kernel 录入 CUDA Gr
 SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 ```
 
-#### 5.3 CUDAGraph Trees：inductor 内部的 graph 管理机制
+#### 6.3 CUDAGraph Trees：inductor 内部的 graph 管理机制
 
 虽然 SGLang 不使用 inductor 的 graph 管理，但理解其机制有助于理解为什么两套系统不能叠加：
 
@@ -323,7 +418,7 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 - SGLang 的 `CudaGraphRunner` 也在 stream 上做 capture。如果 inductor 已经在内部 capture 了一部分 kernel（CUDAGraph Trees），那么 SGLang 的外层 capture 会"看到"一个已经被 graph 化的执行——这可能导致 "graph 中嵌套 graph" 的未定义行为
 - Memory pool 管理：inductor 和 SGLang 各自管理 memory pool，两者不互通
 
-#### 5.4 `fullgraph=True` 的约束与 S2-Pro 的挑战
+#### 6.4 `fullgraph=True` 的约束与 S2-Pro 的挑战
 
 `fullgraph=True` 要求 torch.compile 将整个被编译的函数 trace 为**一个**完整的 FX graph，不允许任何 graph break。这对 S2-Pro 的 `_decode_codebooks()` 意味着：
 
@@ -340,7 +435,7 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 
 这也是为什么 Issue #172 将 backbone compile（Phase 2）排在 auxiliary module compile（Phase 1）之后——**fast head 的 `_decode_codebooks` 更容易满足 `fullgraph=True`，而 slow head 有大量 SGLang 特有的动态操作**。
 
-#### 5.5 inductor 生成的 Triton kernel 能否被外部 CUDA Graph 录制？
+#### 6.5 inductor 生成的 Triton kernel 能否被外部 CUDA Graph 录制？
 
 这是 `no-cudagraphs` 模式下的核心假设：inductor 生成的 Triton kernel 必须是"普通"的 CUDA kernel，能够被 SGLang 的 `CudaGraphRunner` 正常录制。
 
@@ -349,13 +444,13 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 - 但 inductor 的 **guard 机制** 可能在 graph replay 时触发 recompilation——如果输入 tensor 的 shape/stride/dtype 与 trace 时不同，inductor 会尝试重新编译，这在 CUDA Graph replay 期间是不允许的
 - SGLang 通过 `CudaGraphRunner` 的 **固定 bs + padding 策略** 规避了这个问题：每个 captured bs 对应一组固定 shape 的输入，guard 不会触发
 
-### 第六步：PR #153 的迭代故事——torch.compile 在 S2-Pro 中的兴衰
+### 第七步：PR #153 的迭代故事——torch.compile 在 S2-Pro 中的兴衰
 
 - **深度层级**：修改扩展
 - **目标**：通过 PR 的 7 个 commit 和 review 讨论，将第五步的理论知识映射到 S2-Pro 的实际工程决策
 - **方法**：PR 考古 + 数据分析
 
-#### 6.1 七个 Commit 的叙事线
+#### 7.1 七个 Commit 的叙事线
 
 | 序号 | Commit | 内容 | 意义 |
 |---|---|---|---|
@@ -371,7 +466,7 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 - Commit 3 → 4：发现 torch.compile 会在 graph capture 期间对**整个 model forward** 触发 Triton autotune。SGLang 的 `CudaGraphRunner` 在 `enable_torch_compile=True` 时会调用 `torch.compile(model.forward, mode="max-autotune-no-cudagraphs")`，对 36 层 transformer × 12 个 bs 的每个 GEMM shape 做 18 候选 kernel 的 benchmark。
 - Commit 7：基于 Ratish1 的 benchmarking 结果，正式移除 torch.compile。
 
-#### 6.2 Ratish1 的三配置 Benchmark 深入分析
+#### 7.2 Ratish1 的三配置 Benchmark 深入分析
 
 | 配置 | Health Ready | Graph Capture | 吞吐（TTS） | 吞吐（Voice Clone） |
 |---|---|---|---|---|
@@ -386,7 +481,7 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 3. **103.7s 的额外启动时间**：`max-autotune-no-cudagraphs` mode 对每个 GEMM shape × 每个 bs 做 Triton autotune，总量 = 12 bs × 36 layers × ~4 linear layers × 18 candidates ≈ 31,000+ benchmark runs。这是 autotune 的固有成本，与 CUDA Graph 无关。
 4. **Partial compile 的启动时间仅 +21s**：只编译 fast head（codebook decoder 的少量小算子），autotune 搜索空间远小于 full model，`54.4s - 33.3s = 21.1s` 是可接受的。
 
-#### 6.3 为什么最终选择不 compile？——三层决策逻辑
+#### 7.3 为什么最终选择不 compile？——三层决策逻辑
 
 **zhaochenyang20 的判断**（来自 PR review）：
 
@@ -396,13 +491,13 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 
 **sdli1995 的 mega cache 建议**：使用 `torch.compiler.load_cache_artifacts()` / `save_cache_artifacts()` 可以缓存 inductor 的编译结果（FX graph + Triton kernel binary），让后续启动跳过 autotune。实测可以将 compile 时间降低到 2s（LLM）+ 10s（dual AR loop）。但这被推迟到 [Issue #172](https://github.com/sgl-project/sglang-omni/issues/172)。
 
-### 第七步：Issue #172——Framework-Level torch.compile 的工程蓝图
+### 第八步：Issue #172——Framework-Level torch.compile 的工程蓝图
 
 - **深度层级**：修改扩展（SGLang-Omni 是自己开发的系统）
 - **目标**：理解 PR #153 中被 defer 的 torch.compile 优化如何在框架层面被系统性地实现，这是 PR #153 设计决策的"下半场"
 - **方法**：Issue 分析 + 架构设计评审
 
-#### 7.1 Issue #172 的核心问题
+#### 8.1 Issue #172 的核心问题
 
 [Issue #172](https://github.com/sgl-project/sglang-omni/issues/172) 的标题是 "Framework-level fine-grained `torch.compile` + Mega Cache for Omni models"。它要解决的三个障碍：
 
@@ -412,7 +507,7 @@ SGLang CudaGraphRunner.replay() → 一次性提交所有优化后的 kernel
 
 这三个障碍正好对应第五步中分析的三个技术约束：5.2 的 mode 选择、5.4 的 fullgraph 要求、5.5 的 guard 机制。
 
-#### 7.2 三阶段实施计划
+#### 8.2 三阶段实施计划
 
 **Phase 1：Partial Compile（仅辅助模块）**
 
@@ -496,7 +591,7 @@ cache_key = hash(
 - **Invalidation 策略**：cache key 任一变化时重新编译；提供 `--clear-compile-cache` CLI 命令手动重置
 - **预期效果**：warm cache 下，即使 `compile_level=full`，启动时间也接近 baseline 的 ~33s
 
-#### 7.3 Issue #172 的五条设计原则——与 PR #153 决策的呼应
+#### 8.3 Issue #172 的五条设计原则——与 PR #153 决策的呼应
 
 | 设计原则 | 含义 | 对应 PR #153 中的教训 |
 |---|---|---|
@@ -506,7 +601,7 @@ cache_key = hash(
 | Eager-first 可读性 | compile 是可选加速，不是默认行为 | PR #153 最终选择 CUDA Graph only 作为默认，compile 作为 opt-in |
 | 配置驱动 | 通过 `ServerArgs` 开关控制，不需要改代码 | PR #153 通过 `server_args.disable_cuda_graph` 控制 graph 行为，compile 应该同样如此 |
 
-#### 7.4 适用范围：不只是 S2-Pro
+#### 8.4 适用范围：不只是 S2-Pro
 
 Issue #172 的框架设计是 model-agnostic 的：
 
@@ -518,20 +613,20 @@ Issue #172 的框架设计是 model-agnostic 的：
 
 这意味着学习这个设计不仅对 S2-Pro 有价值，对理解 **推理框架如何系统性地管理 torch.compile** 有普遍意义。
 
-#### 7.5 需要深入理解的开放问题
+#### 8.5 需要深入理解的开放问题
 
 1. **Phase 2 的 RadixAttention compile 可行性**：paged KV cache 的动态页表索引是否能被 `fullgraph=True` 处理？还是需要 SGLang 侧做改造？
 2. **Layered vs Unified 策略的 benchmark**：在 S2-Pro 上实测两种策略的吞吐差异和 memory footprint 差异
 3. **Mega cache 的 invalidation 精确性**：`torch.__version__` 粒度太粗（minor version 可能不影响 codegen），GPU arch 粒度太细（同 arch 不同 GPU 可能性能最优 kernel 不同）
 4. **compile target 的纯函数化改造**：`_decode_codebooks` 当前访问 `self._audio_decoder`、`self._semantic_bias` 等外部状态——如何重构为满足"tensor-in tensor-out"约束？
 
-### 第八步：PyTorch CUDA Graph 封装层与 Memory Pool 机制
+### 第九步：PyTorch CUDA Graph 封装层与 Memory Pool 机制
 
 - **深度层级**：理解复现
 - **目标**：理解 PyTorch 如何将 CUDA runtime 的 graph API 封装为 Python 友好的接口，以及 memory pool 如何支撑多 graph 共存
 - **方法**：代码分析
 
-#### 8.1 核心 API 映射
+#### 9.1 核心 API 映射
 
 | PyTorch API | CUDA Runtime API | S2-Pro 中的使用场景 |
 |---|---|---|
@@ -541,7 +636,7 @@ Issue #172 的框架设计是 model-agnostic 的：
 | `graph.replay()` | `cudaGraphLaunch()` | 每次 decode step 的实际执行 |
 | `torch.cuda.graph()` 上下文管理器 | 封装 begin + end | SGLang 不直接用这个，而是更底层的控制 |
 
-#### 8.2 Memory Pool 与 graph 共享
+#### 9.2 Memory Pool 与 graph 共享
 
 - `torch.cuda.graph(pool=...)` 允许多个 graph 共享同一个 memory pool，这是 SGLang 管理 12 个 bs graph 的基础
 - **不共享 pool 的代价**：每个 graph 独立分配中间 tensor 内存，12 个 graph 各持有一份 → 12 倍的中间 tensor 显存
@@ -549,7 +644,7 @@ Issue #172 的框架设计是 model-agnostic 的：
 - 对 S2-Pro 的意义：12 个 bs 的 graph 共享 audio decoder 的 KV cache 中间结果内存，不需要 12 份独立分配
 - **CUDA 12.4+ 的改进**：每个 kernel launch 的 device memory 从 64KB 降低，减少了多 graph 的显存 overhead
 
-#### 8.3 torch.compile 与 PyTorch CUDA Graph 封装的交互
+#### 9.3 torch.compile 与 PyTorch CUDA Graph 封装的交互
 
 当 `mode="max-autotune-no-cudagraphs"` 时：
 - inductor 生成的 compiled function 就是一个普通的 Python callable，内部调用优化后的 Triton/cuBLAS kernel
@@ -560,13 +655,13 @@ Issue #172 的框架设计是 model-agnostic 的：
 - inductor 在内部使用 CUDAGraph Trees，自己管理 capture/replay
 - 如果外层再包一层 `torch.cuda.graph()`，会产生 nested capture 的未定义行为
 
-### 第九步：设计复盘——统一 Graph 的完整 Trade-off 分析
+### 第十步：设计复盘——统一 Graph 的完整 Trade-off 分析
 
 - **深度层级**：修改扩展
 - **目标**：将前面所有知识串联，对 PR #153 和 Issue #172 做完整的设计复盘
 - **方法**：概念框架 + 数据分析
 
-#### 9.1 设计决策矩阵
+#### 10.1 设计决策矩阵
 
 | 决策 | 选择 | Trade-off | 理由 | 未来演进（Issue #172） |
 |---|---|---|---|---|
@@ -577,7 +672,7 @@ Issue #172 的框架设计是 model-agnostic 的：
 | Deferred capture | 先 init → setup_vq → capture | 增加初始化复杂度 | 确保 graph 包含完整的 decode path | compile warmup 插入 setup_vq 和 capture 之间 |
 | Graph 管理权 | SGLang CudaGraphRunner | 放弃 inductor 的 CUDAGraph Trees | 保持精细的 multi-bs graph 控制 | `max-autotune-no-cudagraphs` 不变；不考虑 `reduce-overhead` |
 
-#### 9.2 S2-Pro 的完整优化栈（从 eager 到终态）
+#### 10.2 S2-Pro 的完整优化栈（从 eager 到终态）
 
 ```
 Eager baseline (no optimization)
@@ -594,7 +689,7 @@ Eager baseline (no optimization)
 
 每一层优化都是**正交且可叠加**的，这要归功于 `max-autotune-no-cudagraphs` 模式实现的"inductor 管 kernel、SGLang 管 graph"的清晰分工。
 
-#### 9.3 未来优化方向
+#### 10.3 未来优化方向
 
 1. **Phase 1 实施**（Issue #172）：`get_compile_targets()` 协议 + `apply_compile_targets()` 框架函数 + S2-Pro 的 `_decode_codebooks_impl` 注册
 2. **Mega cache 集成**（Issue #172 Phase 3）：`torch.compiler.save_cache_artifacts()` / `load_cache_artifacts()`，或 `TORCHINDUCTOR_CACHE_DIR` 环境变量
@@ -631,20 +726,31 @@ Eager baseline (no optimization)
 
 ## 文章结构建议
 
-- **文章类型**：code-walkthrough + sys-design 混合（以 PR #153 的迭代故事为叙事主线，穿插 CUDA Graph 与 torch.compile 的深层技术分析，收尾于 Issue #172 的框架级工程蓝图）
+- **文章类型**：code-walkthrough + sys-design 混合（以 PR #153 为叙事主线，CUDA Graph 工程实现为核心，torch.compile 讨论为概要引出）
 - **建议路径**：`torch/cuda-graph/readme-3.md`
+- **建议标题**：`再探 CUDA Graph：TTS 模型中的双 CUDA Graph 优化`
 - **系列归属**：CUDA Graph 系列，第三篇（前两篇分别是浅析和 S2-Pro 对比分析）
+- **开篇结构**（参照用户实际写作风格）：
+  1. 先回顾系列第一篇，承认当时理解浅薄，引出本次 PR 的工程实践
+  2. **紧接着亮出 benchmark 数据表格**（三配置对比 + TPS 提升数字），用成果抓读者
+  3. 简短路线图（4 条编号列表，不超过一句话/条）
+  4. 随意风格致谢
+  5. **不要写模板化声明**（如"本文基于 commit xxx 进行分析"）
+- **章节顺序的核心原则：概念 → 模型 → 代码**：
+  - 必须先建立 CUDA Graph 的概念框架（capture/replay 三阶段、指针稳定性、静态控制流约束），让读者拿到"分析工具"
+  - 再介绍 S2-Pro 模型特点，用概念框架解释"这个模型为什么对 CUDA Graph 有挑战"
+  - 最后才进入代码实现，展示概念如何在工程中落地
+  - **绝对不能反过来**——没有概念基础，读者无法理解代码中的设计选择
 - **预计章节**：
-  1. 开篇动机：从 PR #153 的 7 个 commit 说起——一个统一 CUDA Graph 的工程故事
-  2. S2-Pro Dual-AR 架构深入解析：slow head（Qwen3）+ fast head（codebook decoder）+ 两种 KV cache 的共存
-  3. Deferred Graph Capture：`factory.py` 的初始化时序与 CUDA Graph 约束映射
-  4. Persistent Buffer 设计：为什么 pre-allocate + `copy_()` 是 CUDA Graph 安全的
-  5. CUDA Graph 底层机制：capture → instantiate → replay，结合 S2-Pro 的具体约束
-  6. SGLang CudaGraphRunner 源码走读：多 bs graph 管理，以及 S2-Pro 的额外 capture 需求
-  7. CUDA Graph 与 torch.compile 的深层关系：GPU 执行流水线的五层开销分析、四种 compile mode 的 graph 管理策略、`no-cudagraphs` 模式的"分工"哲学、CUDAGraph Trees 机制、`fullgraph=True` 约束
-  8. torch.compile 在 S2-Pro 中的兴衰：从 commit `c962aa6` 到 commit `20be04a`，Ratish1 的 benchmark 故事，三层决策逻辑
-  9. Issue #172：Framework-Level torch.compile 蓝图——三阶段实施计划（partial compile → global compile → mega cache）、`get_compile_targets()` 协议、五条设计原则
-  10. 设计复盘：S2-Pro 完整优化栈（eager → CUDA Graph → + compile → + mega cache）、未来方向
+  1. **CUDA Graph 概念框架**：capture → instantiate → replay 三阶段机制、指针稳定性约束（graph 录制的是 GPU 虚拟地址）、静态控制流要求、不能有动态内存分配、不能有 host-device sync——建立读者的"分析工具箱"
+  2. **S2-Pro 模型：为什么它对 CUDA Graph 有挑战**：Dual-AR 双头架构（slow head + fast head）、9 步 codebook loop 的小 kernel launch 瓶颈、两种 KV cache 共存——用第 1 章的概念框架解释每个特点带来的 CUDA Graph 约束
+  3. **Deferred Graph Capture**：`factory.py` 的初始化时序——为什么必须先 setup 再 capture（映射到第 1 章的"graph 是静态的"概念）
+  4. **Persistent Buffer 设计**：pre-allocate + `copy_()` 的指针稳定性（映射到第 1 章的地址稳定性约束）、buffer 读写协议
+  5. **SGLang CudaGraphRunner 源码走读**：多 bs graph 管理、memory pool 共享、eager fallback 条件
+  6. **CUDA Graph 与 torch.compile 的关系**：五层开销模型、四种 compile mode、`no-cudagraphs` 的分工哲学（概要，详细分析留后续文章）
+  7. **torch.compile 在 S2-Pro 中的兴衰**：Ratish1 benchmark、三层决策逻辑
+  8. **Issue #172 概要**：三阶段计划引出（详细分析留后续文章）
+  9. **设计复盘**：S2-Pro 完整优化栈、未来方向
 
 ## 草稿完成度分析
 
