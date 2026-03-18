@@ -698,6 +698,112 @@ Eager baseline (no optimization)
 5. **Sampling 恢复**：探索将 stochastic sampling 以 CUDA Graph 兼容的方式实现（pre-allocated random state + graph-safe `multinomial`）
 6. **RadixAttention compile-clean 改造**：这是 Phase 2 的核心前置条件，需要 SGLang 上游的配合
 
+### 第十一步：Piecewise CUDA Graph——SGLang 主仓库的另一条路径
+
+- **深度层级**：修改扩展（SGLang 是自己开发的系统）
+- **目标**：理解 SGLang 主仓库中 Piecewise CUDA Graph（PCG）的设计动机、实现机制，以及它与 PR #153 的 monolithic graph 方案之间的对比和关联
+- **方法**：概念框架 + 源码走读
+- **写作位置**：文章末尾，在设计复盘之后、参考之前。作为 CUDA Graph 话题的拓展——从"一个模型的 CUDA Graph 优化"上升到"推理框架级别的 CUDA Graph 架构"
+
+#### 11.1 动机：Monolithic Graph 的局限性
+
+PR #153 中的方案是 **monolithic CUDA Graph**——将整个 `forward()` 作为一个 graph 捕获。这对 S2-Pro 的 decode 阶段（固定 bs、固定 kernel 序列）效果很好，但对 SGLang 主仓库面对的更广泛场景，monolithic graph 有根本性的局限：
+
+1. **不可捕获的操作**：FlashAttention、MoE dispatch（DeepEP 等）等操作本身不能或不适合被 CUDA Graph 捕获——它们需要动态 shape 或有内部的 host-device sync。Monolithic graph 无法绕过这些操作。
+2. **Prefill/Extend 的动态 shape**：Prefill 阶段的 token 数量变化范围大（从几个到几千），不可能为每个 token 数都预先 capture 一个 monolithic graph。
+3. **显存压力**：Monolithic graph 为每个 batch size 各持有一份完整的 graph 和中间 tensor，显存占用大。
+
+这些局限正是 Piecewise CUDA Graph 要解决的问题。
+
+#### 11.2 核心思路：切分 + 分段捕获
+
+**Piecewise CUDA Graph 的核心思路**：不把整个 forward 作为一个 graph，而是在**不可捕获操作的边界**（如 attention kernel、MoE dispatch）处切分，将 forward 拆成若干个小 subgraph，每个 subgraph 独立 capture。
+
+```
+Monolithic Graph（PR #153 方案）：
+┌──────────────────────────────────────────────────────┐
+│ 整个 forward() 作为一个 graph                         │
+│ VQ combine → 36 层 Transformer → logits → codebook   │
+└──────────────────────────────────────────────────────┘
+
+Piecewise Graph（SGLang 主仓库方案）：
+┌──────────┐  eager  ┌──────────┐  eager  ┌──────────┐
+│ Subgraph │→ attn  →│ Subgraph │→ attn  →│ Subgraph │→ ...
+│ (FFN等)  │  kernel  │ (FFN等)  │  kernel  │ (FFN等)  │
+└──────────┘         └──────────┘         └──────────┘
+```
+
+每个 subgraph 覆盖的是"两个不可捕获操作之间"的可捕获部分（如 FFN、layernorm、residual 等）。不可捕获操作（attention、MoE dispatch）仍然以 eager 模式执行。
+
+#### 11.3 Split Points 与三阶段执行
+
+**Split Points 机制**：
+- 通过 `@register_split_op` 装饰器声明切分点（如 MoE forward dispatch）
+- 编译时自动在这些位置切开 FX graph，产生若干个 subgraph
+- 每个 subgraph 独立编译（`torch.compile`）和 capture
+
+**三阶段执行模型**（每个 subgraph）：
+1. **Compilation**：`torch.compile` 编译 subgraph，处理动态 shape
+2. **CUDA Graph Capture**：为预定义的 token 长度（4, 8, 12, ..., 2048+）capture 每个 subgraph
+3. **Steady-State Replay**：运行时找到最近的 captured size，pad 后 replay
+
+**Capture Size Schedule**（默认）：
+```
+4-32:      步长 4
+48-256:    步长 16
+288-512:   步长 32
+640-1024:  步长 64
+1280-4096: 步长 256
+4608-max:  步长 512
+```
+
+这个 schedule 的设计逻辑：小 token 数（decode 阶段）需要更精细的粒度以减少 padding 浪费；大 token 数（prefill 阶段）对粒度不敏感。
+
+#### 11.4 与 PR #153 Monolithic Graph 的对比
+
+| 维度 | Monolithic Graph（PR #153） | Piecewise CUDA Graph |
+|---|---|---|
+| **捕获范围** | 整个 forward | 每层/每段独立 |
+| **Attention 处理** | 被 graph 包含（RadixAttention） | 在 split point 处以 eager 执行 |
+| **适用阶段** | 仅 decode（固定 bs） | Decode + Prefill（多种 token 数） |
+| **不可捕获操作** | 必须绕过或替代 | 在切分点处自然支持 |
+| **Memory Pool** | 每个 bs 一个 graph 共享一个 pool | 全局 shared pool，所有 subgraph + 所有 capture size 共享 |
+| **与 torch.compile 的关系** | 正交（先 compile 再 capture） | **内嵌**（每个 subgraph 先 compile 再 capture） |
+| **复杂度** | 简单直接 | 框架层复杂，但对模型开发者透明 |
+
+**关键洞察**：PR #153 的 monolithic graph 能工作，是因为 S2-Pro 的 decode 阶段满足了 CUDA Graph 的所有五条约束——尤其是 RadixAttention 恰好在 decode 阶段可被捕获（固定 bs、固定 seq 位置）。但对 SGLang 主仓库面对的更广泛场景（多种 attention backend、MoE 模型、变长 prefill），piecewise 方案是更通用的解。
+
+#### 11.5 源码走读要点
+
+关键代码文件：
+- `sglang/srt/model_executor/piecewise_cuda_graph_runner.py`——主 runner，管理 capture 和 replay
+- `sglang/srt/compilation/cuda_piecewise_backend.py`——per-subgraph 的 compile + capture
+- `sglang/srt/compilation/backend.py`——graph 切分逻辑
+- `sglang/srt/compilation/compilation_config.py`——split points、capture sizes 配置
+- `sglang/srt/server_args.py`——`--enable-piecewise-cuda-graph` 等 CLI 参数
+
+需要关注的设计点：
+1. **Reverse capture order**：和 `CudaGraphRunner` 一样，从大 token 数到小 token 数 capture，复用 memory pool
+2. **Global shared memory pool**：所有 subgraph × 所有 capture size 共享一个 pool
+3. **与 torch.compile 的紧密集成**：每个 subgraph 先经过 `torch.compile`（inductor）优化，再 capture 为 CUDA Graph——这正是 PR #153 和 Issue #172 中讨论的"inductor 管 kernel、SGLang 管 graph"分工模式的框架级实现
+4. **Eager fallback**：capture 失败或超出 max tokens 时自动 fallback
+
+#### 11.6 对 S2-Pro / SGLang-Omni 的启示
+
+Piecewise CUDA Graph 的思路是否可以应用到 SGLang-Omni？
+
+- **当前 S2-Pro decode 不需要**：decode 阶段的 monolithic graph 已经足够（固定 bs、所有操作可捕获、性能已经很好）
+- **但 prefill 阶段可能受益**：S2-Pro 的 prefill 目前走 eager，如果 prefill 成为瓶颈，piecewise graph 可以覆盖 prefill 中 attention 之外的部分
+- **更广的意义**：SGLang-Omni 未来接入更复杂的模型（多模态、MoE）时，piecewise 方案可能成为必选项
+- **Issue #172 Phase 2 的关联**：Phase 2 要 compile 整个 `model.forward()`，但 RadixAttention 可能 graph break——piecewise 的"在不可捕获操作处切分"思路，正是一种优雅的解法
+
+#### 11.7 相关 Issue 和状态
+
+- [Feature Roadmap for Prefill (Piecewise) CUDA Graph - Issue #11490](https://github.com/sgl-project/sglang/issues/11490)
+- [TODO: Piecewise CUDA Graph Default Enable - Issue #18130](https://github.com/sgl-project/sglang/issues/18130)
+- [Docs: Add doc for piecewise CUDA graph - Issue #18267](https://github.com/sgl-project/sglang/issues/18267)
+- 当前状态：**已默认启用**，可通过 `--disable-piecewise-cuda-graph` 关闭
+
 ## 推荐资源
 
 ### 官方文档
@@ -708,7 +814,9 @@ Eager baseline (no optimization)
 - [PyTorch CUDAGraph Trees](https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_cudagraph_trees.html)——理解 inductor 内部的 graph 管理机制，以及为什么 SGLang 选择 `no-cudagraphs` 模式
 
 ### 代码仓库（需要确定 commit hash）
-- SGLang `CudaGraphRunner`：`sglang/srt/model_executor/cuda_graph_runner.py`
+- SGLang `CudaGraphRunner`（monolithic）：`sglang/srt/model_executor/cuda_graph_runner.py`
+- SGLang `PiecewiseCudaGraphRunner`：`sglang/srt/model_executor/piecewise_cuda_graph_runner.py`
+- SGLang Piecewise compilation backend：`sglang/srt/compilation/cuda_piecewise_backend.py`、`sglang/srt/compilation/backend.py`
 - SGLang-Omni PR #153（merge commit `cd9aaf3`）：https://github.com/sgl-project/sglang-omni/pull/153
   - `sglang_omni/models/fishaudio_s2_pro/sglang_model.py`——统一模型实现
   - `sglang_omni/models/fishaudio_s2_pro/factory.py`——deferred graph capture
@@ -750,7 +858,8 @@ Eager baseline (no optimization)
   6. **CUDA Graph 与 torch.compile 的关系**：五层开销模型、四种 compile mode、`no-cudagraphs` 的分工哲学（概要，详细分析留后续文章）
   7. **torch.compile 在 S2-Pro 中的兴衰**：Ratish1 benchmark、三层决策逻辑
   8. **Issue #172 概要**：三阶段计划引出（详细分析留后续文章）
-  9. **设计复盘**：S2-Pro 完整优化栈、未来方向
+  9. **Piecewise CUDA Graph**：SGLang 主仓库的另一条路径——monolithic vs piecewise 的设计对比、split points 机制、三阶段执行模型、与 S2-Pro 方案的关系和启示
+  10. **设计复盘**：S2-Pro 完整优化栈、未来方向（包含 piecewise 的展望）
 
 ## 草稿完成度分析
 
