@@ -1,4 +1,4 @@
-# 再探 CUDA Graph：核心机制、多图复用以及 Dual AR 模型的双覆盖优化
+# 再探 CUDA Graph：核心机制、多图复用以及 Dual AR 模型的统一覆盖优化
 
 去年 8 月，我浅浅写过一篇从虚拟地址保护角度来理解 CUDA Graph 的文章，[基于 torch-memory-savor 浅析 CUDA Graph](./readme.md)（本系列第一篇）：覆盖了 CUDA Graph 基本概念、推理常用/训练少用的原因、torch-memory-saver 如何通过 `cuMemMap` 保护虚拟地址稳定性。无奈当时我对 CUDA Graph 的理解尚且浅薄，最近在 SGLang-Omni 框架中为 Fish Audio 的 S2-Pro TTS 模型添加 CUDA Graph 支持（[PR #153](https://github.com/sgl-project/sglang-omni/pull/153)），才发现 CUDA Graph 的博大精深。S2-Pro 拥有两个不对称的自回归过程（Slow AR + Fast AR），我们将它们的 forward 统一到一个 CUDA Graph 中捕获和重放，TPS 从 55.6 提高到了 88。在 [153](https://github.com/sgl-project/sglang-omni/pull/153) 相关的讨论中，我们更进一步结合 `torch.compile` 测试了同时开启 `torch.compile` 和 CUDA Graph 的性能：
 
@@ -109,7 +109,7 @@ Fast head 是一个独立的小型 transformer——[`FishQwen3AudioDecoder`](ht
 
 两者各自满足 CUDA Graph 的指针稳定性约束，但机制不同：paged cache 通过框架级的预分配 buffer + 间接寻址实现，static cache 则直接通过一次性分配实现。由此也可发现，两种 KV cache 事实上可以在同一个 CUDA Graph 中安全共存——各自独立管理状态，但所有 kernel 被录进同一个 DAG，这将是后文通过一个 CUDA Graph 覆盖两个 Auto Regressive forward 的事实依据。
 
-### 如何为 Dual AR 模型 设计 CUDA Graph？
+### 如何为 Dual AR 模型设计 CUDA Graph？
 
 S2-Pro 的 decode 阶段天然适合 CUDA Graph：
 
@@ -133,25 +133,33 @@ S2-Pro 的 decode 阶段天然适合 CUDA Graph：
 2. 初始化顺序必须保证 graph 捕获到完整路径（deferred capture）
 3. Codebook loop 的循环和采样必须满足 CUDA Graph 的静态约束
 
-我们对比下实现统一 CUDA Graph 双覆盖前后的 forward 架构：
+PR #153 之前——CUDA Graph 只覆盖 Slow AR，Fast AR 在 graph 之外逐 request 执行：
 
 ```mermaid
-graph TD
-    A["Text Model forward"] --> B["LogitsProcessorOutput"]
-    B --> C["_codebook_loop_impl()<br/>per-request, 不在 graph 内"]
-    C --> D["Codebook codes output"]
-```
-```mermaid
-graph TD
-    A["_update_vq_buffers()<br/>写入 persistent buffers"] --> B["S2ProSGLangTextModel.forward()"]
-    B --> B1["VQ embedding combination"]
-    B --> B2["36 层 Transformer (slow head)"]
-    B --> B3["Logits 计算"]
-    B --> B4["_decode_codebooks()<br/>constrained sampling + codebook loop"]
-    B4 --> C["_build_outputs()<br/>读取 output codes"]
+graph LR
+    subgraph "CUDA Graph"
+        A["Slow AR: 36 层 Transformer"] --> B["Logits"]
+    end
+    B --> C["CPU: 取回结果, 逐 request 调度"]
+    C --> D["Fast AR: _codebook_loop_impl()<br/>per-request, eager 执行"]
+    D --> E["Codebook codes"]
 ```
 
-`_decode_codebooks()` 从外部的 per-request 后处理，变成了 `forward()` 内部的一个步骤。一个 CUDA Graph 将 transformer + sampling + codebook loop 一次性录制，消除整个 decode step 的绝大多 kernel launch overhead。
+PR #153 之后——一个 CUDA Graph 覆盖 Slow AR + Fast AR 的完整 forward：
+
+```mermaid
+graph LR
+    W["CPU: _update_vq_buffers()<br/>写入 persistent buffers"] --> G
+    subgraph G["单个 CUDA Graph — 一次 cudaGraphLaunch()"]
+        direction LR
+        A["VQ embedding<br/>combination"] --> B["Slow AR:<br/>36 层 Transformer"]
+        B --> C["Logits +<br/>constrained sampling"]
+        C --> D["Fast AR:<br/>9 步 codebook loop"]
+    end
+    G --> R["CPU: _build_outputs()<br/>读取 output codes"]
+```
+
+`_decode_codebooks()` 从外部的 per-request 后处理，变成了 `forward()` 内部的一个步骤。一个 CUDA Graph 将 Slow AR + sampling + Fast AR 一次性录制，消除整个 decode step 的所有 kernel launch overhead。
 
 ### 与 Fish Audio 内部双 Graph 方案的对比
 
