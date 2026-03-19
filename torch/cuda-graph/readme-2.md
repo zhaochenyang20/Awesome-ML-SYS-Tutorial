@@ -12,12 +12,13 @@
 
 > 注：此处的 TPS 衡量的是 TTS 模型 LLM backbone（语言模型骨干网络）产生 speech codec tokens 的速度，不包含 vocoder 阶段。这个模型的具体架构会在后文详细阐述。
 
-效果令人感到极度舒适。有感于此，本文将会结合 153 PR 来分享我个人对 CUDA Graph 的更多理解。关于 `torch.compile` 的讨论，我们会留作后文分析：
+效果令人感到极度舒适。有感于此，本文将结合 PR #153 深入讨论：
 
-1. deferred graph capture 的初始化顺序约束
-2. persistent buffer 的指针稳定性设计
-3. torch.compile 四种 mode 与 CUDA Graph 的共存策略
-4. inductor CUDAGraph Trees 与 SGLang CudaGraphRunner 的冲突机制
+1. CUDA Graph 核心机制与约束条件的递进推导
+2. S2-Pro Dual AR 模型的统一 CUDA Graph 覆盖方案
+3. deferred graph capture、persistent buffer 等工程实现
+
+关于 torch.compile 四种 mode 与 CUDA Graph 的共存策略、inductor CUDAGraph Trees 与 SGLang CudaGraphRunner 的冲突机制，我们会留作后文分析。
 
 acknowledgement：
 
@@ -79,7 +80,7 @@ PyTorch 将 CUDA runtime 的 graph API 进一步封装为 Python 友好的接口
 
 ## S2-Pro 模型与统一 CUDA Graph 优化
 
-上文讨论了 CUDA Graph 的核心机制：构造过程、五条约束以及显存共享等等。接下来我们通过 S2 Pro 模型的统一 CUDA Graph 优化——将两个自回归过程的 forward 纳入同一个 CUDA Graph——来进一步理解。
+我们已经建立了 CUDA Graph 的核心概念框架——五条约束和显存共享机制构成了分析工具箱。现在的问题是：当一个模型拥有两个不对称的自回归过程，这些约束会如何具体地约束 CUDA Graph 的设计？S2-Pro 正是这样一个模型。
 
 ### S2-Pro 模型架构
 
@@ -113,7 +114,7 @@ Fast head 是一个独立的小型 transformer——[`FishQwen3AudioDecoder`](ht
 
 S2-Pro 的 decode 阶段天然适合 CUDA Graph：
 
-1. 高度重复的固定 kernel 序列：每个 step 都执行相同的 36 层 transformer + 9 步 codebook loop，控制流完全静态；这是是五条约束中静态控制流要求的理想场景。
+1. 高度重复的固定 kernel 序列：每个 step 都执行相同的 36 层 transformer + 9 步 codebook loop，控制流完全静态；这是五条约束中静态控制流要求的理想场景。
 2. TTS 推理是 latency-sensitive 的（需要实时生成语音），消除 CPU 侧的 launch overhead 对端到端延迟有直接帮助。
 
 考虑到此处，这样的 CUDA Graph 应该如何去设计？实际上，这也是整篇文章的驱动问题。
@@ -123,7 +124,7 @@ S2-Pro 的 decode 阶段天然适合 CUDA Graph：
 1. Slow head 的 CUDA Graph 收益有限：slow head 的核心是 `mm(8×2560, 2560×6144)` 这样的大 GEMM，单 kernel 计算耗时 ms 级。消除 launch overhead 的相对收益小——大 kernel 的执行时间远大于 launch 开销。
 2. Fast head 没有 CUDA Graph 才是真正的瓶颈：codebook loop 每步是 μs 级的小算子，9 步循环产生大量 kernel launch。Launch overhead 占执行时间的主要比例——这正是 CUDA Graph 最擅长解决的问题。
 
-一个自然的想法是为两个 AR 过程各 capture 一个独立的 CUDA Graph，事实上这也是 Fish Audio 团队内部的早期方案正是这么做的。但是，如此以来，两个 AR 过程之间还会存在 CPU 调度开销。假设两个 AR 过程各自独立建立 CUDA Graph，slow head 的 graph replay 结束后，CPU 需要取回结果、启动 fast head 的 graph replay、再写回给 CPU，以供下一个 decode step，两个 CUDA Graph 之间本身的调度也存在 CPU 开销。PR #153 提出了更进一步的方案，将 slow head 和 fast head 统一到唯一的 `forward()` 中，一个 CUDA Graph 同时捕获两个 AR 过程的全部 kernel。实际上，只要是一个完整的 DAG，就可以被一个统一的 CUDA Graph 捕获，包含任意数量、任意大小的 kernel 节点；大 GEMM 和小 GEMM 出现在同一个 graph 中完全合法。通过这一方案，decode 阶段的 TPS 从 55.6 跃升到 88，fast head 的 launch overhead 得以消除消除，两个两个 AR 之间的 CPU 调度开销也被缓解。
+一个自然的想法是为两个 AR 过程各 capture 一个独立的 CUDA Graph，事实上这也是 Fish Audio 团队内部的早期方案正是这么做的。但是，如此以来，两个 AR 过程之间还会存在 CPU 调度开销。假设两个 AR 过程各自独立建立 CUDA Graph，slow head 的 graph replay 结束后，CPU 需要取回结果、启动 fast head 的 graph replay、再写回给 CPU，以供下一个 decode step，两个 CUDA Graph 之间本身的调度也存在 CPU 开销。PR #153 提出了更进一步的方案，将 slow head 和 fast head 统一到唯一的 `forward()` 中，一个 CUDA Graph 同时捕获两个 AR 过程的全部 kernel。实际上，只要是一个完整的 DAG，就可以被一个统一的 CUDA Graph 捕获，包含任意数量、任意大小的 kernel 节点；大 GEMM 和小 GEMM 出现在同一个 graph 中完全合法。通过这一方案，decode 阶段的 TPS 从 55.6 跃升到 88，fast head 的 launch overhead 得以消除，两个 AR 之间的 CPU 调度开销也被缓解。
 
 | 维度 | 统一单 CUDA Graph 方案 | 双 CUDA Graph 方案 |
 |---|---|---|
@@ -170,13 +171,13 @@ graph LR
 
 `_decode_codebooks()` 从外部的 per-request 后处理，变成了 `forward()` 内部的一个步骤。一个 CUDA Graph 将 Slow AR + sampling + Fast AR 一次性录制，消除整个 decode step 的所有 kernel launch overhead。
 
-## Deferred Graph Capture：为什么初始化顺序如此重要
+## S2-Pro CUDA Graph 双覆盖方案的具体实现
 
-上一章确立了"把 slow head 和 fast head 统一到一个 graph"的核心决策，并列出了它引入的三项工程复杂性。从这一章开始，我们逐项展开这些工程挑战。第一个是 deferred graph capture——它直接对应五条约束中的最后一条：graph 录制后不会自动更新。
+上一章确立了"把 slow head 和 fast head 统一到一个 graph"的核心决策，并列出了它引入的工程复杂性。从这一章开始，我们逐项展开这些工程挑战。
 
-### `factory.py` 的初始化时序
+### Deferred Graph Capture：为什么初始化顺序如此重要
 
-[`create_s2pro_sglang_engine()`](https://github.com/sgl-project/sglang-omni/blob/cd9aaf3/sglang_omni/models/fishaudio_s2_pro/factory.py) 中的初始化时序非常精细：
+第一个工程挑战是 deferred graph capture，它直接对应五条约束中的最后一条：graph 录制后不会自动更新，具体来说，我们来观察 `factory.py` 中 [`create_s2pro_sglang_engine()`](https://github.com/sgl-project/sglang-omni/blob/cd9aaf3/sglang_omni/models/fishaudio_s2_pro/factory.py) 的初始化时序：
 
 ```python
 # Step 1: 暂时禁用 CUDA Graph
@@ -202,7 +203,7 @@ if want_cuda_graph:
 
 注意到，step 1 为了防止在 step 2 直接 capture CUDA Graph，所以显式先 disable 了 CUDA Graph。倘若不在 step 1 进行 disable，进入到 `ModelWorker.__init__()` 内部就会调用 `init_cuda_graphs()`。此时 `text_model._vq_ready = False`，因为 `setup_vq_decode()` 还在 step 5 才调用。在 step 2 中，`forward()` 的 `if self._vq_ready:` 分支不会执行，graph 中不包含 VQ embedding combination 和 `_decode_codebooks()`。所以只有等到 step 5 执行后，`text_model._vq_ready = True`，才能 capture 完整的 graph。否则，由于 CUDA Graph 是一次捕获的静态图，后续即便有了 `text_model._vq_ready = True`，已经录好的 graph 也不会自动更新，Replay 时执行的仍然是录制时的 kernel 序列，一个不包含 codebook decode 的残缺 forward。
 
-### `setup_vq_decode()` 的 Buffer 分配
+### `setup_vq_decode()` 的 Buffer 分配：避免动态内存分配
 
 [`setup_vq_decode()`](https://github.com/sgl-project/sglang-omni/blob/cd9aaf3/sglang_omni/models/fishaudio_s2_pro/sglang_model.py#L196) 预先分配了所有 persistent buffer。这些 buffer 直接对应第一章的第二条约束，不能有动态内存分配。
 
@@ -223,11 +224,9 @@ if want_cuda_graph:
 
 所有 buffer 在 `setup_vq_decode()` 时一次性 `torch.zeros(...)` 分配，之后只通过就地操作修改值——这正是第一章"指针稳定性"约束的体现。
 
-## Persistent Buffer 与 CUDA Graph 安全性
+### Persistent Buffer：CUDA Graph 数据依赖的就地写入
 
 上一章解决了"什么时候分配 buffer"和"分配哪些 buffer"的问题。但 buffer 分配只是故事的一半——运行时每个 decode step 都需要往这些 buffer 里写入新的动态数据（上一步的 codebook values、semantic mask 等），然后让 graph replay 读取。这就引出下一个问题：为什么就地操作（`copy_()`、`fill_()`、`zero_()`）就能保证 CUDA Graph 安全？答案仍然要回到第一章的"指针稳定性"约束。
-
-### 就地操作清单
 
 | 操作 | 使用场景 | 为什么满足指针稳定性约束 |
 |---|---|---|
@@ -236,9 +235,8 @@ if want_cuda_graph:
 | `tensor.fill_(scalar)` | audio decoder 的 `input_pos.fill_(codebook_idx)` | 就地填充 |
 | `tensor.zero_()` | `reset_caches()` 清空 KV cache | 就地清零 |
 
-### Buffer 读写协议
 
-[`S2ProSGLangModelRunner`](https://github.com/sgl-project/sglang-omni/blob/cd9aaf3/sglang_omni/models/fishaudio_s2_pro/runtime/s2pro_sglang_ar.py) 实现了一个精心设计的协议：
+有了这些就地操作协议，[`S2ProSGLangModelRunner`](https://github.com/sgl-project/sglang-omni/blob/cd9aaf3/sglang_omni/models/fishaudio_s2_pro/runtime/s2pro_sglang_ar.py) 就可以实现一个精心设计的 buffer 读写方案：
 
 | 步骤 | 函数 | 位置 |
 |---|---|---|
@@ -269,9 +267,7 @@ def _update_vq_buffers(self, model_worker_batch, scheduler_output):
 
 `.copy_()` 修改了 `_vq_mask` 和 `_vq_codes` 的值，但这些 tensor 的 GPU 虚拟地址没有变化。Graph replay 时，`forward()` 中的 kernel 读取的仍然是同一个地址，只是值已经被更新为当前 step 的数据。
 
-### `input_pos.fill_()` 模式
-
-`forward_kvcached()` 中使用了一个精心设计的 CUDA Graph 兼容模式：
+同样的，`forward_kvcached()` 中使用了一个精心设计的 CUDA Graph 兼容的 `fill_()` 模式：
 
 ```python
 def forward_kvcached(self, x, codebook_idx):
@@ -283,7 +279,7 @@ def forward_kvcached(self, x, codebook_idx):
 
 `input_pos` 是 `register_buffer` 注册的 persistent tensor。`fill_()` 是就地操作。`codebook_idx` 在 codebook loop 展开后是 Python 常量，在 capture 时被固化为 graph 的一部分——对应五条约束中的"静态控制流"。fill 操作相比 `torch.tensor([codebook_idx])`，后者会创建新 tensor，破坏地址稳定性。
 
-### Greedy Decoding：host-device sync 约束的体现
+### Greedy Decoding：避免 host-device sync
 
 PR #153 将 codebook 的采样策略从 `_sample_with_topk`（temperature + top_k + top_p + repetition_penalty）切换为 `torch.argmax(biased_logits, dim=-1)`。这不仅仅是简化——它直接对应五条约束中的"不能有 host-device sync"：
 
