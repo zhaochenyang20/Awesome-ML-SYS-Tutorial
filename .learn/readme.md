@@ -222,6 +222,20 @@ repo 内形成了一张密集的知识图谱，引用方式有三种：
 - **内容检查**：检查草稿（主要是中文）是否存在符合我写作风格，是否完成了我的学习大纲，是否存在错误的引用；
 - **内容翻译**：在确保内容检查毫无问题的情况下，得到我的允许后，将草稿翻译为英文。注意格式要严格一致；
 
+### /learn-add
+
+**输入**：
+
+一篇或多篇已发布文章的路径（如 `torch/cuda-graph/readme-3.md`）。
+
+**输出**：
+
+- **元信息提取**：自动读取文章内容，提取 title、topics、depth、references、series 等元信息，生成 knowledge-graph.json 条目；
+- **引用关系同步**：更新被引用文章的 `referenced_by` 字段，更新系列信息；
+- **确认后写入**：展示将要添加的条目，经我确认后才写入 knowledge-graph.json。
+
+**收录条件**：只收录我本人的文章，且必须已在 README.md 中列出、未标记 [Pending Review]。`/learn-write` 和 `/learn-review` 不会自动触发知识图谱更新。
+
 ### 交互方式
 
 ### 主入口
@@ -234,6 +248,8 @@ repo 内形成了一张密集的知识图谱，引用方式有三种：
 /learn-write 我一级完成了 omni 模型的学习草稿 transformers/omni/readme.md，我希望你参考学习计划 transformers/omni/learn-plan.md 帮我完成剩余部分的写作，重点要强调我在开发 SGLang Omni 的过程中，对不同组件在资源组上的排列方式的思考。
 
 /learn-review 根据 omni 路径下的 readme.md 和 plan.md，检查中文文章的完成程度。
+
+/learn-add torch/cuda-graph/readme-3.md
 ```
 
 ### 输出形式
@@ -246,7 +262,7 @@ repo 内形成了一张密集的知识图谱，引用方式有三种：
 ```
 .learn/
 ├── readme.md                    # 本 proposal
-├── skill.md                     # /learn skill 的 prompt 定义（三个子命令的 system prompt 和工具配置）
+├── skill.md                     # /learn skill 的 prompt 定义（四个子命令的 system prompt 和工具配置）
 ├── index/
 │   ├── knowledge-graph.json     # repo 知识图谱（文章元信息 + 引用关系 + topic 标签）
 │   └── style-guide.md           # 从第一部分分析中提炼的风格指南（机器可读版本）
@@ -312,7 +328,7 @@ repo 内形成了一张密集的知识图谱，引用方式有三种：
 
 ### skill.md 结构
 
-`skill.md` 是 /learn agent 的 prompt 定义文件，定义三个子命令各自的 system prompt 和行为。大致结构如下：
+`skill.md` 是 /learn agent 的 prompt 定义文件，定义四个子命令各自的 system prompt 和行为。大致结构如下：
 
 ```
 skill.md
@@ -343,15 +359,25 @@ skill.md
 │   │   4. 对输出进行三维度自动检查（双轨、叙事、深度）
 │   └── 输出格式：Markdown 文件，保存到对应目录
 │
-└── /learn-review
-    ├── 触发条件：用户输入引用了已完成的草稿
-    ├── 工具权限：Glob, Grep, Read（检查阶段）；Write（翻译阶段，需用户明确允许）
+├── /learn-review
+│   ├── 触发条件：用户输入引用了已完成的草稿
+│   ├── 工具权限：Glob, Grep, Read（检查阶段）；Write（翻译阶段，需用户明确允许）
+│   ├── 执行流程：
+│   │   1. 读取草稿和对应的 learn-plan.md
+│   │   2. 检查：风格合规、大纲完成度、引用正确性
+│   │   3. 输出检查报告
+│   │   4. 若用户要求翻译，在确认检查无问题后，生成格式严格一致的英文版本
+│   └── 输出格式：检查报告（终端文本）+ 可选的英文翻译文件
+│
+└── /learn-add
+    ├── 触发条件：用户主动调用，传入已发布文章路径
+    ├── 工具权限：Glob, Grep, Read, Write
     ├── 执行流程：
-    │   1. 读取草稿和对应的 learn-plan.md
-    │   2. 检查：风格合规、大纲完成度、引用正确性
-    │   3. 输出检查报告
-    │   4. 若用户要求翻译，在确认检查无问题后，生成格式严格一致的英文版本
-    └── 输出格式：检查报告（终端文本）+ 可选的英文翻译文件
+    │   1. 验证文章满足收录条件（本人文章 + 在 README 中 + 非 Pending Review）
+    │   2. 读取文章内容，提取元信息（title, topics, depth, references 等）
+    │   3. 更新被引用文章的 referenced_by 和系列信息
+    │   4. 展示条目内容，经用户确认后写入 knowledge-graph.json
+    └── 输出格式：确认提示 + 写入 knowledge-graph.json
 ```
 
 ### 风格保持机制
@@ -404,8 +430,13 @@ skill.md
 
 当其他人向 repo 贡献文章时，/learn 会将新的内容视作草稿，后续经由我本人的确认和修改，才会正式被发布。
 
-- **风格一致性审核**：`/learn review` 检查新文章是否符合 repo 的整体风格。
-- **知识图谱更新**：新文章被放置到了 README.md 中并且未被标记为 [Pending Review]，则自动更新 `knowledge-graph.json`。
+- **风格一致性审核**：`/learn-review` 检查新文章是否符合 repo 的整体风格。
+- **知识图谱更新**：通过 `/learn-add` 命令手动触发，只收录我本人在 README 主页正式发布（无 [Pending Review] 标记）的文章。`/learn-write` 和 `/learn-review` 不会自动更新知识图谱。更新原则如下：
+  - **需要更新**：新文章正式发布（我本人的文章 + 已在 README.md 中列出 + 未标记 [Pending Review]） → 通过 `/learn-add` 新增条目。
+  - **需要更新**：文章文件被删除或路径变更 → 通过 `/learn-add` 同步删除或更新对应条目及引用字段。
+  - **需要更新**：文章内容发生实质性变化（交叉引用、系列归属、深度层级、外部链接） → 通过 `/learn-add` 更新对应字段。
+  - **不需要更新**：仅 README 排版调整，文章文件本身未变。
+  - **不需要更新**：文章的非结构性修改（typo、润色、补充细节），不涉及引用关系或元信息变化。
 
 ### `.learn/` 作为独立可复用模块
 

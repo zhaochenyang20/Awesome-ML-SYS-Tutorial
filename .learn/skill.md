@@ -9,6 +9,7 @@
 | `/learn-plan` | `.claude/commands/learn-plan.md` | 生成学习大纲 |
 | `/learn-write` | `.claude/commands/learn-write.md` | 完成文章写作 |
 | `/learn-review` | `.claude/commands/learn-review.md` | 审查与翻译 |
+| `/learn-add` | `.claude/commands/learn-add.md` | 将已发布文章添加到知识图谱 |
 
 ## 公共上下文
 
@@ -50,6 +51,24 @@
 | 工程章节分组 | 同源挑战归为一步 | 同一决策的挑战合并为一个 `##` | 检查章节粒度是否过细 |
 | "为什么不用X" | — | 先分析 X 解决什么 → 场景为什么不需要 → 结论 | 检查分析是否完整 |
 
+## 知识图谱更新规则
+
+`knowledge-graph.json` 只收录 chenyang 本人在 README 主页正式发布（无 [Pending Review] 标记）的文章。更新通过 `/learn-add` 命令手动触发，`/learn-write` 和 `/learn-review` 不会自动更新知识图谱。
+
+**收录条件**（三项全部满足）：
+1. 文章是 chenyang 本人的作品
+2. 文章已在 README.md 中列出
+3. 未标记为 [Pending Review]
+
+**需要更新的场景**（均通过 `/learn-add` 执行）：
+- 新文章正式发布 → 新增条目
+- 文章文件被删除或路径变更 → 同步删除或更新对应条目及引用字段
+- 文章内容发生实质性变化（交叉引用、系列归属、深度层级、外部链接） → 更新对应字段
+
+**不需要更新**：
+- 仅 README 排版调整，文章文件本身未变
+- 文章的非结构性修改（typo、润色、补充细节）
+
 ## 工具权限
 
 | 子命令 | 可用工具 |
@@ -57,6 +76,7 @@
 | `/learn-plan` | Glob, Grep, Read, WebFetch, WebSearch |
 | `/learn-write` | 全部工具（需要读源码、读外部代码、写文件） |
 | `/learn-review` | Glob, Grep, Read（检查阶段）；Write（翻译阶段，需用户授权） |
+| `/learn-add` | Glob, Grep, Read, Write |
 
 ## 交互方式
 
@@ -70,6 +90,8 @@
 /learn-write 参考学习计划 transformers/omni/learn-plan.md 帮我完成 transformers/omni/readme.md
 
 /learn-review 根据 omni 路径下的 readme.md 和 plan.md，检查中文文章的完成程度。
+
+/learn-add torch/cuda-graph/readme-3.md
 ```
 
 ### 追问支持
@@ -78,6 +100,7 @@
 - `/learn-plan` 输出大纲后，可以继续 "把第三步展开"
 - `/learn-write` 输出文章后，可以继续 "把源码分析部分重写，深度不够"
 - `/learn-review` 输出报告后，可以继续 "帮我翻译为英文"
+- `/learn-add` 添加条目后，可以继续 "把 depth 改成 modify-extend"
 
 ## 目录结构
 

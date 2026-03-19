@@ -102,7 +102,6 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md): Introduction to the implementation of the `online_update_weights` interface in SGLang. Unlike `update_weights` which reads weights from the disk, this interface broadcasts new weights directly from the training engine via NCCL.
 - [Pending Review] [SGLang Verl Engine Optimization Analysis](./sglang/sglang-verl-engine/readme.md): Analysis of optimizations in the SGLang verl engine, including the implementation of interfaces like `update_weights_from_tensor`.
 - [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
-- **[🔥 Related Debugging] [Analyzing VLM RL Training Memory Leaks via Torch Memory Snapshot](./torch/mem-snapshot/readme-en.md)**: Analysis of SGLang memory leak issues and solutions. Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1943202817247519535) and in [Chinese version](./torch/mem-snapshot/readme.md).
 
 ### Usage and Practice
 

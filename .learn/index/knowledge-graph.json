@@ -236,59 +236,6 @@
       }
     },
     {
-      "id": "slime-fsdp-setup",
-      "path": "rlhf/slime/fsdp/release_log/setup_fsdp.md",
-      "title": "slime FSDP Setup Guide",
-      "topics": [
-        "slime",
-        "FSDP",
-        "setup",
-        "H-card",
-        "B-card",
-        "colocate",
-        "disaggregated"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "en",
-      "references_to": [
-        "rlhf/slime/fsdp/readme.md"
-      ],
-      "referenced_by": [],
-      "series": "slime",
-      "series_order": 8,
-      "prerequisites": [
-        "rlhf/slime/fsdp/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "slime-batch-gae",
-      "path": "rlhf/slime/batch-GAE/ppo-gae-chunk.md",
-      "title": "PPO 中 GAE 的分 chunk 并行计算（基于 slime 的实现）",
-      "topics": [
-        "slime",
-        "PPO",
-        "GAE",
-        "parallel-prefix-scan",
-        "chunk",
-        "reinforcement-learning"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": "slime",
-      "series_order": 9,
-      "prerequisites": [
-        "rlhf/slime/code-walk-through/readme.md"
-      ],
-      "external_links": {
-        "zhihu": "https://zhuanlan.zhihu.com/p/1975237289425798560"
-      }
-    },
-    {
       "id": "areal-code-walk-through",
       "path": "rlhf/areal/code-walk-through_CN.md",
       "title": "AReal Code Walk Through",
@@ -405,31 +352,6 @@
       }
     },
     {
-      "id": "sys-design-megatron",
-      "path": "rlhf/sys-design/readme-3.md",
-      "title": "RL 系统深思：Megatron",
-      "topics": [
-        "Megatron",
-        "tensor-parallelism",
-        "pipeline-parallelism",
-        "3D-parallel",
-        "Megatron-Core",
-        "reinforcement-learning"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": "rl-sys-deep-dive",
-      "series_order": 3,
-      "prerequisites": [
-        "rlhf/sys-design/readme-2.md",
-        "torch/tensor-parallelism/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
       "id": "sys-design-rdma",
       "path": "rlhf/sys-design/readme-5.md",
       "title": "一文速览 RL 场景下基于 RDMA 方案的权重传输设计",
@@ -505,30 +427,6 @@
       "external_links": {
         "zhihu": "https://zhuanlan.zhihu.com/p/16370000391"
       }
-    },
-    {
-      "id": "grpo-sglang",
-      "path": "rlhf/GRPO/SGLang_GRPO.md",
-      "title": "SGLang as rollout engine of GRPO trainer",
-      "topics": [
-        "SGLang",
-        "GRPO",
-        "TRL",
-        "PPO",
-        "reinforcement-learning",
-        "math-reasoning"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "en",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "rlhf/OpenRLHF/readme.md"
-      ],
-      "external_links": {}
     },
     {
       "id": "verl-mem-snapshot",
@@ -642,30 +540,6 @@
       }
     },
     {
-      "id": "verl-code-walk-through-3",
-      "path": "rlhf/verl/multi-turn/code-walk-through/readme-3.md",
-      "title": "深入浅出理解 verl 源码（Make Experience）",
-      "topics": [
-        "verl",
-        "code-walkthrough",
-        "make-experience",
-        "reinforcement-learning"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [
-        "rlhf/verl/multi-turn/code-walk-through/readme-2.md"
-      ],
-      "referenced_by": [],
-      "series": "verl-code-walk-through",
-      "series_order": 3,
-      "prerequisites": [
-        "rlhf/verl/multi-turn/code-walk-through/readme-2.md"
-      ],
-      "external_links": {}
-    },
-    {
       "id": "verl-agent-loop",
       "path": "rlhf/verl/multi-turn/code-walk-through/readme-6.md",
       "title": "AgentLoop 源码浅析",
@@ -741,29 +615,6 @@
         "zhihu": "https://zhuanlan.zhihu.com/p/1917126584806139373",
         "github_en": "rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking.md"
       }
-    },
-    {
-      "id": "verl-dapo",
-      "path": "rlhf/verl/multi-turn/code-walk-through/dapo.md",
-      "title": "DAPO Dynamic Filtering 实现与 Batch Size 解析",
-      "topics": [
-        "verl",
-        "DAPO",
-        "dynamic-filtering",
-        "batch-size",
-        "reinforcement-learning"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": "verl-code-walk-through",
-      "series_order": 7,
-      "prerequisites": [
-        "rlhf/verl/multi-turn/code-walk-through/readme.md"
-      ],
-      "external_links": {}
     },
     {
       "id": "verl-profile",
@@ -1040,175 +891,6 @@
       }
     },
     {
-      "id": "sglang-scheduler-legacy",
-      "path": "sglang/sglang-scheduler/readme-CN.md",
-      "title": "Walk Through SGLang Scheduler",
-      "topics": [
-        "SGLang",
-        "scheduler",
-        "code-walkthrough"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "bilingual",
-      "references_to": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {
-        "github_en": "sglang/sglang-scheduler/readme.md"
-      }
-    },
-    {
-      "id": "sglang-kvcache-walk-through",
-      "path": "sglang/kvcache-code-walk-through/readme.md",
-      "title": "KV Cache Code Walkthrough",
-      "topics": [
-        "SGLang",
-        "KV-cache",
-        "memory-pool",
-        "prefill",
-        "decode",
-        "code-walkthrough"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "bilingual",
-      "references_to": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {
-        "github_cn": "sglang/kvcache-code-walk-through/readme-CN.md"
-      }
-    },
-    {
-      "id": "sglang-multimodal-lifecycle",
-      "path": "sglang/code-walk-through/multimodal_request_lifecycle.md",
-      "title": "SGLang 多模态请求生命周期：以 Qwen2.5-VL 为例的架构级深度解析",
-      "topics": [
-        "SGLang",
-        "multimodal",
-        "Qwen2.5-VL",
-        "request-lifecycle",
-        "VLM"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-model-loading",
-      "path": "sglang/how-model-is-loaded/readme.md",
-      "title": "How A Model is Loaded in Hugging Face and SGLang",
-      "topics": [
-        "SGLang",
-        "HuggingFace",
-        "model-loading",
-        "weight-loading"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "en",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-speculative-decoding",
-      "path": "sglang/speculative-decoding/speculative-decoding.md",
-      "title": "Speculative Decoding",
-      "topics": [
-        "SGLang",
-        "speculative-decoding",
-        "draft-model",
-        "inference-acceleration"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-zero-overhead-scheduler",
-      "path": "sglang/zero-overhead-scheduler/zero-overhead-batch-scheduler.md",
-      "title": "Zero-Overhead Batch Scheduler",
-      "topics": [
-        "SGLang",
-        "zero-overhead",
-        "batch-scheduler",
-        "GPU-bubble",
-        "scheduling"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-dp-attention",
-      "path": "sglang/dp-attention/readme.md",
-      "title": "Data Parallelism Attention",
-      "topics": [
-        "SGLang",
-        "DP-attention",
-        "DeepSeek",
-        "MLA",
-        "KV-cache",
-        "tensor-parallelism"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
       "id": "sglang-quantization",
       "path": "sglang/quantization/quantization_architecture.md",
       "title": "浅析 SGLang 框架的量化设计与思路",
@@ -1257,142 +939,6 @@
       "external_links": {
         "zhihu": "https://zhuanlan.zhihu.com/p/18336995950",
         "github_en": "sglang/constraint-decoding/readme_en.md"
-      }
-    },
-    {
-      "id": "sglang-online-update-weights",
-      "path": "sglang/online-update-weights/readme.md",
-      "title": "Online Update Weights",
-      "topics": [
-        "SGLang",
-        "online-update-weights",
-        "NCCL",
-        "weight-broadcast"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "en",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md",
-        "torch/nccl/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-verl-engine",
-      "path": "sglang/sglang-verl-engine/readme.md",
-      "title": "SGLang Verl Engine 优化解析",
-      "topics": [
-        "SGLang",
-        "verl",
-        "engine-optimization",
-        "update-weights-from-tensor"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [
-        "sglang/online-update-weights/readme.md"
-      ],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/online-update-weights/readme.md",
-        "rlhf/verl/readme.md"
-      ],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-light-duoattention",
-      "path": "sglang/light-duoattention/light-duoattention.md",
-      "title": "Light-DuoAttention：用 CuTeDSL 实现高效长上下文推理",
-      "topics": [
-        "SGLang",
-        "DuoAttention",
-        "CuTeDSL",
-        "long-context",
-        "sparse-attention",
-        "KV-cache"
-      ],
-      "depth": "modify-extend",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "sglang/code-walk-through/readme.md"
-      ],
-      "external_links": {
-        "zhihu": "https://zhuanlan.zhihu.com/p/1984978732436431358"
-      }
-    },
-    {
-      "id": "sglang-qwen3-coder",
-      "path": "sglang/qwen/coder.md",
-      "title": "Qwen3-Coder Usage",
-      "topics": [
-        "SGLang",
-        "Qwen3",
-        "tool-parser",
-        "usage"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "en",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [],
-      "external_links": {}
-    },
-    {
-      "id": "sglang-nvidia-dynamo",
-      "path": "sglang/nvidia-dynamo/dynamo.md",
-      "title": "NVIDIA Dynamo",
-      "topics": [
-        "SGLang",
-        "NVIDIA-Dynamo",
-        "distributed-inference",
-        "multi-node"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "en",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [],
-      "external_links": {}
-    },
-    {
-      "id": "transformers-cross-attention",
-      "path": "transformers/attention/cross_attention.md",
-      "title": "Transformer中的交叉注意力机制",
-      "topics": [
-        "transformer",
-        "cross-attention",
-        "encoder-decoder",
-        "attention"
-      ],
-      "depth": "intuition",
-      "status": "pending-review",
-      "language": "bilingual",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [],
-      "external_links": {
-        "github_en": "transformers/attention/cross_attention_en.md"
       }
     },
     {
@@ -1467,9 +1013,7 @@
       "references_to": [
         "torch/cuda-graph/readme.md"
       ],
-      "referenced_by": [
-        "torch/cuda-graph/readme-3.md"
-      ],
+      "referenced_by": [],
       "series": "cuda-graph",
       "series_order": 2,
       "prerequisites": [
@@ -1479,27 +1023,6 @@
         "zhihu": "https://zhuanlan.zhihu.com/p/2017950447520980998",
         "github_en": "torch/cuda-graph/readme-2-en.md"
       }
-    },
-    {
-      "id": "tensor-parallelism",
-      "path": "torch/tensor-parallelism/readme.md",
-      "title": "手搓 Tensor Parallelism",
-      "topics": [
-        "tensor-parallelism",
-        "distributed-training",
-        "PyTorch"
-      ],
-      "depth": "understand-reproduce",
-      "status": "pending-review",
-      "language": "cn",
-      "references_to": [],
-      "referenced_by": [],
-      "series": null,
-      "series_order": null,
-      "prerequisites": [
-        "torch/torch-distributed/readme.md"
-      ],
-      "external_links": {}
     },
     {
       "id": "nccl",
@@ -1628,9 +1151,7 @@
         "rlhf/slime/fsdp/readme.md",
         "rlhf/slime/fp8/readme.md",
         "rlhf/slime/spec/readme.md",
-        "rlhf/slime/code-walk-through/readme.md",
-        "rlhf/slime/fsdp/release_log/setup_fsdp.md",
-        "rlhf/slime/batch-GAE/ppo-gae-chunk.md"
+        "rlhf/slime/code-walk-through/readme.md"
       ]
     },
     "verl-code-walk-through": {
@@ -1639,11 +1160,9 @@
       "articles": [
         "rlhf/verl/multi-turn/code-walk-through/readme.md",
         "rlhf/verl/multi-turn/code-walk-through/readme-2.md",
-        "rlhf/verl/multi-turn/code-walk-through/readme-3.md",
         "rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking_ZH.md",
         "rlhf/verl/multi-turn/code-walk-through/readme-5.md",
-        "rlhf/verl/multi-turn/code-walk-through/readme-6.md",
-        "rlhf/verl/multi-turn/code-walk-through/dapo.md"
+        "rlhf/verl/multi-turn/code-walk-through/readme-6.md"
       ]
     },
     "rl-sys-deep-dive": {
@@ -1652,7 +1171,6 @@
       "articles": [
         "rlhf/sys-design/readme-1.md",
         "rlhf/sys-design/readme-2.md",
-        "rlhf/sys-design/readme-3.md",
         "rlhf/sys-design/readme-4.md",
         "rlhf/sys-design/readme-5.md"
       ]

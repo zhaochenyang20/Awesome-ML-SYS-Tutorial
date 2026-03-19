@@ -115,7 +115,6 @@ $$
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md)：介绍 SGLang 中 `online_update_weights` 接口的实现，区别于从磁盘读取权重的 `update_weights`，该接口从训练 engine 中直接通过 nccl 广播新的权重。
 - [Pending Review] [SGLang Verl Engine 优化解析](./sglang/sglang-verl-engine/readme.md)：解析 SGLang 中 verl engine 的优化，包括 `update_weights_from_tensor` 等接口的实现。
 - [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
-- **[🔥相关调试] [通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题](./torch/mem-snapshot/readme.md)**：分析 SGLang 的显存泄露问题，以及解决方案，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/1943202817247519535)和[英文版本](./torch/mem-snapshot/readme-en.md)。
 
 ### 使用与实践
 
