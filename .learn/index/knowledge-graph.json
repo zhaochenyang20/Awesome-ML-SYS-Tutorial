@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated": "2026-03-18",
+  "generated": "2026-03-19",
   "articles": [
     {
       "id": "slime-vlm-multi-turn",
@@ -1434,7 +1434,9 @@
       "references_to": [
         "rlhf/verl/multi-turn/code-walk-through/readme.md"
       ],
-      "referenced_by": [],
+      "referenced_by": [
+        "torch/cuda-graph/readme-2.md"
+      ],
       "series": "cuda-graph",
       "series_order": 1,
       "prerequisites": [],
@@ -1446,27 +1448,37 @@
     {
       "id": "cuda-graph-2",
       "path": "torch/cuda-graph/readme-2.md",
-      "title": "CUDA Graph vs torch.compile: S2-Pro TTS 模型实战分析",
+      "title": "再探 CUDA Graph：核心机制、多图复用以及 Dual AR 模型的统一覆盖优化",
       "topics": [
         "CUDA-Graph",
-        "torch-compile",
-        "TTS",
+        "SGLang-Omni",
+        "Fish-Audio",
         "S2-Pro",
-        "Triton-autotune"
+        "TTS",
+        "dual-AR",
+        "memory-pool",
+        "deferred-capture",
+        "persistent-buffer",
+        "torch-compile"
       ],
       "depth": "understand-reproduce",
       "status": "published",
-      "language": "cn",
+      "language": "bilingual",
       "references_to": [
         "torch/cuda-graph/readme.md"
       ],
-      "referenced_by": [],
+      "referenced_by": [
+        "torch/cuda-graph/readme-3.md"
+      ],
       "series": "cuda-graph",
       "series_order": 2,
       "prerequisites": [
         "torch/cuda-graph/readme.md"
       ],
-      "external_links": {}
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/2017950447520980998",
+        "github_en": "torch/cuda-graph/readme-2-en.md"
+      }
     },
     {
       "id": "tensor-parallelism",

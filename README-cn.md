@@ -145,6 +145,7 @@ $$
 
 ### CUDA & GPU
 
+- [再探 CUDA Graph：核心机制、多图复用以及 Dual AR 模型的统一覆盖优化](./torch/cuda-graph/readme-2.md)：同样刊载于[知乎](https://zhuanlan.zhihu.com/p/2017950447520980998)和[英文版](./torch/cuda-graph/readme-2-en.md)。
 - [基于 torch-memory-savor 浅析 CUDA Graph](./torch/cuda-graph/readme.md)：同样刊载于[知乎：基于 torch-memory-savor 浅析 CUDA Graph](https://zhuanlan.zhihu.com/p/1921726788574360686)和[英文版](./torch/cuda-graph/readme_en.md)。
 
 ### Distributed Training & Communication

@@ -131,7 +131,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 
 ### CUDA & GPU
 
-- [Revisiting CUDA Graph: Core Mechanisms, Multi-Graph Memory Sharing, and Unified Coverage for Dual AR Models](./torch/cuda-graph/readme-2-en.md): Also available on [Zhihu](https://zhuanlan.zhihu.com/p/1921726788574360686) and in [Chinese version](./torch/cuda-graph/readme-2.md).
+- [Revisiting CUDA Graph: Core Mechanisms, Multi-Graph Memory Sharing, and Unified Coverage for Dual AR Models](./torch/cuda-graph/readme-2-en.md): Also available on [Zhihu](https://zhuanlan.zhihu.com/p/2017950447520980998) and in [Chinese version](./torch/cuda-graph/readme-2.md).
 - [Brief Analysis of CUDA Graph Based on torch-memory-savor](./torch/cuda-graph/readme_en.md): Also available on [Zhihu: Brief Analysis of CUDA Graph Based on torch-memory-savor](https://zhuanlan.zhihu.com/p/1921726788574360686) and in [Chinese version](./torch/cuda-graph/readme.md).
 
 ### Distributed Training & Communication
