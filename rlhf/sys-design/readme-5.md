@@ -140,7 +140,7 @@ NCCL 将上述所有细节抽象掉。当你创建 NCCL process group 时：
 | `update_weights_from_tensor` | Ray 远程调用传 tensor | 内存内传输（co-located） |
 | `update_weights_from_distributed` | HTTP API 触发 | Miles 和 SGLang 共建 NCCL group，broadcast 传输 |
 
-**RDMA Transfer Engine 新增了第四条路径**：通过 Mooncake 直接进行 GPU 到 GPU 的写入，完全绕过 NCCL collective。这正是 Issue #17311 所构建的。同样由 Miles 侧发起，但数据传输方式变为 Engine Replica 通过 `MooncakeTransferEngine` 直接 RDMA 写入 SGLang 已注册的 GPU 显存地址，不再需要建立 NCCL process group。
+**RDMA Transfer Engine 新增了第四条路径**：通过 Mooncake 直接进行 CPU/GPU 到 GPU 的写入，完全绕过 NCCL collective。这正是 Issue #17311 所构建的。同样由 Miles 侧发起，但数据传输方式变为 Engine Replica 通过 `MooncakeTransferEngine` 直接 RDMA 写入 SGLang 已注册的 GPU 显存地址，不再需要建立 NCCL process group。
 
 ### SGLang 中的 Mooncake TransferEngine
 
@@ -236,9 +236,9 @@ weight_mr_dict[name] = (
 
 现有 RDMA 路径是**实例到实例**（一个 SGLang server 到另一个）。Issue #17311 将其扩展到**训练端到推理引擎**：
 
-**训练侧**（Miles/Megatron）：(1) 完成一个训练步骤。(2) 创建一个与 SGLang 相同并行配置的"Engine Replica"——通过 **PR #16860** 暴露并行信息来实现。(3) 将 Megatron 参数名映射到 SGLang 分片名——通过 **PR #17326**（统一权重映射）实现。(4) 对每个参数：AllGather TP 分片，转换为 HF 格式，对参数做 bucket，然后 RDMA 写入 SGLang 引擎的已注册内存地址。
+**训练侧**（Miles/Megatron）：(1) 完成一个训练步骤。(2) 创建一个与 SGLang 相同并行配置的"Engine Replica"——通过 **PR #16860** 暴露并行信息来实现。(3) 将 Megatron 参数名映射到 SGLang 分片名——通过 **PR #17326**（统一权重映射）实现。(4) 对每个参数：AllGather TP/EP 分片，转换为 HF 格式，对参数做 bucket，然后 RDMA 写入 SGLang 引擎的已注册内存地址。
 
-**SGLang 推理侧**：(5) 引擎的权重位置可查询，包括跨节点场景——由 **PR #17389** 修复 `nnode > 1` 的情况。(6) 权重直接出现在 GPU 显存中，零拷贝，无需 NCCL group。
+**SGLang 推理侧**：(5) 引擎的权重位置可查询，包括跨节点场景——由 **PR #17389** 修复 `nnode > 1` 的情况。(6) 权重直接出现在 GPU 显存中，零拷贝，无需 NCCL group，甚至无需调用推理侧 API 接口。
 
 ### 第二部分自查清单
 
@@ -357,7 +357,7 @@ RDMA P2P 方案：
 
 总结来说，Engine Replica 的能力 = 并行策略镜像（PR #16860）+ 参数名映射（PR #17326）+ bucketing + RDMA 写入驱动。本 PR 解决的就是参数名映射这一环。
 
-**新增内容**：一个 `Mixin` 接口，从模型 `__init__` 中导出 `stacked_params_mapping` 和 `expert_params_mapping`，以及用于预处理转换和特殊映射的 hook。
+**新增内容**：一个 ParamsMapper 能读取模型中导出的 `stacked_params_mapping` 和 `expert_params_mapping`，以及用于预处理转换和特殊映射的 hook。
 
 **已支持的模型**：Llama3、Qwen2、Qwen3、Qwen3-MoE、GLM4、GLM4-MOE、DeepseekV2
 
