@@ -45,30 +45,23 @@
 - **方法**：从"为什么需要 codec"这个最底层的问题出发，逐步推导出完整的 pipeline
 - **写作位置**：开篇之后的第一个正文章节
 
-#### 1.1 Codec Audio Token
+#### 1.1 Codec Audio Token（含 VQ 和 RVQ）
 
-从数据量问题出发，推导出 codec 的必要性，然后**显式展开 codec 的两步编码过程**（这一点在写作中容易被忽略——不能把 codec 当黑盒）：
+**Codec 和 RVQ 合并为一个完整的流叙述，不拆分为独立小节。** 叙事按以下四段递进：
 
-- **数据量差异**：语音的原始采样率（16kHz-48kHz）意味着 1 秒音频 = 16000-48000 个采样点。如果直接让 Transformer 处理原始音频波形，序列长度完全不可接受
-- **两步编码过程（必须显式展开）**：
-  1. **第一步——连续编码**：Audio Encoder 将原始波形编码为低频的连续特征向量序列（例如 12.5 Hz，每帧一个向量，常见 128 维）。这一步完成了时域压缩，但输出仍然是连续的
-  2. **第二步——离散化（Codebook Lookup）**：对每个连续特征向量，在 codebook（码本）中找最近的条目（nearest neighbor lookup），用该条目的整数索引作为最终的 codec token。码本是一张预训练好的向量查找表，**角色上等同于 LLM 的 vocabulary**——都是"有限集合里的条目 + 查表用的整数索引"
-- **为什么需要离散化**：连续特征向量如果不经过离散化，无法沿用"有限词表 + 交叉熵 + 自回归采样"这条标准 LLM 管线。离散化让 codec token 和 text token 在形式上统一
-- **Codec ↔ Tokenizer 的完整类比**：tokenizer 用规则或 BPE 把字符串映射成 vocabulary 里的整数序列；audio codec 用 encoder + VQ 把波形映射成 codebook 里的整数序列。此后将 codec token 当离散序列交给 Transformer，与处理 text token 没有本质区别
-- **数值例子**：原始 24kHz 采样 → 编码后约 12.5 token/s → 压缩比约 1920:1。一句 5 秒的话从 120000 个采样点变成约 63 个 codec token
+**第一段——连续编码（时域压缩）**：从数据量问题出发（16kHz-48kHz 采样率 → 48kHz 下 10 秒 ≈ 50 万标量步），推导出压缩的必要性。Audio Codec 的第一步是 encoder 把波形压成低频连续帧向量序列（约 12.5 帧/秒，128 维）。强调：到这一步信息仍然是连续值，还不能走标准 LLM 管线。
+
+**第二段——向量量化（VQ，从连续到离散）**：显式引入 Vector Quantization 概念。codebook = 连续空间中一组有限的代表向量；对每一帧做最近邻查找，用条目的整数索引作为 codec token id。说清楚 WHY：连续值 → 离散 id，才能接上"有限词表 + 交叉熵 + 自回归采样"这条标准 LLM 管线。
+
+**第三段——从单层 VQ 自然过渡到 RVQ**：先把单层 VQ 作为最简单情形讲透（此时 codebook ↔ vocabulary 同构），然后引出经典 trade-off（码本太大 vs 太小），自然过渡到 RVQ。**RVQ 的关键不只是"多层 codebook"，而是"每一层量化的是上一层的残差"**——第 0 层量化原始向量，第 1 层量化第 0 层没表达好的残差，依此类推。然后立即澄清 audio codec 和 text tokenizer 最容易混淆的地方：文本是"一个 subword 一个 token"，RVQ 是"一个时间位置上有 N 个离散 token"。给出数值例子：24kHz / 12.5 帧/秒 → 5 秒话 → 63 个时间步；单层 VQ = 63 个 token，N 层 RVQ = 63 × N 个 token id。补充实现注：这些 id 可以被展平、拆成多条 token 流、或由不同子网络分阶段预测，但接口本质不变——交给下游的是离散 id 序列及其 embedding。
+
+**第四段——层间信息不对称性**：前层偏向语义和韵律，后层偏向声学细节（音色、气息、共鸣、情感颤动）。丢失前层 = 丢失内容，丢失后层 = 音质下降。这种不对称性直接催生"大模型管前几层 + 小模块补后续层"的设计，引出 S2 Pro Dual AR。
 
 **写作注意**：
-- 章节标题用描述性名词（"Codec Audio Token"），不用问句式（"为什么需要 Codec？"）
-- 不使用浅层类比（如"WAV 压缩为 MP3"）——应该用 LLM 管线相关的精确类比（codebook ↔ vocabulary, codec ↔ tokenizer）
-- 两步编码过程是理解后续 RVQ 的前提，不能省略
-
-#### 1.2 RVQ：多层 Codebook 的信息组织
-
-从 1.1 建立的"连续特征 → codebook lookup → 离散 token"流程推导：单个 codebook 的表达能力是有限的。
-
-- **单 codebook 的信息瓶颈**：一个 codebook 能表达的信息有限。码本大小（vocabulary size）和量化精度之间存在根本性的 trade-off：码本太大训练困难、embedding table 爆炸；码本太小量化误差高，还原出来的音频像机器人
-- **RVQ（Residual Vector Quantization）**：用多层 codebook 逐步逼近原始信号。第一层编码粗粒度的语义信息（"说了什么"），后续各层编码残差（"怎么说的"——音色、韵律、情感细节）。这种层级结构暗示了一个关键推论：**不同 codebook 层的信息价值是高度不对称的——第一层携带最核心的语义，损失它等于损失语音内容；后续层携带的是"锦上添花"的声学细节，损失它们只是降低音质**
-- **对后续模型分析的意义**：这种不对称性直接催生了"用大模型生成语义层、用小模型补全声学层"的设计思路——S2 Pro 的 Dual AR 正是这一思路的具体实现
+- 章节标题用描述性名词（"Codec Audio Token"），不再单独设 RVQ 小节
+- 从单层 VQ 到 RVQ 的过渡必须通过经典 trade-off 自然引出，不能直接跳到 RVQ
+- 必须显式澄清"一个时间步对应 N 个 token"这个与 text tokenizer 的关键差异
+- 数值例子必须区分单层 VQ（63 个 token）和 N 层 RVQ（63 × N）两种情形
 
 #### 1.3 通用 Omni Pipeline：四阶段推导
 
