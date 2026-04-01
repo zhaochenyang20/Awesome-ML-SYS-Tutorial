@@ -72,6 +72,12 @@
 - `transformers/`：模型架构相关
 - `engineer/`：开发工具与实践
 
+## 知识图谱更新策略
+
+- `knowledge-graph.json` **只收录** chenyang 本人在 README 主页正式发布、没有 `[Pending Review]` 标记的文章，不收录他人贡献的文章
+- `/learn-write` 写完文章后**不要**自动更新 `knowledge-graph.json`——知识图谱的更新由用户主动触发，在文章正式发布后才执行
+- 判断标准：文章已在 `README.md` 中列出 + 未标记 `[Pending Review]` + 是 chenyang 本人的文章
+
 ## 语言设置
 
 - 写作语言：中文
