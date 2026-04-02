@@ -42,61 +42,59 @@
 
 - **深度层级**：理解复现（建立概念工具箱，为后续修改扩展级的分析服务）
 - **目标**：让读者理解 omni 模型的通用 pipeline，以及各阶段存在哪些设计自由度——这些自由度正是导致不同模型架构差异的根源
-- **方法**：从"为什么需要 codec"这个最底层的问题出发，逐步推导出完整的 pipeline
 - **写作位置**：开篇之后的第一个正文章节
 
-#### 1.1 Codec Audio Token（含 VQ 和 RVQ）
+#### 1.1 Omni Pipeline（四阶段概览）
 
-**Codec 和 RVQ 合并为一个完整的流叙述，不拆分为独立小节。** 叙事按以下四段递进：
+先给读者全景图：一个 omni 模型要完成的事情就是"听懂语音输入，生成语音回复"，天然分成 Audio Encoding → Understanding（Thinker）→ Speech Synthesis（Talker）→ Audio Decoding（Vocoder）四个阶段。用 mermaid 画出 pipeline。
 
-**第一段——连续编码（时域压缩）**：从数据量问题出发（16kHz-48kHz 采样率 → 48kHz 下 10 秒 ≈ 50 万标量步），推导出压缩的必要性。Audio Codec 的第一步是 encoder 把波形压成低频连续帧向量序列（约 12.5 帧/秒，128 维）。强调：到这一步信息仍然是连续值，还不能走标准 LLM 管线。
+- 对每个阶段给出一段话的概要
+- 强调 Encoding 和 Decoding 跨模型相对稳定，架构分歧集中在中间两步
+- Audio Encoding 段为 codec 做前向引用："codec token 是什么、为什么必须是离散的，是下一节的主题"
 
-**第二段——向量量化（VQ，从连续到离散）**：显式引入 Vector Quantization 概念。codebook = 连续空间中一组有限的代表向量；对每一帧做最近邻查找，用条目的整数索引作为 codec token id。说清楚 WHY：连续值 → 离散 id，才能接上"有限词表 + 交叉熵 + 自回归采样"这条标准 LLM 管线。
+#### 1.2 Codec Audio Encoding（含 VQ 和 RVQ）
 
-**第三段——从单层 VQ 自然过渡到 RVQ**：先把单层 VQ 作为最简单情形讲透（此时 codebook ↔ vocabulary 同构），然后引出经典 trade-off（码本太大 vs 太小），自然过渡到 RVQ。**RVQ 的关键不只是"多层 codebook"，而是"每一层量化的是上一层的残差"**——第 0 层量化原始向量，第 1 层量化第 0 层没表达好的残差，依此类推。然后立即澄清 audio codec 和 text tokenizer 最容易混淆的地方：文本是"一个 subword 一个 token"，RVQ 是"一个时间位置上有 N 个离散 token"。给出数值例子：24kHz / 12.5 帧/秒 → 5 秒话 → 63 个时间步；单层 VQ = 63 个 token，N 层 RVQ = 63 × N 个 token id。补充实现注：这些 id 可以被展平、拆成多条 token 流、或由不同子网络分阶段预测，但接口本质不变——交给下游的是离散 id 序列及其 embedding。
+**Codec 和 RVQ 合并为一个完整的流叙述，不拆分为独立小节。** 叙事按四段递进：
 
-**第四段——层间信息不对称性**：前层偏向语义和韵律，后层偏向声学细节（音色、气息、共鸣、情感颤动）。丢失前层 = 丢失内容，丢失后层 = 音质下降。这种不对称性直接催生"大模型管前几层 + 小模块补后续层"的设计，引出 S2 Pro Dual AR。
+1. **连续编码（时域压缩）**：从数据量问题出发（16kHz-48kHz → 50 万标量步），推导出压缩必要性。encoder 把波形压成低频连续帧向量序列（~12.5 帧/秒，128 维）。强调：到这一步仍是连续值，不能走标准 LLM 管线。
+2. **向量量化（VQ）**：codebook = 有限代表向量集；最近邻查找 → 整数索引 → codec token id。WHY：连续值 → 离散 id 才能接 LLM 管线。
+3. **从单层 VQ 到 RVQ**：经典 trade-off（码本太大 vs 太小）自然引出 RVQ。关键："每一层量化的是上一层的残差"。澄清 RVQ vs text tokenizer 的差异。数值例子。
+4. **层间信息不对称性**：前层偏语义，后层偏声学细节。催生"大模型管前几层 + 小模块补后续层"的设计，引出 S2 Pro Dual AR。
 
-**写作注意**：
-- 章节标题用描述性名词（"Codec Audio Token"），不再单独设 RVQ 小节
-- 从单层 VQ 到 RVQ 的过渡必须通过经典 trade-off 自然引出，不能直接跳到 RVQ
-- 必须显式澄清"一个时间步对应 N 个 token"这个与 text tokenizer 的关键差异
-- 数值例子必须区分单层 VQ（63 个 token）和 N 层 RVQ（63 × N）两种情形
+#### 1.3 Understanding（Thinker）
 
-#### 1.3 通用 Omni Pipeline：四阶段推导
+**编辑决策：plan 原本无独立小节，写作中发现 Pipeline 展开了 Encoding（Codec），跳过 Understanding 直接到 Speech Synthesis 会让读者困惑，因此增设。**
 
-从 codec 的存在推导出完整的 pipeline：
+- 本质：LLM/MLLM 做 prefill + decode，和标准 chat 模型无本质区别
+- TTS 场景 vs omni 场景的输入差异（text+audio vs multimodal），但计算模式不变
+- 框架视角：**Understanding 是不同 omni 模型间最同质的部分**，SGLang 已有优化直接复用
+- 收尾过渡：架构分歧在 Understanding 之后
 
-1. **Audio Encoding**：有了 codec 的概念，第一步自然是把输入音频编码为 codec token（或等价的连续表示）。Audio Encoder 将原始波形 → codec token 序列
-2. **Understanding（Thinker）**：有了 codec token，需要一个足够强大的模型来理解它们的含义并生成文本响应。这一步本质上就是一个（可能是多模态的）LLM 做 prefill + decode
-3. **Speech Synthesis（Talker）**：理解并生成了文本之后，需要把文本转回语音。**这一步存在最大的设计自由度**——到底用什么方式生成 codec token？AR？Diffusion？Flow matching？这是导致不同模型架构差异的核心分歧点
-4. **Audio Decoding**：最后，把生成的 codec token 通过 vocoder 还原为音频波形。这一步通常是一个轻量级的 ConvNet（如 Vocos、HiFi-GAN），计算量远小于前三步
+#### 1.4 Speech Synthesis（合并了原 1.4 设计自由度 + 原 1.5 信息流动机）
 
-用 mermaid 画出通用 pipeline。
+**编辑决策：原 plan 的 1.4（设计自由度表）和 1.5（为什么需要 hidden states）合并为一个小节。设问从"为什么需要 hidden states"反转为"为什么需要 text token"——后者更有深度，且引出 Talker 能力不足这个悲观判断。**
 
-#### 1.4 设计自由度：Speech Synthesis 阶段的分歧
+内容结构：
+1. 设计自由度表（生成方式、Codebook 策略、信息流、时序）
+2. 设问 + 展开：**"既然 Talker 已经需要 hidden states，为什么还需要 text token？"**
+   - 悲观理解：Talker 能力不足，hidden states 信息纠缠，缺乏显式语义锚点 → 内容偏移
+   - Text token 提供离散确定性的语义锚点
+3. Qwen3-Omni 信息流细节：Talker 接收 Thinker 输出的 text token + audio/visual hidden states，不接收 text hidden states
+4. TTFV trade-off + Qwen3-Omni 异步流水线
+5. **S2 Pro 对比**：S2 Pro 不产生 text token，Slow AR 直接生成 semantic codec token，整个信息传递在 codec token 空间内完成
 
-从 1.3 的第三阶段"最大的设计自由度"展开：
+**关键严谨性约束**：
+- 不能对 S2 Pro 使用 Thinker-Talker 术语（S2 Pro 没有独立的 Thinker-Talker 分离）
+- "text token + hidden states"信息流明确限定为 Thinker-Talker 架构的特征
 
-| 设计维度 | 选项 A | 选项 B |
-|----------|--------|--------|
-| 生成方式 | **Autoregressive**：逐 token 生成 codec | **Non-Autoregressive**：Diffusion / Flow Matching，一次性或迭代生成 |
-| Codebook 生成策略 | **逐 codebook AR**：先生成第 1 层，再自回归地生成 2-N 层 | **并行生成**：所有 codebook 层同时输出 |
-| 与 Thinker 的信息流 | **Hidden States + Text Tokens**：Talker 接收两者 | **仅 Hidden States**：Talker 从 hidden states 直接解码 |
-| Thinker-Talker 时序 | **串行**：Thinker decode 完成后 Talker 才开始 | **流式**：Thinker 每生成一个 token，Talker 就开始处理 |
+#### 1.5 Audio Decoding
 
-**这张表不是为了穷举所有可能，而是为了建立一个分析框架**：后续看每个具体模型时，只需要确定它在每个维度上的选择，就能快速定位其架构特征和推理约束。
-
-#### 1.5 Thinker 为什么需要向 Talker 传递 Hidden States？
-
-这是一个初看 omni 模型架构时很自然的疑问——"既然 Thinker 已经生成了 text token，为什么 Talker 不直接拿 text token 就好？为什么还需要 hidden states？"
-
-展开分析：
-- Text token 只包含"说什么"的信息，不包含"怎么说"的信息（语气、停顿、重音）
-- Hidden states 是 Thinker 在理解输入音频后的内部表示，保留了韵律和情感特征
-- 同时传递两者是为了"语义一致性 + 声学质量"的双重目标
-
-**但这里存在一个 trade-off**：同时依赖 text token 和 hidden states 意味着 Talker 必须等待 Thinker 的 decode 完成（至少是部分完成），这直接影响了推理的 TTFT（Time to First Voice）。这个 trade-off 将在后续讨论跨模态投机采样时再展开。
+- Vocoder 把 codec token 还原为音频波形
+- 典型实现：causal ConvNet（EVA-GAN、Code2Wav、Vocos、HiFi-GAN）
+- causal 的重要性：不需要后续帧即可合成当前帧，支持逐帧流式输出
+- Qwen2.5-Omni → Qwen3-Omni 演进：block-wise DiT → causal ConvNet（Code2Wav）
+- 框架视角：计算量轻、完全解耦于 LLM 调度，LLM memory-bandwidth bound vs ConvNet compute bound，可 MPS 并行
+- Audio Decoding 和 Audio Encoding 一样，跨模型相对稳定，不是框架抽象的核心矛盾
 
 ### 第二步：Fish Audio S2 Pro 架构
 
@@ -145,52 +143,41 @@
 ### 第三步：Qwen3-Omni 架构
 
 - **深度层级**：修改扩展
-- **目标**：理解 Qwen3-Omni 的 Thinker + Talker 架构，特别是 Talker 使用 DiT（Diffusion Transformer）而非 AR 的设计选择及其推理含义
+- **目标**：理解 Qwen3-Omni 的 Thinker + Talker 架构及其异步流水线推理模式
 - **方法**：先全貌，再计算特征，最后推导框架需求
+
+**plan 修正记录**：原 plan 将 Talker 描述为 DiT-based（Diffusion Transformer），这是基于 Qwen2.5-Omni 的设计。实际 Qwen3-Omni 的 Talker 是 AR-based MoE LLM（3B-A0.3B），配合 MTP Module（80M）补全 codebook + Code2Wav（200M causal ConvNet）合成波形。Qwen3-Omni 已经用 Code2Wav 替换了 Qwen2.5-Omni 的 block-wise DiT。
 
 #### 3.1 模型全貌（先行）
 
 - **名称**：Qwen3-Omni
 - **来源**：阿里通义
-- **参数量级**：Thinker（多模态 LLM，具体参数量级待确认）+ Talker（DiT-based 语音合成）
+- **参数量级**：Thinker 30B-A3B（MoE）+ Talker 3B-A0.3B（MoE）+ MTP Module 80M + Code2Wav 200M + AuT Encoder 650M + Vision Encoder 540M
 - **用途**：端到端多模态理解 + 语音合成（不仅是 TTS，还支持音频/图像/视频理解）
-- **在 SGLang-Omni 中的状态**：Thinker 已合并主分支；Talker 在 PR #155（`talker_jing` 分支），需 rebase
+- **在 SGLang-Omni 中的状态**：Thinker 已合并主分支，Talker 部分仍在开发中
 - **关键区别**：Qwen3-Omni 是一个**理解 + 生成**的全能模型，而 S2 Pro 是一个纯 TTS 模型
 
-#### 3.2 Thinker：多模态 LLM
+#### 3.2 五个组件
 
-- 本质上是一个多模态 LLM，接受文本、图像、音频、视频输入
-- 从推理框架角度：Thinker 的 prefill 阶段需要处理多模态 embedding 注入（`_inject_multimodal_embeds`），decode 阶段与标准 LLM 一致
-- **与 S2 Pro Slow AR 的对比**：两者在 decode 阶段都是标准的 autoregressive LLM，区别在于 prefill 阶段——Thinker 需要处理多种模态的输入，而 S2 Pro 只需要交织 text token 和 audio token
+- **Thinker**（30B-A3B MoE）：多模态 LLM，自回归生成 text token
+- **Talker**（3B-A0.3B MoE）：独立 AR LLM，接收 Thinker 输出的 text token + audio/visual hidden states，自回归生成 codec 第 0 层 token
+- **MTP Module**（80M）：补全剩余 codebook 层，功能等价于 S2 Pro 的 Fast AR
+- **Code2Wav**（200M causal ConvNet）：codec → 波形，替代了 Qwen2.5-Omni 的 block-wise DiT
+- **Audio/Vision Encoder**：AuT 650M + SigLIP2 540M
 
-#### 3.3 Talker：DiT-based 语音合成
+#### 3.3 异步流水线推理
 
-这是 Qwen3-Omni 与 S2 Pro 最大的架构差异所在：
+- Thinker 和 Talker 各自运行独立的 decode loop
+- 异步 chunked prefill：Thinker 完成当前 chunk 后输出立即送给 Talker，Thinker 继续处理下一个 chunk
+- Talker 的信息流：Thinker 输出的 text token + Thinker 中间层的 audio/visual hidden states（不接收 text hidden states）
+- MTP Module + Code2Wav 作为 Talker 的 per-step 后处理
 
-- **S2 Pro 的 Talker 用 AR**（Fast AR 逐 codebook 自回归 9 步）
-- **Qwen3-Omni 的 Talker 用 Diffusion（DiT）**：接收 Thinker 的 hidden states + text tokens，通过迭代 denoising 生成 codec token
+#### 3.4 Qwen3-Omni 对推理框架的需求（核心分析）
 
-深入 DiT Talker 的计算模式：
-1. 不是逐 token 生成，而是对一段时间窗口的 codec 进行迭代 denoising
-2. 每次 denoising step 都是一次完整的 forward pass（不存在 KV cache 的概念，因为不是 AR）
-3. Denoising 的步数是超参数（trade-off：步数多 → 质量高但慢；步数少 → 快但可能质量下降）
-
-**关键推论**：DiT Talker 的计算模式与 AR 完全不同——没有 KV cache、没有 continuous batching 的需求（因为不是逐 token 生成）、没有 paged memory 管理。**这意味着 SGLang 的核心优化（paged KV cache、RadixAttention、CUDA Graph for decode）对 Talker 阶段完全不适用。**
-
-#### 3.4 Thinker-Talker 的信息流与时序
-
-- Thinker decode 生成 text token 序列 + 每步的 hidden states
-- Talker 接收 hidden states + text tokens 后开始 DiT denoising
-- 当前设计是串行的：Thinker 完成（或完成一个 chunk）后 Talker 才开始
-
-**这引出了与第一步 1.5 的对应**：Thinker-Talker 之间的信息流设计直接决定了推理 pipeline 的 latency 特征。
-
-#### 3.5 Qwen3-Omni 对推理框架的需求（核心分析）
-
-1. **标准多模态 LLM serving**：Thinker 阶段可以复用 SGLang 的 LLM serving 能力 + 多模态 embedding 注入
-2. **非 LLM 的 Diffusion serving**：Talker 阶段需要一种完全不同的执行模式——固定步数的迭代 forward，没有 KV cache，没有 continuous batching
-3. **跨阶段的数据传递**：hidden states 需要从 Thinker 传递给 Talker，这涉及跨 stage 的 tensor relay（shm/nccl/nixl）
-4. **流式输出**：用户期望实时听到语音，Talker 可能需要 chunk-by-chunk 地生成
+1. **双 LLM 异步调度**：Thinker 和 Talker 各自需要独立的 KV cache、batch scheduling、system prompt
+2. **跨 stage tensor relay**：Thinker hidden state → shared buffer → Talker
+3. **标准 LLM serving 能力复用**：Thinker 和 Talker 的 decode 阶段都是标准 AR，可复用 SGLang 核心优化
+4. **流式输出**：Code2Wav 是 causal 的，支持逐帧流式
 
 ### 第四步：架构对比与框架抽象推导
 

@@ -19,9 +19,30 @@
 
 我也是第一次接触 Omni 模型，对于传统语音研究许多的分词等等保持敬畏，如同我敬畏那些研究 NLP 分词的前辈一样...
 
-### Codec Audio Token
+### Omni Pipeline
 
-先语音的原始采样率通常在 16kHz-48kHz，意味着 1 秒音频就有 16000-48000 个采样点；如果直接让 Transformer 处理原始波形，序列长度会膨胀到完全不可接受的程度，一段 10 秒对话在 48kHz 下接近 50 万个标量步，远超大多数 LLM 的上下文窗口。因此我们必须先做压缩，而 Audio Codec 做的第一件事，就是用 encoder 把高频的连续波形压成低频的连续帧向量序列。以 EnCodec 一类模型为例，常见设置大约是 12.5 帧/秒，也就是说原本每秒几万个采样点，会先变成每秒十几帧的连续表示；每一帧对应一个连续向量，例如 128 维。到这一步为止，信息虽然已经在时间维上被强力压缩，但它仍然是连续值，还不能直接走“有限词表 + 交叉熵 + 自回归采样”这条标准 LLM 管线。
+一个 omni 模型要完成的事情，几乎就是"听懂语音输入，生成语音回复"，这个过程天然可以拆分成四个阶段：
+
+```mermaid
+graph LR
+    A["Audio Encoding"] --> B["Understanding (Thinker)"]
+    B --> C["Speech Synthesis (Talker)"]
+    C --> D["Audio Decoding (Vocoder)"]
+```
+
+1. Audio Encoding：原始音频波形每秒有数万个采样点，直接交给 Transformer 处理不现实。Audio Encoder 负责把高频波形压缩为低频的离散 token 序列——这些离散 token 就是所谓的 codec token。它是什么、为什么必须是离散的、怎样通过 RVQ 实现多层量化，是下一节的主题。
+
+2. Understanding（Thinker）：拿到 codec token（或等价的连续表示）后，需要一个足够强大的模型来"理解"输入并生成文本回复。这一步本质上就是一个 LLM 或多模态 LLM 在做 prefill + decode——和标准 chat 模型生成文本没有本质区别，只是输入序列中混入了 audio token。
+
+3. Speech Synthesis（Talker）：Thinker 生成了文本回复之后，还需要把文本转回语音。这是整个 pipeline 中设计自由度最大的环节——用 AR 逐 token 生成 codec token？用 Diffusion 做迭代 denoising？一次生成所有 codebook 层还是分层补全？不同模型在这里的选择截然不同，这正是各类 Omni 模型架构分歧的核心来源。
+
+4. Audio Decoding（Vocoder）：最后，把 Talker 生成的 codec token 还原为音频波形。Vocoder 通常是一个轻量级 ConvNet（如 Vocos、HiFi-GAN、EVA-GAN），计算量远小于前三步，不是系统瓶颈。
+
+四个阶段中，Encoding 和 Decoding 在不同模型之间相对稳定——差异主要体现在 codec 的选型，而非计算模式本身。真正导致架构分歧的是中间两步：Thinker 和 Talker 的耦合方式，以及 Talker 自身的生成策略。                                    
+
+### Codec Audio Encoding
+
+语音的原始采样率通常在 16kHz-48kHz，意味着 1 秒音频就有 16000-48000 个采样点；如果直接让 Transformer 处理原始波形，序列长度会膨胀到完全不可接受的程度，一段 10 秒对话在 48kHz 下接近 50 万个标量步，远超大多数 LLM 的上下文窗口。因此我们必须先做压缩，而 Audio Codec 做的第一件事，就是用 encoder 把高频的连续波形压成低频的连续帧向量序列。以 EnCodec 一类模型为例，常见设置大约是 12.5 帧/秒，也就是说原本每秒几万个采样点，会先变成每秒十几帧的连续表示；每一帧对应一个连续向量，例如 128 维。到这一步为止，信息虽然已经在时间维上被强力压缩，但它仍然是连续值，还不能直接走“有限词表 + 交叉熵 + 自回归采样”这条标准 LLM 管线。
 
 接下来进行连续向量的量化，也就是把连续帧向量变成离散的 codec token。这里常用的做法是向量量化（Vector Quantization, VQ）：对于每一层 VQ，先学习一张规模有限的 codebook，里面的每个条目都可以理解成连续空间中的一个代表向量。对于某一帧，encoder 输出的连续向量并不会直接交给 LLM，而是先在当前层 VQ 的 codebook 里做一次最近邻查找，挑出与它最接近的那个条目，再用这个条目在码本中的整数索引，作为这一帧最终的 codec token id。原本连续、几乎无穷细的向量空间，压缩在了一张有限大小的查找表，模型接口从连续值变成了离散 id，可以自然接上有限词表 + 交叉熵 + 自回归采样这套标准语言模型管线。
 
@@ -29,46 +50,44 @@
 
 这样一来，如果有 N 层 RVQ，那么同一时间步上的一帧，会对应 N 个 codec token id，这也是 audio codec 和 text tokenizer 最容易让人混淆的地方。文本里通常是“一个 subword 一个 token”，而在 RVQ 里，更准确的说法是“一个时间位置上有多个离散 token”，这一帧被拆成了多层逐步逼近的量化结果。以 24kHz 采样、12.5 帧/秒为例，时间维上大约是 1920:1 的压缩比，一句 5 秒的话会从 120000 个采样点先变成约 63 个时间步；如果是单层 VQ，那么就是约 63 个离散 token，而如果是 N 层 RVQ，那么这 63 个时间步中的每一步都会再对应 N 个 codec token id。实现上，这些 id 可以被展平成更长的离散序列、拆成多条 token 流，或者由不同子网络分阶段预测，但接口本质始终没变：真正交给下游 Transformer 或其他生成模块的，是这些离散的 id 序列及其 embedding，而不是原始连续帧向量本身，更不是整张 codebook 矩阵。
 
-显然，对于多层 RVQ，不同层承载的信息价值并不对称。通常靠前层，尤其 Layer 0，更偏向“说了什么”这种核心语义和基本韵律；靠后的层则逐渐转向音色、气息、共鸣位置以及情感颤动等更细的声学细节。于是，丢失前层往往等于丢失内容，丢失后层更多只是音质下降。这种层间不对称性，直接催生了“用大模型先生成更关键的前几层，再用较小模块补全后续层”的思路，Fish Audio S2 Pro 的 Dual AR 正是这一点的具体体现。
+显然，对于多层 RVQ，不同层承载的信息价值并不对称。通常靠前层，尤其 Layer 0，更偏向”说了什么”这种核心语义和基本韵律；靠后的层则逐渐转向音色、气息、共鸣位置以及情感颤动等更细的声学细节。于是，丢失前层往往等于丢失内容，丢失后层更多只是音质下降。这种层间不对称性，直接催生了”用大模型先生成更关键的前几层，再用较小模块补全后续层”的思路，Fish Audio S2 Pro 的 Dual AR 正是这一点的具体体现。
 
-### 通用 Omni Pipeline
+### Understanding（Thinker）
 
-既然 codec 在音频和离散 token 之间搭了一座桥，那么从"接收输入"到"产出音频"的完整流程，必然需要在这座桥的两端各有对应的处理。
+Audio Encoding 将冰冷的音频变成了温暖的 token，下一步我们通过一个模型来理解这些 token 的含义并生成文本回复——本质上就是一个 LLM 或多模态 LLM 在做 prefill + decode，和标准 chat 模型生成文本回复没有本质区别。
 
-```mermaid
-graph LR
-    A["Audio Encoding<br/>原始波形 → codec token"] --> B["Understanding / Thinker<br/>理解输入 + 生成文本响应"]
-    B --> C["Speech Synthesis / Talker<br/>文本 → codec token"]
-    C --> D["Audio Decoding / Vocoder<br/>codec token → 音频波形"]
-```
+对于纯 TTS 模型（如 S2 Pro），Thinker 接收的输入是 text token（目标文本）和 audio token（参考音频的 codec 编码），两者交织成一个统一的 token 序列，然后像标准 LLM 一样自回归生成。对于多模态 omni 模型（如 Qwen3-Omni），Thinker 除了文本和音频 token，还可能接收 image/video token——但计算模式不变，仍然是 prefill 处理完整输入序列，decode 逐 token 输出文本回复。
 
-1. **Audio Encoding**：如果输入包含音频（语音对话场景），第一步自然是用 encoder 把原始波形编码为 token 序列。不同模型的 encoder 实现差异很大——有的直接用 codec encoder（如 EnCodec），有的用专门训练的 audio transformer（如 Qwen3-Omni 的 AuT）
-2. **Understanding（Thinker）**：有了 token 化的输入，需要一个强大的模型来理解它们的含义并生成文本响应。这一步本质上就是一个 LLM（或多模态 LLM）做 prefill + decode。对纯 TTS 场景，这一步是"理解目标文本 + 参考音色"；对 omni 场景，这一步是"理解所有模态的输入并生成回复"
-3. **Speech Synthesis（Talker）**：理解并生成了文本之后，需要把文本转回语音。**这一步存在最大的设计自由度**——用 AR 逐 token 生成 codec？用 Diffusion 迭代 denoising？一次生成所有 codebook 层还是逐层补全？这是不同 omni 模型架构差异的核心来源
-4. **Audio Decoding（Vocoder）**：最后把生成的 codec token 通过 vocoder 还原为音频波形。这一步通常是一个轻量级的 ConvNet（如 Vocos、HiFi-GAN、EVA-GAN），计算量远小于前三步
+从推理框架的视角看，Understanding 阶段是不同 omni 模型之间最同质的部分。无论底层是 Qwen3-4B（S2 Pro 的 Slow AR）还是 30B-A3B MoE（Qwen3-Omni 的 Thinker），decode 阶段都是标准的自回归 LLM 推理——continuous batching、paged KV cache、RadixAttention、CUDA Graph 这些 SGLang 已有的优化可以直接复用。真正导致架构分歧的不在 Understanding 本身，而在于 Understanding 之后：Thinker 生成的文本和 hidden states 如何传递给 Talker、Talker 用什么方式把文本转回语音。
 
-### Speech Synthesis 的设计自由度
+### Speech Synthesis
 
-上面说"Speech Synthesis 设计自由度最大"——具体来说可以拆成几个正交的维度。后续看每个具体模型时，只需要确定它在每个维度上的选择，就能快速定位其架构特征和推理约束。
+如前文所说，Speech Synthesis 的设计自由度非常高——具体来说可以拆成几个正交的维度：
 
 | 设计维度 | 选项 A | 选项 B |
 |----------|--------|--------|
-| 生成方式 | **Autoregressive**：逐 token 生成 codec | **Non-Autoregressive**：Diffusion / Flow Matching，迭代生成 |
-| Codebook 生成策略 | **逐层 AR**：先生成 Layer 0，再自回归生成 Layer 1-N | **并行生成**：所有 codebook 层同时输出 |
-| 与 Thinker 的信息流 | **Hidden States + Text Tokens**：Talker 同时接收两者 | **仅 Hidden States**：Talker 从 hidden states 直接解码 |
-| Thinker-Talker 时序 | **串行嵌套**：Talker 嵌套在 Thinker 的每个 decode step 中 | **异步流水线**：两者各自运行独立的 decode loop |
+| 生成方式 | Autoregressive：逐 token 生成 codec | Non-Autoregressive：Diffusion / Flow Matching，迭代生成 |
+| Codebook 生成策略 | 逐层 AR：先生成 Layer 0，再自回归生成 Layer 1-N | 并行生成：所有 codebook 层同时输出 |
+| 与 Thinker 的信息流 | Hidden States + Text Tokens：Talker 同时接收两者 | 仅 Hidden States：Talker 从 hidden states 直接解码 |
+| Thinker-Talker 时序 | 串行嵌套：Talker 嵌套在 Thinker 的每个 decode step 中 | 异步流水线：两者各自运行独立的 decode loop |
 
-### Thinker 向 Talker 传递 Hidden States 的动机
+举个具体的例子，我们来详细看看 Thinker 和 Talker 之间的信息流。需要 Hidden States 是好理解的，毕竟只拿着 text token 会丢失许多语音承载的高维信息，但是我们反过来思考如下问题：**既然 Talker 已经需要 hidden states 作为输入信息流，为什么还需要 text token？**
 
-有一个问题值得展开：**既然 Thinker 已经生成了 text token，为什么 Talker 不直接拿 text token 就好？为什么还需要 hidden states？**
+我只能给出一个悲观的理解，因为 Talker 模型能力不够强大。Hidden states 是 Thinker 理解输入后的内部表示，包含了丰富的语义、韵律和情感信息。但 hidden states 是高维连续向量，同时编码了"说什么"和"怎么说"，没有哪个维度显式对应某个具体的词。如果 Talker 只依赖 hidden states 来生成语音，它需要从这些连续表示中同时解码出语言内容和声学细节，这对 Talker 的建模能力提出了更高要求，且缺乏显式的语义锚点，容易出现内容偏移——生成的语音和 Thinker 生成的文字不一致。直观上，如果我们发现豆包屏幕上生成的文字和生成的语音不一致，会是个让用户非常费解的事情。因此，Text token 提供了一种显式的语义锚点，一个更强的监督信号：它是离散的、可解释的、确定性的——"好的"就是"好的"，不会读出来就成了“okay”，不存在模糊空间。Talker 拿到 text token，就知道自己该说什么词，只需要再从 hidden states 中提取"怎么说"（语气、节奏、情感）。
 
-Text token 只编码了"说什么"的信息，不编码"怎么说"的信息。你知道下一个词是"好的"，但不知道这个"好的"应该用什么语气——是热情的"好的！"还是敷衍的"好的..."，是开心还是疲惫。这些韵律和情感特征存在于 Thinker 理解输入音频后的内部表示（hidden states）中，text token 里没有。
+具体来说，Qwen3-Omni 的 Talker 接收两样东西：一是 Thinker decode 输出的 text token（回复内容），二是 Thinker 中间层在处理 audio/visual 输入时产生的 hidden states（声学特征）。注意 Talker 不接收 Thinker 处理 text 输入时产生的 hidden states——对于文本信息，discrete token 本身已经是完备的表示，再传 hidden states 是冗余的；而 prosody、timbre 这类声学属性只存在于 audio/visual 的 hidden states 中，text token 无法编码它们。这个解耦还带来一个实际好处：外部模块（RAG、function calling、safety filter）可以在 Thinker 的 text 输出上做干预，再把处理后的 text 送给 Talker，而不会破坏声学信息流。当然，对于 Qwen3-Omni 这类 Thinker-Talker 架构，存在一个额外的 trade-off：Talker 必须等待 Thinker 的 decode 完成（至少部分完成）才能开始生成语音，这直接影响推理的 TTFV（Time to First Voice）。Qwen3-Omni 的处理方式是异步流水线——Thinker 和 Talker 各自运行独立的 decode loop，通过 hidden state relay 连接，尽可能地让两者并行推进。
 
-因此，同时传递 text token 和 hidden states 是为了"语义一致性 + 声学质量"的双重目标：text token 确保 Talker 说的内容和 Thinker 理解的一致，hidden states 确保 Talker 的语音在韵律、情感上是连贯的。
+需要注意，上述"text token + hidden states"的信息流是 Thinker-Talker 架构的特征，并非所有 omni 模型都如此。S2 Pro 作为纯 TTS 模型，走的是完全不同的路——Slow AR 不生成 text token，而是直接自回归生成 semantic codec token（Layer 0），Fast AR 接收 Slow AR 的 hidden state 和 semantic token 来补全剩余 codebook 层。整个信息传递都在 codec token 空间内完成，不涉及 text token。
 
-**但这里存在一个 trade-off**：同时依赖 text token 和 hidden states 意味着 Talker 必须等待 Thinker 的 decode 完成（至少是部分完成），这直接影响了推理的 TTFV（Time to First Voice）。这个 trade-off 在两个模型中有不同的处理方式——S2 Pro 选择了串行嵌套（Talker 内嵌在 Thinker 的每个时间步中），Qwen3-Omni 选择了异步 chunked prefill（两者各跑各的 decode loop，通过 hidden state relay 连接）。后文会分别展开。
+### Audio Decoding
 
-> 有意思的是，Qwen3-Omni 做了一个进一步的解耦：Talker 只从 Thinker 接收 audio/visual 的 multimodal hidden state，而不接收 text 的 high-level representation。原因是对于文本内容，discrete token 和 embedding 是信息等价的——Talker 直接读 Thinker 输出的 text token 就够了；而 prosody、timbre 这类声学属性必须通过 hidden state 传递，因为它们在 text token 中没有显式表达。这个解耦还带来一个实际好处：外部模块（RAG、function calling、safety filter）可以在 Thinker 的 text 输出上做干预，再把处理后的 text 送给 Talker。
+Pipeline 的最后一步是把 codec token 还原为人耳可听的音频波形。这一步由 vocoder 完成，通常是一个轻量级的 causal ConvNet——S2 Pro 用的是基于 EVA-GAN 的 Codec Decoder，Qwen3-Omni 用的是 Code2Wav（200M 参数）。
+
+这里 **causal** 是一个关键属性：causal ConvNet 只需要看到当前帧和历史帧就能合成波形，不需要等待后续帧。这意味着 Speech Synthesis 每生成一帧完整的 codebook token，vocoder 就可以立即合成并推送给客户端，实现逐帧流式播放。Qwen2.5-Omni 之前用的是 block-wise DiT 做波形合成，需要 Talker 积累足够的 block context 才能开始——换成 causal ConvNet 后，first-packet latency 从架构层面就被压低了。
+
+从推理框架的视角看，vocoder 的调度非常简单：它不是 Transformer，没有 KV cache，不需要 continuous batching，计算量也远小于前面的 LLM。更有意思的是，LLM decode 是 memory-bandwidth bound（大量 KV cache 读写），而 ConvNet 是 compute bound（密集卷积计算），两者的瓶颈资源不同，可以通过 CUDA MPS 在同一块 GPU 上并行调度，互不干扰。
+
+和 Audio Encoding 一样，Audio Decoding 是不同模型之间相对稳定的部分——差异主要在 vocoder 的选型（EVA-GAN vs Code2Wav vs Vocos vs HiFi-GAN），而非计算模式。它不是框架抽象需要重点处理的环节。
 
 ## 把 Fish Audio S2 的 Dual-AR 推理过程讲清楚
 
@@ -167,9 +186,7 @@ Qwen3-Omni 是**异步流水线**——两个模型各自运行独立的 decode 
 
 **Thinker**：30B-A3B 的 MoE Transformer，是整个系统的"大脑"。它接收 text、audio、image、video 等所有模态的输入，自回归生成 text token 作为响应。和普通的 multimodal LLM chat 没有本质区别——输入是 multimodal token 序列，输出是 text token 序列。activated parameters 只有 3B，所以 decode 阶段的 memory bandwidth 消耗相对可控。
 
-**Talker**：3B-A0.3B 的 MoE Transformer，是语音生成的主干。它的输入包含两部分：Thinker 生成的 text token，以及从 Thinker 中间层抽取的 multimodal hidden state。它自回归生成 codec 第 0 层 token（12.5 Hz，每个 token 对应 80ms 音频）。Talker 有自己独立的 KV cache。
-
-这里有一个重要的设计决策：Qwen3-Omni 的 Talker 不再消费 Thinker 的 high-level text representation，只接收 audio 和 visual 的 multimodal feature。原因是对于文本内容来说，discrete token 和 embedding 是信息等价的，Talker 直接读 Thinker 输出的 text token 即可；而 prosody、timbre 这类声学属性必须通过 multimodal hidden state 传递，因为它们在 text token 中没有显式表达。这个解耦还带来一个实际好处：外部模块（RAG、function calling、safety filter）可以在 Thinker 的 text 输出上做干预，再把处理后的 text 送给 Talker。
+**Talker**：3B-A0.3B 的 MoE Transformer，是语音生成的主干。它自回归生成 codec 第 0 层 token（12.5 Hz，每个 token 对应 80ms 音频），有自己独立的 KV cache。前文概念框架中已经分析过，Talker 的输入包含 Thinker decode 输出的 text token（语义锚点）和 Thinker 中间层的 audio/visual hidden states（声学特征），不接收 text 的 hidden states。
 
 **MTP Module（Multi-Token Prediction）**：80M 参数的 ultra-lightweight dense Transformer。Talker 每步生成第 0 层 codec token 后，MTP Module 固定步数地补全剩余 codebook 层。功能上等价于 S2 Pro 的 Fast AR，但参数更小（80M vs 400M）。
 
@@ -257,7 +274,7 @@ MTP Module 和 Code2Wav 的调度相对简单，和 S2 Pro 的 Fast AR + Codec D
 | **Codebook 补全** | Fast AR 自回归 9 步 | MTP Module（80M）固定步数 |
 | **合成阶段 KV Cache** | Static 预分配（长度固定 11） | Talker 自己的 Paged KV Cache |
 | **两模型协作方式** | 串行嵌套（同一 decode loop） | 异步流水线（两个独立 decode loop） |
-| **Thinker→Talker 信息流** | Hidden states（内部传递，同一 forward） | Hidden states + text tokens（跨 stage 传递） |
+| **主模型→合成模块信息流** | Hidden state + semantic token（forward 内部传递） | Text tokens + audio/visual hidden states（跨 stage 传递） |
 | **Vocoder** | EVA-GAN (ConvNet) | Code2Wav (causal ConvNet) |
 | **CUDA Graph 适用性** | 全 pipeline 可覆盖 | 仅 Thinker decode 阶段 |
 | **独立 system prompt** | 不适用（单模型） | 支持（分别控制回复内容和语音风格） |
