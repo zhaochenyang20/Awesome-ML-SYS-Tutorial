@@ -14,7 +14,7 @@ My learning notes for ML SYS.
 
 兜兜转转一年，这就是目前让我坚持继续做 Infra 的决心，**为了做出正确的基础建设，为社区得到正确的结论做出自己的贡献**。
 
-言归正传，这一系列播客是我从 2024 年 8 月，在科研的契机下使用了 [SGLang](https://github.com/sgl-project/sglang) 后，逐渐开始学习 ML SYS 的笔记。大体上是我本人所写，内容主要是 RL infra，在线/离线推理系统，以及一些 AI Infra 的基本功。一年来，从最开始两三篇文章，三五十个 Github Star，到现在 Star 超过 4.5K，而我也成了技术圈小网红，真是承蒙厚爱，不甚荣幸。
+言归正传，这一系列博客是我从 2024 年 8 月，在科研的契机下使用了 [SGLang](https://github.com/sgl-project/sglang) 后，逐渐开始学习 ML SYS 的笔记。大体上是我本人所写，内容主要是 RL infra，在线/离线推理系统，以及一些 AI Infra 的基本功。一年来，从最开始两三篇文章，三五十个 Github Star，到现在 Star 超过 4.5K，而我也成了技术圈小网红，真是承蒙厚爱，不甚荣幸。
 
 **感谢我的导师顾全全教授、盛颖博士和郑怜悯博士**，他们在我对 AI Infra 的学习、职业选择与人生道路上中给予了我极大的帮助和指导。尽管由于个人原因，我已经不在 UCLA 继续攻读博士学位了，本科毕业后的这段旅程仍旧是无比宝贵的经历。目前我已经全职加入了 RadixArk 公司，继续做 RL Infra 相关的研究，我们会持续通过我的博客，在非官方渠道分享 AI Infra 相关的技术和思考。**也希望大家联系我们，加入 SGLang 开源社区，一同打造改变世界，值得一生引以为傲的开源 AI Infra！**
 
@@ -32,6 +32,7 @@ $$
 
 ## Omni Model 推理札记
 
+- [Codec、RVQ、Dual AR、Thinker-Talker——深入 Qwen3-Omni 与 S2 Pro 的 Omni 模型推理流程](./transformers/omni/readme.md)：分析 Qwen3-Omni 与 S2 Pro 的 Omni 模型推理流程，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/2023413564229042799)和[英文版本](./transformers/omni/readme-en.md)。
 
 
 ## RLHF System 开发笔记

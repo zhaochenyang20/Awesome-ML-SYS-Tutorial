@@ -18,6 +18,10 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 
 **I would like to thank my advisors, Professor Quanquan Gu, Dr. Ying Sheng, and Dr. Linmin Zheng**, for the immense help and guidance they gave me in my study of AI Infra, career choices, and life path. Although I am no longer pursuing a Ph.D. at UCLA due to personal reasons, this journey after my undergraduate graduation has been an incredibly valuable experience. I have now joined RadixArk full-time, continuing my research in RL Infra. We will continue to share AI Infra-related technology and thoughts through my blog, via unofficial channels. **I also hope readers interested in AI Infra reach out to us, join the SGLang open-source community, and together build open-source AI Infra that changes the world and is worth being proud of for a lifetime!**
 
+## Omni Model Inference Notes
+
+- [Codec、RVQ、Dual AR、Thinker-Talker——A Deep Dive into Omni Model Inference for Qwen3-Omni and S2 Pro](./transformers/omni/readme-en.md): Analysis of Qwen3-Omni and S2 Pro's Omni model inference流程, available in [Chinese version](./transformers/omni/readme.md) and [Zhihu](https://zhuanlan.zhihu.com/p/2023413564229042799).
+
 ## RLHF System Development Notes
 
 ### slime Framework
