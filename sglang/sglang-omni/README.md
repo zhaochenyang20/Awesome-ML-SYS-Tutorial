@@ -44,44 +44,16 @@
 Qwen3-Omni 的核心设计是将"理解与推理"和"语音合成"拆分为两个独立模型：
 
 ```mermaid
-graph TB
-    subgraph Input["Multimodal Input"]
-        text["Text"]
-        img["Image"]
-        audio["Audio"]
-    end
-
-    subgraph Thinker["Thinker · GPU:0"]
-        direction TB
-        T1["28-layer MoE Transformer"]
-        T2["128 experts, top-8"]
-        T3["Understand input, generate text tokens"]
-        T1 --- T2 --- T3
-    end
-
-    subgraph Talker["Talker · GPU:1"]
-        direction TB
-        K1["20-layer MoE Transformer"]
-        K2["128 experts, top-6 + shared"]
-        K3["Text tokens → speech codec tokens"]
-        K1 --- K2 --- K3
-    end
-
-    subgraph SpeechPipeline["Speech Synthesis"]
-        CP["Code Predictor<br/>RVQ multi-layer"]
-        C2W["Code2Wav<br/>Vocoder"]
-        CP --> C2W
-    end
-
-    text & img & audio --> Thinker
-    Thinker -- "text tokens + hidden states<br/>(streaming per token)" --> Talker
+graph LR
+    Input["Text + Image + Audio"] --> Thinker["Thinker · GPU:0<br/>28L MoE, 128e top-8"]
+    Thinker -- "text tokens +<br/>hidden states" --> Talker["Talker · GPU:1<br/>20L MoE, 128e top-6"]
     Thinker -- "text tokens" --> TextOut["Text Output"]
-    Talker -- "codec tokens" --> CP
-    C2W --> AudioOut["Audio Output"]
+    Talker -- "codec tokens" --> CP["Code Predictor"] --> C2W["Code2Wav"] --> AudioOut["Audio Output"]
 
     style Thinker fill:#4a9eff,color:#fff
     style Talker fill:#ff6b6b,color:#fff
-    style SpeechPipeline fill:#ffa94d,color:#fff
+    style CP fill:#ffa94d,color:#fff
+    style C2W fill:#ffa94d,color:#fff
     style TextOut fill:#51cf66,color:#fff
     style AudioOut fill:#51cf66,color:#fff
 ```
@@ -463,48 +435,23 @@ SGLang Omni 的核心思想是：**不改 SGLang，而是在 SGLang 之上建一
 ### 架构总览
 
 ```mermaid
-graph TB
-    subgraph Coordinator["Coordinator (routing / completion / abort)"]
-        direction LR
-        CO["Coordinator"]
-    end
+graph LR
+    CO["Coordinator"] -- "Submit" --> Pre["preprocessing<br/>CPU"]
+    Pre --> IE["image_encoder<br/>GPU"] & AE["audio_encoder<br/>GPU"]
+    Pre & IE & AE --> Agg["aggregate<br/>CPU"]
+    Agg --> Th["thinker<br/>GPU:0"]
+    Th --> Dec["decode<br/>Terminal"]
+    Th -- "stream_to" --> Tk["talker_ar<br/>GPU:1"]
+    Tk -- "stream" --> CP["code_predictor<br/>GPU:1"]
+    CP -- "stream" --> CW["code2wav<br/>Terminal"]
+    CP -. "feedback" .-> Tk
+    Dec & CW -- "Complete" --> CO
 
-    subgraph TextPipeline["Text Pipeline"]
-        direction LR
-        Pre["preprocessing<br/>CPU"] --> IE["image_encoder<br/>GPU"]
-        Pre --> AE["audio_encoder<br/>GPU"]
-        Pre --> Agg["aggregate<br/>CPU"]
-        IE --> Agg
-        AE --> Agg
-        Agg --> Th["thinker<br/>GPU:0"]
-        Th --> Dec["decode<br/>CPU<br/>Terminal"]
-    end
-
-    subgraph SpeechPipeline["Speech Pipeline · GPU:1"]
-        direction TB
-        Tk["talker_ar"]
-        CP["code_predictor"]
-        CW["code2wav<br/>Terminal"]
-        Tk -- "stream" --> CP
-        CP -- "stream" --> CW
-        CP -. "feedback" .-> Tk
-    end
-
-    CO -- "SubmitMessage" --> Pre
-    Th -- "stream_to" --> Tk
-    Dec -- "CompleteMessage" --> CO
-    CW -- "CompleteMessage" --> CO
-    CO -. "AbortMessage<br/>(PUB/SUB broadcast)" .-> Pre & IE & AE & Agg & Th & Dec & Tk & CP & CW
-
-    style Coordinator fill:#845ef7,color:#fff
-    style Pre fill:#e9ecef,color:#333
-    style IE fill:#74c0fc,color:#fff
-    style AE fill:#74c0fc,color:#fff
-    style Agg fill:#e9ecef,color:#333
+    style CO fill:#845ef7,color:#fff
     style Th fill:#4a9eff,color:#fff
-    style Dec fill:#51cf66,color:#fff
     style Tk fill:#ff6b6b,color:#fff
     style CP fill:#ffa94d,color:#fff
+    style Dec fill:#51cf66,color:#fff
     style CW fill:#51cf66,color:#fff
 ```
 
@@ -588,22 +535,14 @@ graph LR
 
 ```mermaid
 graph LR
-    Client["Client"] --> |submit / stream| CO["Coordinator"]
-    CO --> |SubmitMessage<br/>PUSH| Entry["Entry Stage"]
-
-    subgraph Stages["Stages..."]
-        Entry --> S["...processing..."]
-    end
-
-    Terminal1["Terminal: decode"] --> |CompleteMessage<br/>PUSH| CO
-    Terminal2["Terminal: code2wav"] --> |CompleteMessage<br/>PUSH| CO
-    CO --> |"merge partial_results"| Client
-
-    CO -. "AbortMessage<br/>PUB broadcast" .-> Stages
+    Client["Client"] --> |"submit / stream"| CO["Coordinator"]
+    CO --> |"SubmitMessage"| Entry["Entry Stage → ... → Terminal Stages"]
+    Entry --> |"CompleteMessage"| CO
+    CO --> |"merge results"| Client
+    CO -. "AbortMessage (PUB broadcast)" .-> Entry
 
     style CO fill:#845ef7,color:#fff
-    style Terminal1 fill:#51cf66,color:#fff
-    style Terminal2 fill:#51cf66,color:#fff
+    style Entry fill:#51cf66,color:#fff
 ```
 
 
@@ -623,25 +562,24 @@ graph LR
 
 **PUB/SUB（广播）**：用于 Coordinator 向所有 Stage 广播 abort 信号。Coordinator 的 PUB socket bind，各 Stage 的 SUB socket connect，一条消息所有 Stage 同时收到。
 
-```mermaid
-graph TB
-    subgraph PUSHPULL["PUSH/PULL (point-to-point)"]
-        direction LR
-        PA["Stage A<br/>PushSocket<br/>(connect)"] --> |"DataReadyMessage"| PB["Stage B<br/>PullSocket<br/>(bind)"]
-        PC["Stage C<br/>PushSocket<br/>(connect)"] --> PB
-    end
+**PUSH/PULL (point-to-point):**
 
-    subgraph PUBSUB["PUB/SUB (broadcast)"]
-        direction TB
-        PUB["Coordinator<br/>PubSocket<br/>(bind)"]
-        PUB --> SUB1["Stage A<br/>SubSocket<br/>(connect)"]
-        PUB --> SUB2["Stage B<br/>SubSocket<br/>(connect)"]
-        PUB --> SUB3["Stage C<br/>SubSocket<br/>(connect)"]
-    end
+```mermaid
+graph LR
+    PA["Stage A · PUSH (connect)"] --> PB["Stage B · PULL (bind)"]
+    PC["Stage C · PUSH (connect)"] --> PB
 
     style PA fill:#74c0fc,color:#fff
     style PC fill:#74c0fc,color:#fff
     style PB fill:#ff6b6b,color:#fff
+```
+
+**PUB/SUB (broadcast):**
+
+```mermaid
+graph LR
+    PUB["Coordinator · PUB (bind)"] --> SUB1["Stage A · SUB"] & SUB2["Stage B · SUB"] & SUB3["Stage C · SUB"]
+
     style PUB fill:#845ef7,color:#fff
     style SUB1 fill:#ffa94d,color:#fff
     style SUB2 fill:#ffa94d,color:#fff
@@ -671,37 +609,16 @@ Control Plane 分为两个实现：
 [Stage](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/pipeline/stage/runtime.py) 代表流水线中的一个处理节点，每个 Stage 运行在独立进程中。
 
 ```mermaid
-graph TB
-    subgraph Stage["Stage internals"]
-        direction TB
-        SCP["StageControlPlane<br/>ZMQ PULL/PUSH/SUB"]
-        IH["InputHandler<br/>DirectInput / AggregatedInput"]
-        Router["WorkerRouter<br/>Dispatch"]
-        Relay["Relay<br/>SHM / NCCL / NIXL"]
-        SQ["StreamQueue"]
+graph LR
+    Upstream["Upstream"] --> SCP["ControlPlane<br/>ZMQ"] --> IH["InputHandler"] --> Router["Router"] --> W["Workers<br/>(Executor)"]
+    W --> Relay["Relay<br/>SHM/NCCL"] --> Downstream["Downstream"]
+    W --> |"CompleteMessage"| CO["Coordinator"]
 
-        subgraph Workers["Workers"]
-            W1["Worker 1<br/>Executor"]
-            W2["Worker 2<br/>Executor"]
-        end
-
-        SCP --> |"recv msg"| IH
-        IH --> |"work item"| Router
-        Router --> W1 & W2
-        W1 & W2 --> Relay
-    end
-
-    Upstream["Upstream Stage"] --> |"DataReadyMessage"| SCP
-    Relay --> |"DataReadyMessage"| Downstream["Downstream Stage"]
-    W1 & W2 --> |"CompleteMessage"| Coord["Coordinator"]
-
-    style CP fill:#845ef7,color:#fff
+    style SCP fill:#845ef7,color:#fff
     style IH fill:#74c0fc,color:#fff
     style Router fill:#ffa94d,color:#fff
+    style W fill:#51cf66,color:#fff
     style Relay fill:#ff6b6b,color:#fff
-    style SQ fill:#fff3bf,color:#333
-    style W1 fill:#51cf66,color:#fff
-    style W2 fill:#51cf66,color:#fff
 ```
 
 
@@ -796,27 +713,14 @@ class Executor(ABC):
 ```
 
 ```mermaid
-graph TB
-    Executor["Executor (abstract)"]
+graph LR
+    E["Executor"] --> PE["PreprocessingExecutor → preprocessing"]
+    E --> DME["DirectModelExecutor → encoders, code_predictor, code2wav"]
+    E --> EE["EngineExecutor → thinker, talker_ar"]
+    E --> FE["FusedExecutor → chain multiple executors"]
 
-    Executor --> PE["PreprocessingExecutor<br/>CPU: tokenize, media loading"]
-    Executor --> DME["DirectModelExecutor<br/>Direct torch model<br/>batch / streaming"]
-    Executor --> EE["EngineExecutor<br/>Wraps OmniEngine<br/>Thinker, Talker AR"]
-    Executor --> FE["FusedExecutor<br/>Chain Executors<br/>Reduce IPC overhead"]
-
-    PE --> Pre["preprocessing"]
-    DME --> IE["image_encoder"]
-    DME --> AE["audio_encoder"]
-    DME --> CP["code_predictor"]
-    DME --> CW["code2wav"]
-    EE --> Th["thinker"]
-    EE --> Tk["talker_ar"]
-
-    style Executor fill:#845ef7,color:#fff
-    style PE fill:#e9ecef,color:#333
-    style DME fill:#74c0fc,color:#fff
+    style E fill:#845ef7,color:#fff
     style EE fill:#4a9eff,color:#fff
-    style FE fill:#ffa94d,color:#fff
 ```
 
 
@@ -899,40 +803,11 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph Input["Raw Input"]
-        text["Text message"]
-        img_url["Image URL"]
-        audio_b64["Audio Base64"]
-    end
+    Input["Text + Image + Audio"] --> Media["MediaIO<br/>(async parallel loading)"] --> Token["Chat Template +<br/>Tokenize"] --> Out["PipelineState<br/>prompt, encoder_inputs,<br/>mm_inputs"]
 
-    subgraph MediaIO["Async parallel loading"]
-        direction TB
-        IM["ImageMediaIO<br/>PIL/URL/Base64/file<br/>→ RGB PIL.Image"]
-        AM["AudioMediaIO<br/>WAV/WebM/MP3/OGG/FLAC<br/>→ 16kHz float32"]
-        VM["VideoMediaIO<br/>TorchCodec/TorchVision<br/>→ frame sequence"]
-    end
-
-    subgraph Process["Processing"]
-        direction TB
-        CK["Cache key computation"]
-        TK["Chat Template + Tokenize<br/>Insert placeholder tokens"]
-    end
-
-    subgraph Output["PipelineState"]
-        O1["prompt: input_ids + attention_mask"]
-        O2["encoder_inputs:<br/>pixel_values, input_features"]
-        O3["mm_inputs:<br/>raw media data"]
-    end
-
-    text --> TK
-    img_url --> IM --> CK --> TK
-    audio_b64 --> AM --> CK
-
-    TK --> O1 & O2 & O3
-
-    style MediaIO fill:#d0ebff,color:#333
-    style Process fill:#fff3bf,color:#333
-    style Output fill:#d3f9d8,color:#333
+    style Media fill:#d0ebff,color:#333
+    style Token fill:#fff3bf,color:#333
+    style Out fill:#d3f9d8,color:#333
 ```
 
 
@@ -1063,35 +938,15 @@ graph LR
 当启用语音输出时，Thinker 的输出额外流入三级语音流水线，全部部署在 GPU:1 上。
 
 ```mermaid
-graph TB
-    subgraph GPU1["GPU:1 Speech Pipeline"]
-        direction TB
+graph LR
+    Thinker["thinker<br/>GPU:0"] -- "stream: hidden states" --> TA["talker_ar<br/>20L MoE"] -- "stream: hidden + code" --> CP["code_predictor<br/>5L dense"] -- "stream: 16L RVQ codes" --> CW["code2wav<br/>Vocoder"]
+    CP -. "feedback" .-> TA
+    CW --> Audio["Audio waveform"]
 
-        subgraph TalkerAR["Stage 7: Talker AR"]
-            TA["20-layer MoE Transformer<br/>128 experts, top-6<br/>+ Shared Expert"]
-        end
-
-        subgraph CodePred["Stage 8: Code Predictor"]
-            CP2["5-layer dense Transformer<br/>hidden=1024, vocab=2048"]
-        end
-
-        subgraph C2W["Stage 9: Code2Wav"]
-            CW["Neural Codec Decoder<br/>Vocoder, 24kHz"]
-        end
-
-        TA -- "stream:<br/>talker_hidden + layer-0 code" --> CP
-        CP2 -- "stream:<br/>16-layer RVQ codes" --> CW
-        CP -. "feedback:<br/>summed_embeddings" .-> TA
-    end
-
-    Thinker["thinker (GPU:0)"] -- "stream_to:<br/>hidden states<br/>per token" --> TA
-
-    CW --> Audio["Audio waveform<br/>CompleteMessage"]
-
-    style TalkerAR fill:#ff6b6b,color:#fff
-    style CodePred fill:#ffa94d,color:#fff
-    style C2W fill:#51cf66,color:#fff
     style Thinker fill:#4a9eff,color:#fff
+    style TA fill:#ff6b6b,color:#fff
+    style CP fill:#ffa94d,color:#fff
+    style CW fill:#51cf66,color:#fff
 ```
 
 
@@ -1109,31 +964,14 @@ Talker 是一个 20 层 MoE Transformer（128 experts, top-6 routing），与 Th
 
 ```mermaid
 graph LR
-    subgraph ThinkerOut["Thinker Output"]
-        TE["thinker_embed<br/>(token embedding)"]
-        TH["thinker_hidden<br/>(layer 24 states)"]
-    end
-
-    subgraph Segment["Segment by chat template"]
-        User["User segment"]
-        Asst["Assistant segment"]
-    end
-
-    subgraph Projection["Projection"]
-        TP["text_projection<br/>(text positions)"]
-        HP["hidden_projection<br/>(multimodal positions)"]
-    end
-
-    TE --> Segment
-    TH --> Segment
-    User --> HP
-    User --> TP
-    Asst --> TP
-
+    TE["thinker_embed"] -- "text positions" --> TP["text_projection"]
+    TH["thinker_hidden<br/>(layer 24)"] -- "multimodal positions" --> HP["hidden_projection"]
     TP & HP --> Prefill["Talker Prefill Input"]
 
-    style ThinkerOut fill:#4a9eff,color:#fff
-    style Projection fill:#ffa94d,color:#fff
+    style TE fill:#4a9eff,color:#fff
+    style TH fill:#4a9eff,color:#fff
+    style TP fill:#ffa94d,color:#fff
+    style HP fill:#ffa94d,color:#fff
     style Prefill fill:#ff6b6b,color:#fff
 ```
 
@@ -1148,13 +986,9 @@ graph LR
 Code Predictor 是一个 5 层 dense Transformer（hidden=1024, vocab=2048），接收 Talker 的每一步输出：
 
 ```mermaid
-graph TB
-    Input["talker_hidden + layer-0 code"]
-    Input --> Embed["Embed layer-0 code"]
-    Embed --> AR["AR generate layer 1~15"]
-    AR --> Codes["Full 16-layer RVQ codes"]
-    AR --> Sum["Sum all layer codec embeddings<br/>→ summed_embeddings"]
-
+graph LR
+    Input["talker_hidden +<br/>layer-0 code"] --> AR["AR predict<br/>layer 1~15"] --> Codes["16-layer RVQ codes"]
+    AR --> Sum["summed_embeddings"]
     Codes --> |"stream"| C2W["code2wav"]
     Sum --> |"feedback"| Talker["talker_ar"]
 
@@ -1268,22 +1102,11 @@ gantt
 OmniEngine 通过一组 Protocol 接口实现模型无关的调度逻辑：
 
 ```mermaid
-graph TB
-    OE["OmniEngine"]
-    OE --> BP["BatchPlanner<br/>Select requests + build batch"]
-    OE --> RM["ResourceManager<br/>Memory management"]
-    OE --> IC["IterationController<br/>Check if request finished"]
-    OE --> IP["InputPreparer<br/>SchedulerOutput → model input"]
-    OE --> OP["OutputProcessor<br/>Model output → RequestOutput"]
-    OE --> CM["CacheManager<br/>Optional output cache"]
+graph LR
+    OE["OmniEngine"] --> BP["BatchPlanner"] & RM["ResourceManager"] & IC["IterationController"]
+    OE --> IP["InputPreparer"] & OP["OutputProcessor"] & CM["CacheManager"]
 
     style OE fill:#845ef7,color:#fff
-    style BP fill:#74c0fc,color:#fff
-    style RM fill:#74c0fc,color:#fff
-    style IC fill:#74c0fc,color:#fff
-    style IP fill:#74c0fc,color:#fff
-    style OP fill:#74c0fc,color:#fff
-    style CM fill:#74c0fc,color:#fff
 ```
 
 
@@ -1300,30 +1123,7 @@ graph TB
 
 ```mermaid
 graph LR
-    subgraph Pre["preprocessing writes"]
-        A1["raw_inputs"]
-        A2["prompt: input_ids, attention_mask"]
-        A3["mm_inputs: image, audio, video"]
-        A4["encoder_inputs"]
-    end
-
-    subgraph Enc["encoder writes"]
-        B1["encoder_outs:<br/>image_embeds<br/>audio_embeds"]
-    end
-
-    subgraph Agg2["aggregate writes"]
-        C1["thinker_inputs:<br/>merged full input"]
-    end
-
-    subgraph Th["thinker writes"]
-        D1["thinker_out:<br/>output_ids, hidden_states"]
-    end
-
-    subgraph Dec2["decode writes"]
-        E1["engine_outputs:<br/>final text"]
-    end
-
-    Pre --> Enc --> Agg --> Th --> Dec
+    Pre["preprocessing<br/>raw_inputs, prompt,<br/>mm_inputs, encoder_inputs"] --> Enc["encoder<br/>encoder_outs"] --> Agg["aggregate<br/>thinker_inputs"] --> Th["thinker<br/>thinker_out"] --> Dec["decode<br/>engine_outputs"]
 
     style Pre fill:#e9ecef,color:#333
     style Enc fill:#74c0fc,color:#fff
