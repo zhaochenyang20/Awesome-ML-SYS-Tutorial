@@ -233,21 +233,14 @@ graph LR
 而 Qwen3-Omni 需要的是一个**多模型协同系统**：
 
 ```mermaid
-graph TB
-    A["Request<br/>text+image+audio"] --> Pre["Preprocess<br/>CPU"]
-    Pre --> IE["Image Enc<br/>GPU"]
-    Pre --> AE["Audio Enc<br/>GPU"]
-    Pre --> Agg["Aggregate<br/>CPU"]
-    IE --> Agg
-    AE --> Agg
+graph LR
+    A["Request"] --> Pre["Preprocess<br/>CPU"]
+    Pre --> IE["Image Enc<br/>GPU"] & AE["Audio Enc<br/>GPU"]
+    Pre & IE & AE --> Agg["Aggregate<br/>CPU"]
     Agg --> Th["Thinker<br/>GPU:0"]
-    Th --> Dec["Decode<br/>CPU"]
-    Th -.-> Tk["Talker<br/>GPU:1"]
-    Tk -.-> CP["Code Predictor<br/>GPU:1"]
-    CP -.-> CW["Code2Wav<br/>GPU:1"]
+    Th --> Dec["Decode<br/>CPU"] --> R1["Text"]
+    Th -.-> Tk["Talker<br/>GPU:1"] -.-> CP["Code Predictor<br/>GPU:1"] -.-> CW["Code2Wav<br/>GPU:1"] --> R2["Audio"]
     CP -.-> |feedback| Tk
-    Dec --> R1["Text result"]
-    CW --> R2["Audio result"]
 
     style Pre fill:#e9ecef,color:#333
     style IE fill:#74c0fc,color:#fff
