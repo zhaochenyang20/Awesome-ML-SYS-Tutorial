@@ -629,8 +629,8 @@ graph LR
 
 Control Plane 分为两个实现：
 
-- `**CoordinatorControlPlane**`：Coordinator 端，管理到各 Stage 的 PUSH socket 和接收 completion 的 PULL socket。
-- `**StageControlPlane**`：Stage 端，提供 `recv()` 阻塞接收和 `send_to_stage()` / `send_complete()` 路由功能。
+- **`CoordinatorControlPlane`**：Coordinator 端，管理到各 Stage 的 PUSH socket 和接收 completion 的 PULL socket。
+- **`StageControlPlane`**：Stage 端，提供 `recv()` 阻塞接收和 `send_to_stage()` / `send_complete()` 路由功能。
 
 ### Stage
 
@@ -1074,14 +1074,14 @@ stateDiagram-v2
 
 
 
-`**[Scheduler](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/engines/omni/scheduler.py)**` 的核心方法：
+**[Scheduler](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/engines/omni/scheduler.py)** 的核心方法：
 
 - `add_request(request_id, data)` — 请求入队为 `WAITING` 状态
 - `schedule()` — 通过 `BatchPlanner` 选择请求并构建 batch，返回 `SchedulerOutput`
 - `update(scheduler_output, model_output)` — 根据模型输出更新请求状态，由 `IterationController` 判断是否完成
 - `stream(request_id)` — 返回异步生成器，逐步 yield 中间输出
 
-`**[ModelRunner](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/engines/omni/model_runner.py)**` 是无状态执行器，`execute(scheduler_output)` 调用模型 forward 并通过 `OutputProcessor` 转换输出。
+**[ModelRunner](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/engines/omni/model_runner.py)** 是无状态执行器，`execute(scheduler_output)` 调用模型 forward 并通过 `OutputProcessor` 转换输出。
 
 ### 执行模式
 
@@ -1188,19 +1188,19 @@ class PipelineState:
 
 定义在 [engines/omni/types.py](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/engines/omni/types.py)：
 
-- `**SchedulerStatus**` 枚举: `WAITING` / `RUNNING` / `WAITING_FEEDBACK` / `FINISHED` / `ABORTED`
-- `**SchedulerRequest**`: 包含 `request_id`、`status`、`data`（模型特定的 opaque 数据）、时间戳
-- `**SchedulerOutput**`: 包含选中的 requests 列表、`batch_data`、`step_id`
-- `**RequestOutput**`: 单个请求的输出，包含 `finished` 标志和 `finish_reason`（"stop" / "length" / "abort"）
-- `**ModelRunnerOutput**`: 一个 batch 的输出，`Dict[request_id → RequestOutput]`
+- **`SchedulerStatus`** 枚举: `WAITING` / `RUNNING` / `WAITING_FEEDBACK` / `FINISHED` / `ABORTED`
+- **`SchedulerRequest`**: 包含 `request_id`、`status`、`data`（模型特定的 opaque 数据）、时间戳
+- **`SchedulerOutput`**: 包含选中的 requests 列表、`batch_data`、`step_id`
+- **`RequestOutput`**: 单个请求的输出，包含 `finished` 标志和 `finish_reason`（"stop" / "length" / "abort"）
+- **`ModelRunnerOutput`**: 一个 batch 的输出，`Dict[request_id → RequestOutput]`
 
 ### Control Plane 消息
 
 定义在 [proto/messages.py](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/proto/messages.py)：
 
-- `**DataReadyMessage**`: 包含 `request_id`、`from_stage`、`to_stage`、`shm_metadata`（共享内存位置）、`chunk_id`（流式序号）、`is_done`、`error`
-- `**CompleteMessage**`: 包含 `request_id`、`from_stage`、`success`、`result`、`error`
-- `**AbortMessage**`: 仅包含 `request_id`
+- **`DataReadyMessage`**: 包含 `request_id`、`from_stage`、`to_stage`、`shm_metadata`（共享内存位置）、`chunk_id`（流式序号）、`is_done`、`error`
+- **`CompleteMessage`**: 包含 `request_id`、`from_stage`、`success`、`result`、`error`
+- **`AbortMessage`**: 仅包含 `request_id`
 
 消息序列化使用 msgpack，跨进程传输使用 ZMQ。
 
