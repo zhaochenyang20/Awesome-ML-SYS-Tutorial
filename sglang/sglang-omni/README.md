@@ -457,6 +457,13 @@ graph LR
 
 
 
+框架目前支持两个模型：
+
+| 模型 | Stage 数 | 语音架构 | 特点 |
+|------|---------|---------|------|
+| **Qwen3-Omni** | 9 (text+speech) / 6 (text-only) | RVQ codec (Talker AR → Code Predictor → Code2Wav) | Thinker-Talker 分离，feedback 环路 |
+| **Ming-Omni** | 7 (text+speech) / 5 (text-only) | CFM flow matching (DiT + Aggregator + AudioVAE) | 自包含 Talker，无 feedback |
+
 以 Qwen3-Omni（含语音输出）为例，完整流水线包含 **9 个 Stage**：
 
 
@@ -518,7 +525,18 @@ graph LR
 
 
 
-这种设计意味着：如果未来要支持另一个多模态模型（比如不需要语音的纯视觉模型），只需写一个新的 `PipelineConfig` 配置 6 个 Stage，不需要改任何框架代码。
+这种设计意味着：支持新模型只需写一个新的 `PipelineConfig`，不需要改任何框架代码。实际上框架已经验证了这一点——最新版本新增了 **Ming-Omni**（Ming-flash-omni-2.0）模型支持，7 个 Stage，使用了完全不同的语音合成架构（CFM/DiT flow matching 而非 RVQ codec），但框架代码一行没改，只是新增了 `MingOmniSpeechPipelineConfig` 和对应的 executor。
+
+同时还引入了 **Config Variant** 机制——同一个模型可以有多种流水线配置：
+
+```python
+# Qwen3-Omni 的两种变体
+Variants = {
+    "text": Qwen3OmniPipelineConfig,       # 6 stage, 纯文本输出
+    "speech": Qwen3OmniSpeechPipelineConfig, # 9 stage, 文本 + 语音
+}
+# 启动时选择：--variant speech
+```
 
 ---
 
@@ -1419,20 +1437,20 @@ except Exception:
 
 一个 `except Exception: raise`——catch 了又原样抛出，唯一的作用是"方便打断点"。这种调试辅助代码不应该留在生产代码里。
 
-### 12. 根本问题：为一个模型造了一个通用框架
+### 12. 根本问题：通用框架的代价
 
-SGLang Omni 的设计目标是"通用"——支持任意模型的任意 Stage DAG。但**目前只支持了一个模型**（Qwen3-Omni 及其变体）。
+SGLang Omni 的设计目标是"通用"——支持任意模型的任意 Stage DAG。最新版本新增了 Ming-Omni 支持，初步验证了这种通用性（Ming-Omni 的语音架构是 CFM flow matching，和 Qwen3-Omni 的 RVQ codec 完全不同，但确实只加了模型代码没改框架）。
 
-为了这个假想的"通用性"，付出了：
-- 30,000 行代码（一个专用实现可能 5,000 行就够）
-- 7 种 ABC 接口 + 6 种 Protocol（`BatchPlanner`, `ResourceManager`, `IterationController`, `InputPreparer`, `OutputProcessor`, `CacheManager`——这些接口各只有一个实现）
+但"能用"不等于"值得"。为了这个通用性，付出了：
+- 30,000+ 行框架代码（两个模型各自的专用实现可能加起来 8,000 行就够）
+- 7 种 ABC 接口 + 6 种 Protocol（`BatchPlanner`, `ResourceManager`, `IterationController`, `InputPreparer`, `OutputProcessor`, `CacheManager`——大部分接口只有一两个实现）
 - 4 种 Relay 后端（大部分人只用 1 种）
 - 完整的 Scheduler/ModelRunner 分离（相当于重写了半个 SGLang）
 - 声明式配置 + 运行时编译 + 字符串反射
 
-一个更诚实的做法是：**直接为 Qwen3-Omni 写 5,000 行专用代码**，用 `multiprocessing` + `torch.distributed` 解决多 GPU 通信。当真正需要第二个模型时，再提取公共抽象。
+Ming-Omni 的加入反而暴露了另一个问题：新模型的代码（`models/ming_omni/`）有 **3,800+ 行**，其中大量是 Talker 模型本身的实现（1,282 行的 `modeling_ming_omni_talker.py`）——这些代码跟框架的"通用抽象"毫无关系，就是纯粹的模型代码。框架真正帮到的部分（pipeline 配置 + stage 连接）可能只占 200 行。**30,000 行框架为 200 行配置代码服务**，投入产出比值得反思。
 
-现在的状况是：**框架的复杂度远超它所解决的问题的复杂度**。维护框架本身消耗的精力，可能比直接维护一个专用实现更多。这就是过度设计的代价——你花了 80% 的时间在写胶水、接口、抽象，只有 20% 的时间在写真正跑模型的代码。
+核心矛盾是：**框架的复杂度远超它所解决的问题的复杂度**。维护框架本身消耗的精力（理解 15 层抽象、调试 try/except 吞掉的异常、追踪 import_string 的运行时反射），可能比直接维护专用实现更多。
 
 ---
 
