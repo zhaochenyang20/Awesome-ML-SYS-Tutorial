@@ -396,6 +396,8 @@ async def process_request(request):
     # ... thinker 流式输出给 talker ...
 ```
 
+【TODO：所以核心是想说，要做成多进程异步的生产消费者模型么？】
+
 看起来解决了并行的问题，但**无法扩展**：
 
 **1. GPU 内存隔离**
