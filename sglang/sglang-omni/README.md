@@ -2,6 +2,8 @@
 
 本文档从开发者视角对 SGLang Omni（全模态推理框架）进行代码走读，追踪一个多模态请求（文本 + 图片 + 音频）从提交到返回文本与语音结果的全过程。
 
+【TODO：基于什么 commit 需要指出来，我最近的修改都是在 benchmarking 和 tests 上的，主框架的架构应该影响不大，最好能 rebase 这个文档，让其直接解读最新的 commit 2489a10 的架构】
+
 ## 目录
 
 - [Qwen3-Omni 模型架构](#qwen3-omni-模型架构)
@@ -40,6 +42,9 @@
 - [关键设计模式](#关键设计模式)
 - [批评与反思](#批评与反思)
 
+
+【TODO：这个部分即之前的部分：Thinker 与 Talker 的逐 Token 对齐最好 PR 到 ./transformers/omni/readme-en.md 这个文档，不要在设计文档里面写，顺带也去重了】
+
 ---
 
 ## Qwen3-Omni 模型架构
@@ -65,6 +70,7 @@ graph LR
     style AudioOut fill:#51cf66,color:#fff
 ```
 
+【TODO：这个图做的不错，但是这些 20L，128e， top-8 啥意思？可以去掉】
 
 
 ### 为什么要分成 Thinker 和 Talker
@@ -97,7 +103,7 @@ gantt
     speech₄       :s4, 3, 5
 ```
 
-
+【TODO：这个图也不错，可以 PR 到 ./transformers/omni/readme-en.md 这个文档】
 
 如果用一个模型同时生成文本和语音 token，就必须交替生成，延迟会很高。
 
@@ -105,15 +111,21 @@ gantt
 
 Thinker 本质就是已有的 Qwen3 文本模型，分开设计可以直接复用预训练好的强大文本模型，只需额外训练一个轻量的 Talker。
 
+【TODO：感受中不单单是文本模型，首先 Thinker 至少得是个 VLM，其次，还需要支持 Audio 输入；可以看看 tech report 咋说的，然后把这段写严谨，转移到 ./transformers/omni/readme.md】
+
 **4. 独立部署与资源分配**
 
 Thinker 跑在 GPU:0，Talker 跑在 GPU:1，资源可以独立分配和扩展。
+
+【TODO：我的疑问是，为什么不可以 collocate，这个可以去调查下 vllm omni 是否支持；你就这么想嘛，哪怕 thinker talker 都是 30B model，144G 的 H200 都绰绰有余，你当两台 H100 使都行；无非是 mem static 调低些；这是个非常核心的问题】
 
 ### Talker 不是传统 TTS
 
 传统 TTS 是一个独立系统：输入完整文本字符串，输出语音，和 LLM 没有关系。
 
 Qwen3-Omni 的 Talker 与 Thinker **深度耦合**——它的输入不只是文本 token，还包括 Thinker 的 **hidden states**（第 24 层的隐藏状态）。这意味着 Talker 能感知 Thinker 的"语义意图"，生成更自然、更符合语境的语音（语气、情感、停顿等）：
+
+【TODO：其实输入的也不是文本 token，我记得是文本的 embedding，然后 thinker hidden state 你确定是 24 层么？得查清楚】
 
 ```mermaid
 graph LR
@@ -133,9 +145,6 @@ graph LR
     style B2 fill:#ff6b6b,color:#fff
 ```
 
-
-
-这也是为什么 Talker 必须和 Thinker 在同一个流水线里，而不能用外部 TTS 替代。
 
 ### 语音生成全流程：Talker AR → Code Predictor → Code2Wav
 
@@ -171,7 +180,7 @@ graph LR
     style Code2Wav fill:#51cf66,color:#fff
 ```
 
-
+【TODO：其实我觉得这个双向通信说的有点过了，因为一帧的所有 codec tokens，只有第一个是 talker 生成的，然后也只有所有 codec tokens 都生成完了，code predictor 才会返回 summed_embeddings 给 Talker（我不记得有没有这个细节了，但是听上去合理）；你说双向通信，显得像是会有非常平凡的逐个 codec token 的通信，但其实不是这样的】
 
 **Feedback 门控机制**：Talker 和 Code Predictor 之间存在**双向流式通信**。Talker 每生成一个 codec token 后暂停（进入 `WAITING_FEEDBACK` 状态），等待 Code Predictor 返回各层 codec embedding 的加权和，作为下一步解码的额外上下文。这确保了多层 RVQ codes 之间的一致性。
 
@@ -218,7 +227,7 @@ graph LR
 
 每收到 Thinker 的一个新 token，将其 embedding 通过 `text_projection` 投影后追加到 `trailing_text_hidden` 列表。Talker 内部的推理引擎通过门控反馈机制消费这个列表——每生成若干个 codec token，就从中取下一个 text token 的投影作为条件输入。当 Thinker 结束时，追加一个 `tts_eos_embed` 告诉 Talker 文本已结束。
 
----
+【TODO：这段的描述比起上一段说 thinker 传 token 给 talker 科学严谨多了，我们对内的文档严谨性要求是很高的】
 
 ## 为什么不能在 SGLang 里直接开发
 
