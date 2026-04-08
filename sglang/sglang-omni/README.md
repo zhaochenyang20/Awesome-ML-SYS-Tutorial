@@ -1090,11 +1090,16 @@ Client → Coordinator → CoordinatorControlPlane → PushSocket
 → Model.forward() → OutputProcessor → ...原路返回
 ```
 
-这条链路里有 **15+ 层抽象**。问题并不只是“层数多”，而是核心逻辑其实没有那么多：收请求、跑模型、发结果。中间大量层都只是为了包装、转发和适配。
+这条链路里有 **15+ 层抽象**。问题并不只是“层数多”，而是核心逻辑其实没有那么多：收请求、跑模型、发结果。中间大量层都只是为了包装、转发和适配。更具体地说，Stage 内部的 `Router / Worker / Executor` 三层拆分，并没有形成特别清晰的价值分工。
 
 - `DirectInput.receive()` 就是直接返回输入——这一层存在的意义是什么？
-- `WorkerRouter` 在 `num_workers=1`（几乎所有 Stage）时是纯粹的透传，48 行代码做了一个 `queue.put()` 的包装
-- `DataPlaneAdapter` 包装 `Relay`，只加了一层 async——一个函数能解决的事，搞了一个类
+- `WorkerRouter` 在 `num_workers=1`（几乎所有 Stage 的现实配置）时基本就是透传。它真正做的事情只有两件：给每个 Worker 分配一个 queue，以及按 `request_id` 记一次 sticky affinity。但如果大多数 Stage 根本没有多 Worker，这层更像一个尚未被真正用起来的扩展点，而不是现实中的调度器。
+- 更微妙的是，就算真的有多个 Worker，当前并发也不主要由 Worker 池提供。`Worker.run()` 在拿到 work 之后会直接 `create_task()` 并发处理多个请求，这说明真正的并发载体其实是 Worker 内部 task 和底层 engine，而不是 Router/Worker 这套池化模型本身。
+- `Worker` 这个名字也在弱化它实际承担的职责。它并不是一个“只负责调用 executor 的执行单元”，而更像一个小型 runtime：读 relay、merge payload、处理 bootstrap stream、注册结果 future、等待 executor、决定 `next_stage`、发送 complete、做清理。请求生命周期被切碎在 `Stage` 和 `Worker` 两层里，边界并不清楚。
+- `Executor` 这层不是完全没价值，它至少试图统一“一次性 forward”和“带状态 engine”两类计算模式；但大多数实现又薄得近乎 ceremony。`PreprocessingExecutor` 基本只是“调用一个函数，再把结果塞回 queue”，`DirectModelExecutor` 本质上是 `request_builder -> model.forward() -> result_builder`，`EngineExecutor` 也主要是在 `StagePayload` 和 engine I/O 之间做适配。简单 case 被过度包装，复杂 case 却依然包不住。
+- 最能说明抽象没有卡准的反而是两个特例：一方面，`TalkerStreamingExecutor` 这种真正复杂的 streaming / feedback case 最后还是长成了 God Class；另一方面，框架又引入了 `FusedExecutor` 试图把前面拆开的几层重新缝回一个进程里。这两件事放在一起，其实已经说明当前层级切得太碎了。
+
+换句话说，这三层并不是“完全没用”，但它们现在更像是一组彼此补漏洞的中间层，而不是三道边界清晰、各自不可替代的抽象。真正让系统变复杂的不是模型本身，而是为了维持这些层次关系而额外引入的运行时胶水。
 
 ### 2. try/except 驱动的开发：典型的 AI 生成代码
 
