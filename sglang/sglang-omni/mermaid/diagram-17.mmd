@@ -1,0 +1,9 @@
+graph LR
+    Thinker["thinker · GPU:0"] -- "stream: hidden states" --> TA["talker_ar · 20L MoE"] -- "stream: hidden + code" --> CP["code_predictor · 5L dense"] -- "stream: 16L RVQ codes" --> CW["code2wav · Vocoder"]
+    CP -. "feedback" .-> TA
+    CW --> Audio["Audio waveform"]
+
+    style Thinker fill:#4a9eff,color:#fff
+    style TA fill:#ff6b6b,color:#fff
+    style CP fill:#ffa94d,color:#fff
+    style CW fill:#51cf66,color:#fff

@@ -1,0 +1,16 @@
+graph LR
+    subgraph CrossGPU["Cross-GPU: via Relay"]
+        direction LR
+        A1["Stage A · GPU:0"] --> |"GPU→CPU copy"| SHM["Shared Memory · Relay"] --> |"CPU→GPU copy"| B1["Stage B · GPU:1"]
+    end
+
+    subgraph SameGPU["Same-GPU: CUDA IPC zero-copy"]
+        direction LR
+        A2["talker_ar · GPU:1"] --> |"Pass tensor handle directly<br/>zero data copy"| B2["code_predictor · GPU:1"]
+    end
+
+    style SHM fill:#ffa94d,color:#fff
+    style A1 fill:#74c0fc,color:#fff
+    style B1 fill:#74c0fc,color:#fff
+    style A2 fill:#ff6b6b,color:#fff
+    style B2 fill:#ff6b6b,color:#fff

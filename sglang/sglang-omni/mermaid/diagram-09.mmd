@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant S as Stage Router
+    participant W as Worker
+    participant DP as DataPlane (Relay)
+    participant E as Executor
+    participant Next as Next Stage
+
+    S->>W: enqueue(work)
+    W->>DP: read_payload(shm_metadata)
+    DP-->>W: payload data
+    W->>E: add_request(payload)
+    E-->>W: result
+    W->>W: next = get_next(request_id, result)
+
+    alt next_stages is not empty (non-Terminal)
+        W->>DP: write_payload(result)
+        W->>Next: DataReadyMessage
+    else Terminal Stage
+        W->>S: CompleteMessage → Coordinator
+    end

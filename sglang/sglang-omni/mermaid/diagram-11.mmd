@@ -1,0 +1,8 @@
+graph LR
+    E["Executor"] --> PE["PreprocessingExecutor → preprocessing"]
+    E --> DME["DirectModelExecutor → encoders, code_predictor, code2wav"]
+    E --> EE["EngineExecutor → thinker, talker_ar"]
+    E --> FE["FusedExecutor → chain multiple executors"]
+
+    style E fill:#845ef7,color:#fff
+    style EE fill:#4a9eff,color:#fff

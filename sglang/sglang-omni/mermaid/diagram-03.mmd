@@ -1,0 +1,18 @@
+graph LR
+    CO["Coordinator"] -- "Submit" --> Pre["preprocessing · CPU"]
+    Pre --> IE["image_encoder · GPU"] & AE["audio_encoder · GPU"]
+    Pre & IE & AE --> Agg["aggregate · CPU"]
+    Agg --> Th["thinker · GPU:0"]
+    Th --> Dec["decode · Terminal"]
+    Th -- "stream_to" --> Tk["talker_ar · GPU:1"]
+    Tk -- "stream" --> CP["code_predictor · GPU:1"]
+    CP -- "stream" --> CW["code2wav · Terminal"]
+    CP -. "feedback" .-> Tk
+    Dec & CW -- "Complete" --> CO
+
+    style CO fill:#845ef7,color:#fff
+    style Th fill:#4a9eff,color:#fff
+    style Tk fill:#ff6b6b,color:#fff
+    style CP fill:#ffa94d,color:#fff
+    style Dec fill:#51cf66,color:#fff
+    style CW fill:#51cf66,color:#fff

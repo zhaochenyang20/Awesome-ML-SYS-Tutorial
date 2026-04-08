@@ -1,0 +1,9 @@
+graph LR
+    Client["Client"] --> |"submit / stream"| CO["Coordinator"]
+    CO --> |"SubmitMessage"| Entry["Entry Stage → ... → Terminal Stages"]
+    Entry --> |"CompleteMessage"| CO
+    CO --> |"merge results"| Client
+    CO -. "AbortMessage (PUB broadcast)" .-> Entry
+
+    style CO fill:#845ef7,color:#fff
+    style Entry fill:#51cf66,color:#fff

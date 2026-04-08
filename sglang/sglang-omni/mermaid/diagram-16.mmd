@@ -1,0 +1,14 @@
+graph LR
+    Th["thinker"]
+
+    Th --> |"DataReadyMessage: full output_ids"| Dec["decode · (text postprocess)"]
+    Th --> |"stream_to: per-token hidden states"| Tk["talker_ar · (speech generation)"]
+
+    Dec --> TextOut["Text Output"]
+    Tk --> SpeechOut["Speech Output"]
+
+    style Th fill:#4a9eff,color:#fff
+    style Dec fill:#51cf66,color:#fff
+    style Tk fill:#ff6b6b,color:#fff
+    style TextOut fill:#d3f9d8,color:#333
+    style SpeechOut fill:#d3f9d8,color:#333

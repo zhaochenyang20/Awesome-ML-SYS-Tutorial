@@ -1,0 +1,57 @@
+sequenceDiagram
+    participant C as Client
+    participant CO as Coordinator
+    participant Pre as preprocessing
+    participant IE as image_encoder
+    participant AE as audio_encoder
+    participant Agg as aggregate
+    participant Th as thinker
+    participant Dec as decode
+    participant Tk as talker_ar
+    participant CP as code_predictor
+    participant CW as code2wav
+
+    C->>CO: submit(request)
+    CO->>Pre: SubmitMessage
+
+    Pre->>Pre: tokenize + media loading
+    par fan-out: parallel encoding
+        Pre->>IE: DataReady (pixel_values)
+        Pre->>AE: DataReady (input_features)
+        Pre->>Agg: DataReady (PipelineState)
+    end
+
+    IE->>IE: ViT encode
+    AE->>AE: Audio Transformer encode
+
+    par fan-in: converge to aggregate
+        IE->>Agg: DataReady (image_embeds)
+        AE->>Agg: DataReady (audio_embeds)
+    end
+
+    Note over Agg: Wait for all 3 inputs
+    Agg->>Agg: merge_for_thinker()
+    Agg->>Th: DataReady (thinker_inputs)
+
+    Th->>Th: MoE Transformer AR generation
+    par fan-out: text + speech
+        Th->>Dec: DataReady (output_ids)
+        Th-->>Tk: stream_to (hidden states, per token)
+    end
+
+    Dec->>Dec: detokenize
+    Dec->>CO: CompleteMessage (text result)
+
+    loop Each token
+        Tk->>Tk: Sample codec token
+        Tk-->>CP: stream (talker_hidden + codec)
+        CP->>CP: Generate layer 1~15
+        CP-->>CW: stream (16-layer codes)
+        CP-->>Tk: feedback (summed_embeddings)
+    end
+
+    CW->>CW: Vocoder synthesize waveform
+    CW->>CO: CompleteMessage (audio result)
+
+    Note over CO: Wait for decode + code2wav both done
+    CO->>C: Return {text + audio}
