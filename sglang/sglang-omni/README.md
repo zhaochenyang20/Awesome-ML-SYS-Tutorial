@@ -901,49 +901,53 @@ OmniEngine 支持两种执行模式。它们的区别不在于算法逻辑，而
 
 #### Normal 模式 vs Overlap 模式
 
-```text
-Normal 模式
+下面这两张图只画 OmniEngine 内部最关键的时序：CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
 
-Step N:
-  schedule(N)
-  execute(N)        # 当前 batch 的 GPU forward
-  update(N)         # cache/update/finish/feedback 检查
+```mermaid
+gantt
+    title Normal 模式：每一步都完整走完 schedule -> execute -> update
+    dateFormat X
+    axisFormat %s
 
-Step N+1:
-  schedule(N+1)
-  execute(N+1)
-  update(N+1)
+    section CPU / Event Loop
+    schedule N          :a1, 0, 1
+    wait execute N      :a2, 1, 3
+    update N            :a3, 4, 1
+    schedule N+1        :a4, 5, 1
+    wait execute N+1    :a5, 6, 3
+    update N+1          :a6, 9, 1
+
+    section GPU
+    execute N           :b1, 1, 3
+    gpu idle            :b2, 4, 2
+    execute N+1         :b3, 6, 3
 ```
 
-```text
-Overlap 模式
+```mermaid
+gantt
+    title Overlap 模式：当前步 GPU execute 与上一步 CPU result processing 重叠
+    dateFormat X
+    axisFormat %s
 
-Warmup:
-  Step 0:
-    schedule(0)
-    launch execute(0)
-    await execute(0)
-    buffer result(0)
+    section CPU / Event Loop
+    schedule 0              :c1, 0, 1
+    wait execute 0          :c2, 1, 3
+    buffer result 0         :c3, 4, 1
+    schedule 1              :c4, 5, 1
+    process result 0        :c5, 6, 1
+    wait execute 1          :c6, 7, 2
+    buffer result 1         :c7, 9, 1
+    schedule 2              :c8, 10, 1
+    process result 1        :c9, 11, 1
+    wait execute 2          :c10, 12, 2
+    buffer result 2         :c11, 14, 1
 
-Steady state:
-  Step 1:
-    schedule(1)
-    launch execute(1)
-    GPU 正在跑 execute(1) 的同时:
-      CPU 处理 result(0) = _process_pending_result()
-    await execute(1)
-    buffer result(1)
-
-  Step 2:
-    schedule(2)
-    launch execute(2)
-    GPU 正在跑 execute(2) 的同时:
-      CPU 处理 result(1)
-    await execute(2)
-    buffer result(2)
-
-Drain:
-  引擎空闲或停止时，再把最后一个 buffered result 处理掉
+    section GPU
+    execute 0               :d1, 1, 3
+    gpu idle                :d2, 4, 2
+    execute 1               :d3, 6, 3
+    gpu idle                :d4, 9, 2
+    execute 2               :d5, 11, 3
 ```
 
 换句话说，真正 overlap 的不是“Step N 里的所有动作”，而只是：
