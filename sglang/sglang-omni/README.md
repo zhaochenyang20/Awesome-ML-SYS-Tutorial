@@ -897,26 +897,57 @@ stateDiagram-v2
 
 ### 执行模式
 
-OmniEngine 支持两种执行模式。它们的区别不在于算法逻辑，而在于**当前步的 GPU execute** 和 **上一步的 CPU 结果处理** 是否重叠执行。要注意，`schedule()` 在两种模式里都发生在每轮开头，本身并没有被 overlap 掉。
+OmniEngine 支持两种执行模式。它们的区别不在于算法逻辑，而在于**当前步的 GPU execute** 和 **上一步的 CPU 结果处理** 是否重叠执行。你如果只看单轮内部，那么 `schedule()` 和 `execute()` 在两种模式里都是串行的；真正 overlap 的，是 `execute(N)` 和 `_process_pending_result(N-1)`。
 
 #### Normal 模式 vs Overlap 模式
 
-下面这两张图里的 `t0 / t1 / t2 ...` 都只是抽象时间片，只表示先后关系，不表示真实耗时。CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
+下面这两张图只表达先后关系，不表达真实耗时。CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
 
-```text
-Normal 模式
+```mermaid
+sequenceDiagram
+    participant CPU as CPU / Event Loop
+    participant GPU as GPU Worker
 
-time  t0              t1                 t2           t3                t4                   t5
-CPU   [schedule N] -> [wait execute N] -> [update N] -> [schedule N+1] -> [wait execute N+1] -> [update N+1]
-GPU   [idle      ] -> [execute N     ] -> [idle    ] -> [idle        ] -> [execute N+1     ] -> [idle       ]
+    CPU->>CPU: schedule(N)
+    CPU->>GPU: execute(N)
+    GPU-->>CPU: result(N)
+    CPU->>CPU: update(N)
+
+    CPU->>CPU: schedule(N+1)
+    CPU->>GPU: execute(N+1)
+    GPU-->>CPU: result(N+1)
+    CPU->>CPU: update(N+1)
 ```
 
-```text
-Overlap 模式
+```mermaid
+sequenceDiagram
+    participant CPU as CPU / Event Loop
+    participant GPU as GPU Worker
 
-time  t0              t1                 t2                 t3              t4                     t5                 t6              t7                     t8
-CPU   [schedule 0] -> [wait execute 0] -> [buffer result 0] -> [schedule 1] -> [process result 0] -> [buffer result 1] -> [schedule 2] -> [process result 1] -> [buffer result 2 / drain]
-GPU   [idle      ] -> [execute 0     ] -> [idle           ] -> [idle      ] -> [execute 1       ] -> [idle           ] -> [idle      ] -> [execute 2       ] -> [idle                    ]
+    CPU->>CPU: schedule(0)
+    CPU->>GPU: launch execute(0)
+    GPU-->>CPU: result(0)
+    CPU->>CPU: buffer result(0)
+
+    CPU->>CPU: schedule(1)
+    par overlap
+        CPU->>GPU: launch execute(1)
+        GPU->>GPU: execute(1)
+    and
+        CPU->>CPU: process result(0)
+    end
+    GPU-->>CPU: result(1)
+    CPU->>CPU: buffer result(1)
+
+    CPU->>CPU: schedule(2)
+    par overlap
+        CPU->>GPU: launch execute(2)
+        GPU->>GPU: execute(2)
+    and
+        CPU->>CPU: process result(1)
+    end
+    GPU-->>CPU: result(2)
+    CPU->>CPU: buffer result(2)
 ```
 
 换句话说，真正 overlap 的不是“Step N 里的所有动作”，而只是：
