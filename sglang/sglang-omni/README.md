@@ -901,32 +901,23 @@ OmniEngine 支持两种执行模式。它们的区别不在于算法逻辑，而
 
 #### Normal 模式 vs Overlap 模式
 
-下面不用真实耗时来画，而是只用抽象时间片 `t0 / t1 / t2 ...` 表示先后顺序。CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
+下面这两张图里的 `t0 / t1 / t2 ...` 都只是抽象时间片，只表示先后关系，不表示真实耗时。CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
 
-**Normal 模式**
+```text
+Normal 模式
 
-| time | CPU / Event Loop | GPU |
-| ---- | ---------------- | --- |
-| `t0` | `schedule(N)` | idle |
-| `t1` | 等 `execute(N)` 返回 | `execute(N)` |
-| `t2` | `update(N)` | idle |
-| `t3` | `schedule(N+1)` | idle |
-| `t4` | 等 `execute(N+1)` 返回 | `execute(N+1)` |
-| `t5` | `update(N+1)` | idle |
+time  t0              t1                 t2           t3                t4                   t5
+CPU   [schedule N] -> [wait execute N] -> [update N] -> [schedule N+1] -> [wait execute N+1] -> [update N+1]
+GPU   [idle      ] -> [execute N     ] -> [idle    ] -> [idle        ] -> [execute N+1     ] -> [idle       ]
+```
 
-**Overlap 模式**
+```text
+Overlap 模式
 
-| time | CPU / Event Loop | GPU |
-| ---- | ---------------- | --- |
-| `t0` | `schedule(0)` | idle |
-| `t1` | 等 `execute(0)` 返回 | `execute(0)` |
-| `t2` | `buffer result(0)` | idle |
-| `t3` | `schedule(1)` | idle |
-| `t4` | `_process_pending_result(0)` | `execute(1)` |
-| `t5` | `buffer result(1)` | idle |
-| `t6` | `schedule(2)` | idle |
-| `t7` | `_process_pending_result(1)` | `execute(2)` |
-| `t8` | `buffer result(2)` / drain | idle |
+time  t0              t1                 t2                 t3              t4                     t5                 t6              t7                     t8
+CPU   [schedule 0] -> [wait execute 0] -> [buffer result 0] -> [schedule 1] -> [process result 0] -> [buffer result 1] -> [schedule 2] -> [process result 1] -> [buffer result 2 / drain]
+GPU   [idle      ] -> [execute 0     ] -> [idle           ] -> [idle      ] -> [execute 1       ] -> [idle           ] -> [idle      ] -> [execute 2       ] -> [idle                    ]
+```
 
 换句话说，真正 overlap 的不是“Step N 里的所有动作”，而只是：
 
