@@ -476,11 +476,7 @@ Relay 使用 **credit 机制**管理共享内存 slot。本质上就是一个经
 
 [ControlPlane](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/pipeline/control_plane.py) 基于 ZMQ 实现进程间通信，使用两种消息模式：
 
-**PUSH/PULL（点对点）**：用于 Stage 之间和 Stage 与 Coordinator 之间的定向消息传递。接收方 bind（地址固定，先启动），发送方 connect（可动态加入）。
-
-**PUB/SUB（广播）**：用于 Coordinator 向所有 Stage 广播 abort 信号。Coordinator 的 PUB socket bind，各 Stage 的 SUB socket connect，一条消息所有 Stage 同时收到。
-
-**PUSH/PULL (point-to-point):**
+**PUSH/PULL（点对点）**：用于 Stage 之间或者 Stage 与 Coordinator 之间的定向消息传递。接收方 bind（地址固定，先启动），发送方 connect（可动态加入）。
 
 ```mermaid
 graph LR
@@ -492,9 +488,7 @@ graph LR
     style PB fill:#ff6b6b,color:#fff
 ```
 
-
-
-**PUB/SUB (broadcast):**
+**PUB/SUB（广播）**：用于 Coordinator 向所有 Stage 广播 abort 信号。Coordinator 的 PUB socket bind，各 Stage 的 SUB socket connect，一条消息所有 Stage 同时收到。
 
 ```mermaid
 graph LR
@@ -506,9 +500,6 @@ graph LR
     style SUB3 fill:#ffa94d,color:#fff
 ```
 
-
-
-
 | 消息类型               | 模式        | 方向                           | 用途               |
 | ------------------ | --------- | ---------------------------- | ---------------- |
 | `SubmitMessage`    | PUSH/PULL | Coordinator → 入口 Stage       | 初始请求提交           |
@@ -518,6 +509,8 @@ graph LR
 | `AbortMessage`     | PUB/SUB   | Coordinator → 所有 Stage       | 请求取消             |
 | `ShutdownMessage`  | PUSH/PULL | Coordinator → Stage          | 关闭信号             |
 
+
+【TODO：这个 ShutdownMessage 是干嘛的，和 abort 有什么区别？】
 
 Control Plane 分为两个实现：
 
@@ -719,7 +712,7 @@ sequenceDiagram
     CO->>C: Return {text + audio}
 ```
 
-
+【TODO：这上面这部分真的垃圾，写成这样令人羞耻，jingwen 的设计会好很多。等他具体把他的 2 设计拿出来吧，stage 下面最多再走两层】
 
 ### Stage 1: Preprocessing（预处理）
 
@@ -764,6 +757,8 @@ graph LR
 - 支持 500-token chunk 流式处理
 
 两个编码器独立运行（fan-in 的前半段），结果分别通过 `DataReadyMessage` 发送到 `aggregate` Stage。
+
+【TODO：我对 audio encoding 只熟悉 RVQ 😂，当黑盒使用了】
 
 ### Stage 4: Aggregate（聚合）
 
@@ -855,11 +850,15 @@ graph LR
   - `thinker_embeds`: token embeddings
   - `thinker_hidden[layer_24]`: 第 24 层的 hidden states（供 Talker 做跨模态对齐）
 
+
 ### Stage 6: Decode（解码输出）
 
 **设备**: CPU（Terminal Stage）
 
 将 Thinker 的 `output_ids` 解码为文本，构建最终的文本响应。支持流式文本输出。
+
+
+  【TODO：；这个应该叫做 detokenize 吧，token id 回到 token 作为流式输出的一部分】
 
 ### Stage 7-9: Speech Pipeline（语音生成流水线）
 
@@ -925,6 +924,7 @@ graph LR
     style Sum fill:#ff6b6b,color:#fff
 ```
 
+【TODO：草率了，没讲这是干嘛的。当然，其实这个整个部分都可以去掉】
 
 
 #### Stage 9: Code2Wav
