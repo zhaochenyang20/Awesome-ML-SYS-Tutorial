@@ -185,60 +185,13 @@ def process_request(request):
     return text_result, audio
 ```
 
-这个版本当然“能跑”，而且从功能正确性的角度看甚至相当直观。但一旦把问题切到系统层面，它马上就暴露出几个非常典型的瓶颈，而且这些瓶颈都不是靠简单调参数就能补救的。
+这个版本当然“能跑”，但系统层面的问题其实很直接，简单来说就三条：
 
-**问题 1：设备利用率极低**
+- **并行性被压平了**：`image_encoder` 和 `audio_encoder` 本来可以并行，现在却只能排队执行；CPU、GPU:0、GPU:1 也会经常彼此等待，很多时间都在空转。
+- **没有流式**：Talker 必须等 Thinker 全部结束之后才能开始，这和 Qwen3-Omni 真正需要的增量协同是反着来的。假设 Thinker 生成 100 个 token、每个 token 30ms，Talker 每步 20ms，那么串行情况下首音延迟大约是 `3000ms + 20ms = 3020ms`；如果改成流式并行，首音延迟就接近 `30ms + 20ms = 50ms`。
+- **链路一长就很难维护**：一个大函数里同时揉 CPU 预处理、多路 encoder、Thinker、Talker、Code Predictor 和 Code2Wav，后面只要再加一点并发、容错、扩缩容或跨 GPU 协调，复杂度就会迅速失控。
 
-串行执行的直接后果是：任意时刻只有一个设备在工作，其余设备都在空转。对于一个同时涉及 CPU、多块 GPU、编码器、解码器和两个大模型的 pipeline 来说，这几乎等价于主动放弃了系统级并行性：
-
-```mermaid
-gantt
-    title Sequential: Low device utilization
-    dateFormat X
-    axisFormat %s
-
-    section CPU
-    preprocess       :a1, 0, 2
-    idle              :crit, a2, 2, 12
-    aggregate        :a3, 12, 13
-    idle              :crit, a4, 13, 16
-    decode           :a5, 16, 17
-    idle              :crit, a6, 17, 25
-
-    section GPU (Encoder)
-    idle              :crit, b1, 0, 2
-    image_encoder    :b2, 2, 7
-    audio_encoder    :b3, 7, 12
-    idle              :crit, b4, 12, 25
-
-    section GPU:0 (Thinker)
-    idle              :crit, c1, 0, 13
-    thinker          :c2, 13, 16
-    idle              :crit, c3, 16, 25
-
-    section GPU:1 (Speech)
-    idle              :crit, d1, 0, 17
-    talker_ar        :d2, 17, 20
-    code_predictor   :d3, 20, 22
-    code2wav         :d4, 22, 25
-```
-
-
-
-总时长虽然是 25 个时间单位，但问题不只是“慢”，而是大部分硬件资源都没有被持续利用起来。随着模型越来越大、阶段越来越多，这种串行空转的浪费只会更加明显。
-
-**问题 2：image_encoder 和 audio_encoder 无法并行**
-
-在这个串行写法里，`audio_encoder` 必须等待 `image_encoder` 完成之后才能开始；但两者之间其实**没有直接数据依赖**。也就是说，这里损失的不是实现技巧，而是最基础的拓扑并行性。既然图结构本身允许 fan-out 并行，那么把它强行压成一条线性链路，本身就已经偏离了模型真实的计算图。
-
-**问题 3：没有流式 —— Thinker 必须全部跑完 Talker 才能开始**
-
-这是最关键的一点。串行方案要求 Talker 等 Thinker 把**全部** token 生成完之后再开始工作；但在 Qwen3-Omni 这类 Thinker-Talker 架构里，真正合理的时序并不是“先全部想完，再统一开口”，而是 Thinker 每吐出一个 token，Talker 就立刻消费这个增量，开始向前推进语音生成。
-
-假设 Thinker 生成 100 个 token，每个 token 需要 30ms，Talker 每个 token 合成需要 20ms：
-
-- **串行**：首音延迟 = Thinker 全部完成 (3000ms) + Talker 第一步 (20ms) = **3020ms**
-- **流式并行**：首音延迟 = Thinker 第一个 token (30ms) + Talker 第一步 (20ms) = **50ms** —— 快了 **60 倍**
+所以这里的问题不是“能不能写一个串行函数把它跑通”，而是这种写法天然把 Qwen3-Omni 的并行结构和流式结构都压扁了。它可以作为功能验证，但很难成为一个可扩展的 serving 方案。
 
 ### 为什么要拆成多个 Stage，而不是用一个大循环
 
@@ -278,38 +231,6 @@ Thinker 需要 continuous batching，要管理 KV cache、batch 动态变化和 
 **5. 通信效率**
 
 这里还有一个常见误解：多进程并不自动等于“数据拷来拷去，通信一定很重”。真正合理的做法是让 Stage 之间传的主要是**元信息**，也就是“数据在共享内存或设备内存的哪里”；而真正的大 tensor 走共享内存、CUDA IPC 或 NCCL。这样控制流和数据流被拆开之后，多进程的通信成本并不会像直觉里那么夸张。
-
-总结对比：
-
-**Sequential (single process):**
-
-```mermaid
-graph LR
-    S1["Pre"] --> S2["ImgEnc"] --> S3["AudEnc"] --> S4["Agg"] --> S5["Thinker · (must finish all)"] --> S6["Decode"] --> S7["Talker · (then starts)"] --> S8["..."]
-
-    style S5 fill:#ff6b6b,color:#fff
-    style S7 fill:#ff6b6b,color:#fff
-```
-
-
-
-**Multi-Stage async pipeline:**
-
-```mermaid
-graph LR
-    Pre["Pre CPU"] --> IE["ImgEnc GPU"] & AE["AudEnc GPU"]
-    IE & AE --> Agg["Agg CPU"]
-    Agg --> Th["Thinker GPU:0"]
-    Th -- "per-token stream" --> Tk["Talker GPU:1"]
-    Th --> Dec["Decode CPU"]
-
-    style Th fill:#4a9eff,color:#fff
-    style Tk fill:#51cf66,color:#fff
-```
-
-
-
----
 
 ## SGLang Omni 的解法：多阶段异步流水线
 
