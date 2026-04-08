@@ -1,9 +1,0 @@
-graph LR
-    Config["PipelineConfig · (declarative)"] --> Compile["compile_pipeline() · 1. Allocate ZMQ endpoints · 2. Create Coordinator · 3. Compile each Stage · 4. Wire stream targets"]
-    Compile --> Runtime["Coordinator + · Stage₁...Stage₉"]
-    Runtime --> Start["PipelineRunner.start() · create_task(stage.run()) × 9"]
-
-    style Config fill:#e9ecef,color:#333
-    style Compile fill:#d0ebff,color:#333
-    style Runtime fill:#d3f9d8,color:#333
-    style Start fill:#d3f9d8,color:#333

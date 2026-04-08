@@ -1,6 +1,0 @@
-graph LR
-    EMB["embed_tokens"] --> Layer["layers ×28 · RMSNorm → GQA Attn → RMSNorm → MoE(128e, top-8)"] --> NORM["norm"] --> LM["lm_head → logits"]
-
-    style EMB fill:#74c0fc,color:#fff
-    style Layer fill:#4a9eff,color:#fff
-    style LM fill:#51cf66,color:#fff

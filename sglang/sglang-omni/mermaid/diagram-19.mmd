@@ -1,9 +1,0 @@
-graph LR
-    Input["talker_hidden + · layer-0 code"] --> AR["AR predict · layer 1~15"] --> Codes["16-layer RVQ codes"]
-    AR --> Sum["summed_embeddings"]
-    Codes --> |"stream"| C2W["code2wav"]
-    Sum --> |"feedback"| Talker["talker_ar"]
-
-    style Input fill:#ffa94d,color:#fff
-    style Codes fill:#51cf66,color:#fff
-    style Sum fill:#ff6b6b,color:#fff
