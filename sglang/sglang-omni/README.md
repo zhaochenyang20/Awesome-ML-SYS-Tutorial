@@ -56,7 +56,7 @@
 
 ## Qwen3-Omni 模型架构
 
-Qwen3-Omni 的 Thinker-Talker 双模型架构、Talker / MTP / Code2Wav 的逐帧推理流程，以及它与 Fish Audio S2 Pro 这类 Dual-AR 模型的对比，请参见 `[transformers/omni/readme.md](../../transformers/omni/readme.md)` 中“以 Qwen3-Omni 为代表的 Thinker-Talker 模型推理”一节。那篇文章更偏模型计算流程；本文则把重点放在 serving 与系统实现上，讨论这些模型需求在工程层面到底意味着什么。
+Qwen3-Omni 的 Thinker-Talker 双模型架构、Talker / MTP / Code2Wav 的逐帧推理流程，以及它与 Fish Audio S2 Pro 这类 Dual-AR 模型的对比，请参见 [transformers/omni/readme.md](../../transformers/omni/readme.md) 中“以 Qwen3-Omni 为代表的 Thinker-Talker 模型推理”一节。那篇文章更偏模型计算流程；本文则把重点放在 serving 与系统实现上，讨论这些模型需求在工程层面到底意味着什么。
 
 ## 为什么不能在 SGLang 里直接开发
 
@@ -127,28 +127,13 @@ graph LR
     style CW fill:#51cf66,color:#fff
 ```
 
-如果对照主线 SGLang 当前的实现，边界其实已经很清楚了：
+如果顺着主线 SGLang 现在的代码和文档往下看，它的边界其实比“支不支持 audio”这个问题要清楚得多。官方支持模型列表里已经把 [Qwen3-ASR 放进 `/v1/audio/transcriptions`](https://github.com/sgl-project/sglang/blob/main/docs/supported_models/text_generation/multimodal_language_models.md#L54-L90)，说明 audio transcription 这条路径本来就在主线能力范围内；同一页也明确写着 [Qwen3-Omni 当前只支持 Thinker](https://github.com/sgl-project/sglang/blob/main/docs/supported_models/text_generation/multimodal_language_models.md#L54-L55)，也就是文本、图像、音频、视频理解这半边已经接进来了，但 Talker 对应的语音生成还没有。
 
-| 主线 SGLang 已支持到哪里 | 现在能做什么 | 和完整 Qwen3-Omni 的差距 |
-| ---------------- | ------- | ------------------ |
-| 音频相关模型与编码器 | 已支持多种 audio / multimodal 模型，说明 `encoder` 本身并不是障碍 | 问题不在“能不能接音频”，而在后续生成链路怎么编排 |
-| `/v1/audio/transcriptions` | 已有 Whisper、Qwen3-ASR 这类 ASR 路径 | 这属于 audio understanding / transcription，不是语音生成 |
-| `Qwen3-Omni` 官方支持 | 文档明确写的是 **只支持 Thinker**，也就是文本、图像、音频、视频理解 | **Talker** 这半边的语音生成还没进入主线 |
-| `qwen3_omni_moe.py` 当前实现 | `self.forward = self.thinker.forward`，`enable_talker = False`，加载权重时也会跳过 `talker` 和 `code2wav` | 说明主线现在接入的是 Omni 的理解主干，而不是完整的 speech pipeline |
+这点在实现里也非常直接。[`qwen3_omni_moe.py`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_omni_moe.py#L495-L510) 里当前主线实际暴露的是 `self.forward = self.thinker.forward`，同时 `enable_talker = False`；往后看权重加载逻辑时，[`talker` 和 `code2wav` 也会被显式跳过](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_omni_moe.py#L554-L558)。换句话说，主线现在接入的是 Omni 的理解主干，而不是完整的 speech pipeline。
 
-这点还可以从 `Qwen3-ASR` 的实现里侧面看出来。它复用了 `Qwen3OmniMoeAudioEncoder`，说明主线 SGLang 已经吸收了 Qwen3-Omni 体系里和音频理解相关的一部分能力；但同样，它也会跳过 `talker` 和 `code2wav` 相关权重。这些现象放在一起，基本可以把现状概括成一句话：**SGLang 主线已经支持了 Omni 模型的 Thinker，以及一批 audio understanding 路径，但完整 Qwen3-Omni 还没有被接进来。**
+`Qwen3-ASR` 这边也能说明同样的边界。[`qwen3_asr.py`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_asr.py#L58-L67) 复用了 `Qwen3OmniMoeAudioEncoder`，并且把音频输入接到 [`general_mm_embed_routine`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_asr.py#L111-L127) 这条多模态嵌入路径上；但在权重加载时，它同样会[跳过 `talker` 和 `code2wav`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_asr.py#L159-L160)。所以更准确的说法不是“主线 SGLang 不支持 omni / audio”，而是：它已经支持了 Omni 体系里偏 understanding 的一半，也支持了 ASR 和多模态输入，但完整 Qwen3-Omni 还没有被接进主 runtime。
 
-如果需要对照原始实现，可以直接看这几处：
-
-- [SGLang 官方支持模型列表：Qwen3-Omni 当前只支持 Thinker](https://github.com/sgl-project/sglang/blob/main/docs/supported_models/text_generation/multimodal_language_models.md#L54-L55)
-- [SGLang 官方文档：音频转写 `/v1/audio/transcriptions`](https://github.com/sgl-project/sglang/blob/main/docs/supported_models/text_generation/multimodal_language_models.md#L58-L90)
-- [`qwen3_omni_moe.py`：当前主线实现里 `enable_talker = False`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_omni_moe.py#L495-L510)
-- [`qwen3_omni_moe.py`：加载权重时跳过 `talker` / `code2wav`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_omni_moe.py#L554-L558)
-- [`qwen3_asr.py`：复用 `Qwen3OmniMoeAudioEncoder`，但依然跳过 `talker` / `code2wav`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_asr.py#L58-L67)
-- [`qwen3_asr.py`：音频输入走 `general_mm_embed_routine`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_asr.py#L111-L127)
-- [`qwen3_asr.py`：权重加载时跳过 `talker` / `code2wav`](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/models/qwen3_asr.py#L159-L160)
-
-所以，下面这张对比表要表达的并不是“主线 SGLang 什么都不会”，也不是在批评它的设计，而是强调两套系统的**侧重点不同**：SGLang 主线更擅长把单主干模型和多模态理解路径做得高效稳定；而完整 Qwen3-Omni 会把问题继续推向双主干协同、跨模型状态流和异构调度。
+因此，下面这张对比表想表达的不是“主线 SGLang 什么都不会”，更不是在批评它的设计，而是强调两套系统的**侧重点不同**：SGLang 主线更擅长把单主干模型、多模态理解和高吞吐 serving 做得高效稳定；而完整 Qwen3-Omni 会把问题继续推向双主干协同、跨模型状态流和异构调度。
 
 
 
