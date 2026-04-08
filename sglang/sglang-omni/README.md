@@ -901,54 +901,32 @@ OmniEngine 支持两种执行模式。它们的区别不在于算法逻辑，而
 
 #### Normal 模式 vs Overlap 模式
 
-下面这两张图只画 OmniEngine 内部最关键的时序：CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
+下面不用真实耗时来画，而是只用抽象时间片 `t0 / t1 / t2 ...` 表示先后顺序。CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
 
-```mermaid
-gantt
-    title Normal 模式：每一步都完整走完 schedule -> execute -> update
-    dateFormat X
-    axisFormat %s
+**Normal 模式**
 
-    section CPU / Event Loop
-    schedule N          :a1, 0, 1
-    wait execute N      :a2, 1, 3
-    update N            :a3, 4, 1
-    schedule N+1        :a4, 5, 1
-    wait execute N+1    :a5, 6, 3
-    update N+1          :a6, 9, 1
+| time | CPU / Event Loop | GPU |
+| ---- | ---------------- | --- |
+| `t0` | `schedule(N)` | idle |
+| `t1` | 等 `execute(N)` 返回 | `execute(N)` |
+| `t2` | `update(N)` | idle |
+| `t3` | `schedule(N+1)` | idle |
+| `t4` | 等 `execute(N+1)` 返回 | `execute(N+1)` |
+| `t5` | `update(N+1)` | idle |
 
-    section GPU
-    execute N           :b1, 1, 3
-    gpu idle            :b2, 4, 2
-    execute N+1         :b3, 6, 3
-```
+**Overlap 模式**
 
-```mermaid
-gantt
-    title Overlap 模式：当前步 GPU execute 与上一步 CPU result processing 重叠
-    dateFormat X
-    axisFormat %s
-
-    section CPU / Event Loop
-    schedule 0              :c1, 0, 1
-    wait execute 0          :c2, 1, 3
-    buffer result 0         :c3, 4, 1
-    schedule 1              :c4, 5, 1
-    process result 0        :c5, 6, 1
-    wait execute 1          :c6, 7, 2
-    buffer result 1         :c7, 9, 1
-    schedule 2              :c8, 10, 1
-    process result 1        :c9, 11, 1
-    wait execute 2          :c10, 12, 2
-    buffer result 2         :c11, 14, 1
-
-    section GPU
-    execute 0               :d1, 1, 3
-    gpu idle                :d2, 4, 2
-    execute 1               :d3, 6, 3
-    gpu idle                :d4, 9, 2
-    execute 2               :d5, 11, 3
-```
+| time | CPU / Event Loop | GPU |
+| ---- | ---------------- | --- |
+| `t0` | `schedule(0)` | idle |
+| `t1` | 等 `execute(0)` 返回 | `execute(0)` |
+| `t2` | `buffer result(0)` | idle |
+| `t3` | `schedule(1)` | idle |
+| `t4` | `_process_pending_result(0)` | `execute(1)` |
+| `t5` | `buffer result(1)` | idle |
+| `t6` | `schedule(2)` | idle |
+| `t7` | `_process_pending_result(1)` | `execute(2)` |
+| `t8` | `buffer result(2)` / drain | idle |
 
 换句话说，真正 overlap 的不是“Step N 里的所有动作”，而只是：
 
