@@ -132,15 +132,15 @@ graph LR
 
 | SGLang 的假设 | Qwen3-Omni 的需求                                                           | 冲突          |
 | ---------- | ------------------------------------------------------------------------ | ----------- |
-| 单一模型       | 5+ 个独立模型（Thinker, Talker, Code Predictor, Image/Audio Encoder, Vocoder）  | 根本性不同       |
-| 单一 GPU     | 多 GPU 异构部署（Thinker 在 GPU:0，Talker 在 GPU:1，编码器共享 GPU）                     | 需要跨 GPU 通信  |
-| 线性请求流      | DAG 拓扑：fan-out（Thinker → decode + talker_ar）、fan-in（编码器 → aggregate）     | 需要复杂路由      |
-| 请求独立       | 模型间有流式依赖（Thinker 逐 token 喂给 Talker）和双向反馈（Talker ↔ Code Predictor）        | 需要流式通道和反馈机制 |
-| 单一输出       | 双终端输出（文本 + 语音），需等两路都完成                                                   | 需要完成聚合      |
-| 统一调度       | 不同模型需要不同调度策略（Thinker 需要 continuous batching，Code Predictor 只需简单 forward） | 需要异构调度      |
+| 单一模型       | 多个执行单元协作，但核心压力集中在 Thinker / Talker 双主干                                   | 更像多模型时序编排   |
+| 单一 GPU     | 多 GPU 异构部署，或进一步讨论 Thinker / Talker 同 GPU placement                        | 需要 placement 与资源协同 |
+| 线性请求流      | DAG 拓扑只是表象，真正关键的是带因果依赖的时序推进                                           | 关键是时序编排而非静态路由 |
+| 请求独立       | 模型间有增量依赖（Thinker 逐 token 喂给 Talker）和双向反馈（Talker ↔ Code Predictor）         | 需要跨模型流式状态协同 |
+| 单一输出       | 双终端输出（文本 + 语音），需等两路都完成                                                   | 需要终态聚合      |
+| 统一调度       | Thinker / Talker 是重调度对象，Code Predictor 等模块只需轻量执行                          | 需要分层异构调度    |
 
 
-【TODO：这几个认知有很多错的，首先，sglang 当ker 放到同一个 GPU 上，二者各自的 KV cache 大小是个非常有趣的问题；不一定各占一半就是最优】然支持 vocoder encoder 啥的，MTP 也不是问题，这些都不本质；我觉得最本质的问题是，Thinker 和 Talker 是两个几乎等同大小的模型，在 placement 上其实很值得思考；而且，我有个很强的感觉，如果我们能做到 thinker tal
+【TODO：这几个认知有很多错的，首先，sglang 当然支持 vocoder encoder 啥的，MTP 也不是问题，这些都不本质；我觉得最本质的问题是，Thinker 和 Talker 是两个几乎等同大小的模型，在 placement 上其实很值得思考；而且，我有个很强的感觉，如果我们能做到 thinker talker 放到同一个 GPU 上，二者各自的 KV cache 大小是个非常有趣的问题；不一定各占一半就是最优】
 
 【请求流是个非常重要的问题，本质上是时序图很重要？】
 
@@ -150,19 +150,19 @@ graph LR
 
 【调度上，Talker 的调度应该远比起 code predictor 重要；我猜测 talker 的调度可以和 thinker 差不多】
 
-如果把上面这张表当作一个 checklist，接下来真正要问的就不是“这些需求存不存在”，而是“这些需求落到 serving framework 里之后，分别对应什么样的抽象压力”。从这个角度看，Qwen3-Omni 的难点并不只是组件数量多，而是这些组件之间的协作方式本身已经超出了 SGLang 原本那套“单模型、单请求流、单终态”的默认前提。更具体地说，至少有下面几类需求，在 SGLang 里还没有直接对应的抽象：
+如果把上面这张表当作一个 checklist，接下来真正要问的就不是“这些需求存不存在”，而是“哪些才是决定系统形态的核心压力”。从这个角度看，Qwen3-Omni 的难点并不主要在于 encoder、vocoder 或 MTP 这类组件能不能被支持，而在于 serving 问题已经从单模型推理扩展成了多模型时序协同。真正值得仔细讨论的，是 Thinker 和 Talker 这两个接近同量级模型如何做 placement，以及它们之间的增量信息流如何被调度。
 
-**1. 多模型编排**：SGLang 的 Scheduler 管理的是一个模型的请求队列。Qwen3-Omni 需要同时运行多个模型，每个模型有自己的调度器，且模型之间有数据依赖。
+**1. Thinker / Talker 的 placement 与资源切分**：最本质的问题不是“模型数量多”，而是 Thinker 和 Talker 这两个重型 decode 主干如何放置。如果它们跨 GPU 部署，问题会落在跨设备传输和节奏协同；如果它们共用一张 GPU，问题又会变成显存切分、KV cache 大小、带宽竞争以及 decode 节奏的相互影响。这里真正难的是资源协同，而不是简单的“多模型”三个字。
 
-**2. 跨模型流式传输**：Thinker 生成一个 token 后，其 hidden states 需要**实时流式**传给 Talker。SGLang 没有模型间的流式数据通道。
+**2. 时序图而不只是 DAG**：fan-out / fan-in 只是静态拓扑的描述，真正决定运行时复杂度的是时序图。Thinker 的 token 什么时候可以交给 Talker，aggregate 什么时候才算 ready，Talker 什么时候必须等待 feedback，这些都属于带因果约束的时序推进问题。换句话说，难点不是“有没有分叉和汇聚”，而是这些分叉和汇聚在时间上如何被正确编排。
 
-**3. 反馈环路**：Talker 和 Code Predictor 之间存在双向通信——Talker 发出 codec token，Code Predictor 处理后返回 feedback，Talker 才能继续。这种"请求暂停等待外部输入"的模式在 SGLang 的调度器中不存在。
+**3. 跨模型的增量状态传递**：单纯的 client-facing streaming 并不新鲜，SGLang 当然支持流式请求。真正新的地方在于模型和 stage 之间的增量状态传递：Thinker 逐 token 产出，Talker 增量消费，必要时还要处理背压、缓存和恢复。这不是“能不能 stream”的问题，而是“能不能把流式状态安全地跨模型传下去”的问题。
 
-**4. 异构计算图**：预处理在 CPU，编码器在 GPU，且 image_encoder 和 audio_encoder 需要并行执行后汇聚结果。SGLang 没有 fan-in/fan-out 的路由机制。
+**4. Feedback 环路与执行恢复**：Talker 和 Code Predictor 之间的双向反馈，要求系统支持“生成一步 -> 暂停 -> 等外部结果 -> 恢复继续跑”的执行模式。这比单向流式传输更进一步，因为 runtime 不只是在搬数据，还要显式管理请求状态、暂停点和恢复点。
 
-**5. 多终端完成**：一个请求同时产出文本和语音两个结果，需要等两个终端 Stage 都完成后才能返回。SGLang 的请求生命周期是"一次完成"。
+**5. 双终态聚合与分层调度**：文本和语音双输出确实是个区别，但它更像 runtime / coordinator 层的问题，相对直接；真正更值得区分的是调度层次。Thinker 和 Talker 都是需要持续 decode、维护 KV cache、控制节奏的重调度对象，而 Code Predictor、Vocoder、部分 encoder 更像轻量执行单元。也就是说，系统并不是“每个模块都需要同等级别的 scheduler”，而是需要一套分层的异构调度观。
 
-需要强调的是，这里的结论不是“这些能力绝对不能做进 SGLang”，而是“如果把这些能力全部内化到 SGLang 原有框架里，复杂度会涨得非常快”。因为一旦开始支持多模型编排、跨模型流式传输、反馈环路和多终端完成，调度器本身就不再只是一个单模型队列管理器，而会逐渐演化成一个通用的工作流编排器。走到这一步，本质上已经是在 SGLang 内部再造一层 orchestration framework 了。这样做一方面会破坏原本的简洁边界，另一方面也未必真能换来更好的通用性。
+需要强调的是，这里的结论不是“这些能力绝对不能做进 SGLang”，而是“如果把这些问题全部内化到 SGLang 原有框架里，复杂度会涨得非常快”。因为一旦开始认真处理 Thinker / Talker placement、跨模型增量状态、feedback 恢复、双终态聚合和分层调度，调度器本身就不再只是一个单模型队列管理器，而会逐渐演化成一个通用的时序编排器。走到这一步，本质上已经是在 SGLang 内部再造一层 orchestration framework 了。这样做一方面会破坏原本的简洁边界，另一方面也未必真能换来更好的通用性。
 
 【TODO：部分同意。我对这些挑剔比较厉害，不是因为我喜欢死磕细节，而是我想最大程度复用 sglang 的已有抽象。包括我们可能把 encode 部分都会完全使用 sglang。in short，我认为不应过度高估这个任务的复杂度。和 RL 系统一样，越简洁的越有力。】
 
