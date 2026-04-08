@@ -919,26 +919,13 @@ OmniEngine 支持两种执行模式。它们的区别不在于算法逻辑，而
 
 #### Normal 模式 vs Overlap 模式
 
-下面这两张图只表达先后关系，不表达真实耗时。CPU lane 表示 engine 线程里的 `schedule / update / _process_pending_result`，GPU lane 表示 `model_runner.execute()` 对应的 forward。
+如果想更直观地理解这种“CPU 提前准备下一轮、GPU 持续跑当前轮”的流水线化，可以直接看 LMSYS 在 SGLang v0.4 blog 里给出的示意图：
 
-```text
-Normal 模式
+![SGLang v0.4 zero-overhead batch scheduler](../zero-overhead-scheduler/image/sgl_blog_pipeline.png)
 
-time ->   t0                t1                  t2              t3                  t4                    t5
-CPU    ──[ schedule(N) ]──>[ wait execute(N) ]->[ update(N) ]──>[ schedule(N+1) ]──>[ wait execute(N+1) ]->[ update(N+1) ]
-GPU    ──[ idle        ]──>[ execute(N)      ]->[ idle      ]──>[ idle          ]──>[ execute(N+1)      ]->[ idle        ]
-```
+来源：[SGLang v0.4: Zero-Overhead Batch Scheduler, Cache-Aware Load Balancer, Faster Structured Outputs](https://www.lmsys.org/blog/2024-12-04-sglang-v0-4/)
 
-```text
-Overlap 模式
-
-time ->   t0                t1                  t2                    t3                t4                     t5                    t6                t7                     t8
-CPU    ──[ schedule(0) ]──>[ wait execute(0) ]->[ buffer result(0) ]──>[ schedule(1) ]──>[ process result(0) ]──>[ buffer result(1) ]──>[ schedule(2) ]──>[ process result(1) ]──>[ buffer result(2) ]
-GPU    ──[ idle        ]──>[ execute(0)      ]->[ idle             ]──>[ idle        ]──>[ execute(1)        ]──>[ idle             ]──>[ idle        ]──>[ execute(2)        ]──>[ idle             ]
-
-                                           overlap #1: execute(1)  <->  process result(0)
-                                                                                 overlap #2: execute(2)  <->  process result(1)
-```
+这张图画的是通用的 scheduler 视角：CPU 侧交替做 launch / process / prepare，GPU 侧持续执行 compute / sample。放回 OmniEngine 的语境里，可以把它近似理解为：GPU 正在跑 `execute(N)` 的同时，CPU 在处理上一轮缓存在主线程里的 `_process_pending_result(N-1)`，并顺手为下一轮调度做准备。
 
 换句话说，真正 overlap 的不是“Step N 里的所有动作”，而只是：
 
