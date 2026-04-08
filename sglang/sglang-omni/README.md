@@ -358,6 +358,8 @@ Variants = {
 2. **收发室（完成聚合）**：等终点 Stage（`decode` 和 `code2wav`）都报告完成，合并 `partial_results` 返回给用户。只有一个终点完成时继续等另一个。
 3. **广播站（Abort）**：用户断开连接时，通过 PUB/SUB 广播给所有 Stage "这个请求不用做了"。因为不知道请求在哪个 Stage，所以广播给所有人。
 
+【TODO：这个我们当前实现了么，这个退出队列机制应该在每个 stage 都得实现？而且得防止那种，某个阶段不能停，还得传给下个阶段的情况，类似 encoder 不能停，死活都得发给 Thinker】
+
 ```mermaid
 graph LR
     Client["Client"] --> |"submit / stream"| CO["Coordinator"]
@@ -390,17 +392,29 @@ graph LR
 
 之所以必须拆成两层，是因为“通知”和“数据”在通信特征上完全不是一回事。ZMQ 适合小控制消息，不适合搬大 tensor；共享内存和 CUDA IPC 适合大数据传输，但不适合承担复杂的路由通知。把两者硬糅在一起，最后通常两边都做不好。
 
-Relay 使用 **credit 机制**管理共享内存 slot：预分配 N 个 slot（比如 2 个 × 64MB），写满了就等下游读完释放。这也是为什么下游收到 `DataReadyMessage` 后要尽快读出来——释放 credit 让上游继续发。
+Relay 使用 **credit 机制**管理共享内存 slot。本质上就是一个经典的**信号量（semaphore）**，用于生产者-消费者流控：
+
+- 上下游之间预分配固定数量的共享内存 slot（比如 2 个，每个 64MB）。"credit" 就是"当前可用的空 slot 数"。
+- **上游要写数据**：先拿一个 credit（可用 slot 数 -1），往对应 slot 写 tensor 数据，然后通过 ZMQ 发 `DataReadyMessage` 通知下游。
+- **下游读完数据**：释放这个 credit（可用 slot 数 +1），上游就能复用这个 slot 继续写。
+- **credit 耗尽时**（比如 2 个 slot 都写满了、下游还没读）：上游阻塞等待，形成**背压（backpressure）**。
+
+这也是为什么下游收到 `DataReadyMessage` 后要尽快读出来——释放 credit 让上游继续发，否则上游会卡住。
+
+为什么选 credit 机制而非其他方案？常见的替代方案有：
+
+1. **Ring buffer**：固定大小的环形缓冲区，读写各维护一个指针，写追上读就阻塞。本质也是有界队列，但不需要显式的 credit 计数，靠指针位置判断满/空。
+2. **无背压丢弃**：上游写满了直接丢掉新数据（或覆盖最旧的），适合实时场景（比如视频帧），但推理管线里丢 token 显然不行。
+3. **动态分配**：不预分配固定 slot，每次 malloc 一块新内存，用完 free。灵活但碎片化严重，共享内存场景下管理成本高。
+4. **无界队列**：不限容量，上游随便写。简单但没有流控，如果下游慢了内存会爆。
+
+对于跨进程共享内存传大 tensor 的场景，预分配固定 slot + 信号量计数是最自然的选择——内存块大小固定、数量可控、零碎片、实现简单。
 
 ### Control Plane
 
 [ControlPlane](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/pipeline/control_plane.py) 基于 ZMQ 实现进程间通信。它没有试图做成一个“大而全”的消息系统，而是非常克制地只使用了两种消息模式，各自解决不同的问题：
 
-**PUSH/PULL（点对点）**：用于 Stage 之间和 Stage 与 Coordinator 之间的定向消息传递。接收方 bind（地址固定，先启动），发送方 connect（可动态加入）。
-
-**PUB/SUB（广播）**：用于 Coordinator 向所有 Stage 广播 abort 信号。Coordinator 的 PUB socket bind，各 Stage 的 SUB socket connect，一条消息所有 Stage 同时收到。
-
-**PUSH/PULL (point-to-point):**
+**PUSH/PULL（点对点）**：用于 Stage 之间或者 Stage 与 Coordinator 之间的定向消息传递。接收方 bind（地址固定，先启动），发送方 connect（可动态加入）。
 
 ```mermaid
 graph LR
@@ -412,9 +426,7 @@ graph LR
     style PB fill:#ff6b6b,color:#fff
 ```
 
-
-
-**PUB/SUB (broadcast):**
+**PUB/SUB（广播）**：用于 Coordinator 向所有 Stage 广播 abort 信号。Coordinator 的 PUB socket bind，各 Stage 的 SUB socket connect，一条消息所有 Stage 同时收到。
 
 ```mermaid
 graph LR
@@ -426,9 +438,6 @@ graph LR
     style SUB3 fill:#ffa94d,color:#fff
 ```
 
-
-
-
 | 消息类型               | 模式        | 方向                           | 用途               |
 | ------------------ | --------- | ---------------------------- | ---------------- |
 | `SubmitMessage`    | PUSH/PULL | Coordinator → 入口 Stage       | 初始请求提交           |
@@ -438,6 +447,8 @@ graph LR
 | `AbortMessage`     | PUB/SUB   | Coordinator → 所有 Stage       | 请求取消             |
 | `ShutdownMessage`  | PUSH/PULL | Coordinator → Stage          | 关闭信号             |
 
+
+【TODO：这个 ShutdownMessage 是干嘛的，和 abort 有什么区别？】
 
 在代码层面，Control Plane 被拆成两个实现，分别服务于 Coordinator 端和 Stage 端：
 
@@ -639,7 +650,7 @@ sequenceDiagram
     CO->>C: Return {text + audio}
 ```
 
-
+【TODO：这上面这部分真的垃圾，写成这样令人羞耻，jingwen 的设计会好很多。等他具体把他的 2 设计拿出来吧，stage 下面最多再走两层】
 
 ### Stage 1: Preprocessing（预处理）
 
@@ -684,6 +695,8 @@ graph LR
 - 支持 500-token chunk 流式处理
 
 两个编码器彼此独立推进，分别把结果送到 `aggregate`。从拓扑上看，这一步正好构成前文 fan-in 的前半段：先分头编码，再在聚合点重新会合。
+
+【TODO：我对 audio encoding 只熟悉 RVQ 😂，当黑盒使用了】
 
 ### Stage 4: Aggregate（聚合）
 
@@ -775,11 +788,15 @@ graph LR
   - `thinker_embeds`: token embeddings
   - `thinker_hidden[layer_24]`: 第 24 层的 hidden states（供 Talker 做跨模态对齐）
 
+
 ### Stage 6: Decode（解码输出）
 
 **设备**: CPU（Terminal Stage）
 
 Decode 阶段相对直接：把 Thinker 的 `output_ids` 还原为文本，并组织成最终响应。它本身不是复杂计算节点，但它承担了一个 Terminal Stage 的职责，因此会参与最终结果聚合。
+
+
+  【TODO：；这个应该叫做 detokenize 吧，token id 回到 token 作为流式输出的一部分】
 
 ### Stage 7-9: Speech Pipeline（语音生成流水线）
 
@@ -845,6 +862,7 @@ graph LR
     style Sum fill:#ff6b6b,color:#fff
 ```
 
+【TODO：草率了，没讲这是干嘛的。当然，其实这个整个部分都可以去掉】
 
 
 #### Stage 9: Code2Wav
