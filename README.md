@@ -1,5 +1,6 @@
 # Awesome-ML-SYS-Tutorial
 
+- [Gitstar](https://dev.gitstar.ai?utm_medium=github_readme&utm_source=awesome_list&utm_campaign=zhaochenyang20_Awesome-ML-SYS-Tutorial) - Follow experienced devs on GitHub and see what repos they find worth starring. Great for learning.
 ## [English Version](./README.md) | [Chinese Version](./README-cn.md)
 
 My learning notes for ML SYS.
