@@ -1,0 +1,1195 @@
+{
+  "version": "1.0",
+  "generated": "2026-03-19",
+  "articles": [
+    {
+      "id": "slime-vlm-multi-turn",
+      "path": "rlhf/slime/vlm-multi-turn/readme.md",
+      "title": "从第一性原理出发，统一 VLM 与 LLM 的 Multi-Turn Agentic RL",
+      "topics": [
+        "slime",
+        "VLM",
+        "LLM",
+        "multi-turn",
+        "agentic-rl",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/slime/int4/readme.md",
+        "rlhf/slime/fp8/readme.md",
+        "rlhf/slime/spec/readme.md"
+      ],
+      "referenced_by": [],
+      "series": "slime",
+      "series_order": 1,
+      "prerequisites": [
+        "rlhf/slime/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1999486437280745217",
+        "github_en": "rlhf/slime/vlm-multi-turn/readme-en.md"
+      }
+    },
+    {
+      "id": "slime-int4",
+      "path": "rlhf/slime/int4/readme.md",
+      "title": "致敬 Kimi K2：基于 slime 的全流程 INT4 量化感知训练方案",
+      "topics": [
+        "slime",
+        "INT4",
+        "QAT",
+        "quantization",
+        "MoE",
+        "Kimi-K2",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/slime/vlm-multi-turn/readme.md",
+        "rlhf/slime/fp8/readme.md",
+        "rlhf/slime/spec/readme.md"
+      ],
+      "referenced_by": [
+        "rlhf/slime/vlm-multi-turn/readme.md"
+      ],
+      "series": "slime",
+      "series_order": 2,
+      "prerequisites": [
+        "rlhf/slime/code-walk-through/readme.md",
+        "rlhf/slime/fp8/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1999403679393014924",
+        "github_en": "rlhf/slime/int4/readme-en.md"
+      }
+    },
+    {
+      "id": "slime-mismatch",
+      "path": "rlhf/slime/mismatch/blog-cn.md",
+      "title": "让速度与精度同在：全面解决 RL 中的训推不一致问题",
+      "topics": [
+        "slime",
+        "training-inference-mismatch",
+        "on-policy",
+        "importance-sampling",
+        "MIS",
+        "TIS",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/slime/spec/readme.md",
+        "rlhf/slime/fp8/readme.md",
+        "rlhf/slime/fsdp/readme.md"
+      ],
+      "referenced_by": [],
+      "series": "slime",
+      "series_order": 3,
+      "prerequisites": [
+        "rlhf/slime/code-walk-through/readme.md",
+        "rlhf/slime/fsdp/readme.md"
+      ],
+      "external_links": {
+        "github_en": "rlhf/slime/mismatch/blog-en.md"
+      }
+    },
+    {
+      "id": "slime-fsdp",
+      "path": "rlhf/slime/fsdp/readme.md",
+      "title": "Support FSDP2 as A Training Backend for slime",
+      "topics": [
+        "slime",
+        "FSDP",
+        "FSDP2",
+        "training-backend",
+        "Megatron",
+        "VLM",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/sys-design/readme-2.md"
+      ],
+      "referenced_by": [
+        "rlhf/slime/mismatch/blog-cn.md"
+      ],
+      "series": "slime",
+      "series_order": 4,
+      "prerequisites": [
+        "rlhf/sys-design/readme-2.md",
+        "rlhf/slime/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1979141713449742500",
+        "github_en": "rlhf/slime/fsdp/readme_en.md"
+      }
+    },
+    {
+      "id": "slime-fp8",
+      "path": "rlhf/slime/fp8/readme.md",
+      "title": "Unified FP8: Moving Beyond Mixed Precision for Stable and Accelerated MoE RL",
+      "topics": [
+        "slime",
+        "FP8",
+        "mixed-precision",
+        "MoE",
+        "quantization",
+        "reinforcement-learning",
+        "Tensor-Core"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/slime/spec/readme.md"
+      ],
+      "referenced_by": [
+        "rlhf/slime/vlm-multi-turn/readme.md",
+        "rlhf/slime/int4/readme.md",
+        "rlhf/slime/mismatch/blog-cn.md"
+      ],
+      "series": "slime",
+      "series_order": 5,
+      "prerequisites": [
+        "rlhf/slime/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1974681194017865986",
+        "github_en": "rlhf/slime/fp8/readme_en.md"
+      }
+    },
+    {
+      "id": "slime-spec",
+      "path": "rlhf/slime/spec/readme.md",
+      "title": "Power Up Speculative Decoding In Reinforcement Learning",
+      "topics": [
+        "slime",
+        "speculative-decoding",
+        "draft-model",
+        "MTP",
+        "EAGLE",
+        "reinforcement-learning",
+        "sampling"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/slime/vlm-multi-turn/readme.md",
+        "rlhf/slime/int4/readme.md",
+        "rlhf/slime/fp8/readme.md",
+        "rlhf/slime/mismatch/blog-cn.md"
+      ],
+      "series": "slime",
+      "series_order": 6,
+      "prerequisites": [
+        "rlhf/slime/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "github_en": "rlhf/slime/spec/readme-en.md"
+      }
+    },
+    {
+      "id": "slime-code-walk-through",
+      "path": "rlhf/slime/code-walk-through/readme.md",
+      "title": "深入浅出 slime RL 框架的优雅设计与源码",
+      "topics": [
+        "slime",
+        "code-walkthrough",
+        "architecture",
+        "Megatron",
+        "SGLang",
+        "Ray",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/slime/vlm-multi-turn/readme.md",
+        "rlhf/slime/int4/readme.md",
+        "rlhf/slime/fp8/readme.md",
+        "rlhf/slime/spec/readme.md",
+        "rlhf/slime/fsdp/readme.md",
+        "rlhf/slime/mismatch/blog-cn.md"
+      ],
+      "series": "slime",
+      "series_order": 7,
+      "prerequisites": [
+        "rlhf/verl/readme.md",
+        "sglang/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1946402397409740613",
+        "github_en": "rlhf/slime/code-walk-through/readme_en.md"
+      }
+    },
+    {
+      "id": "areal-code-walk-through",
+      "path": "rlhf/areal/code-walk-through_CN.md",
+      "title": "AReal Code Walk Through",
+      "topics": [
+        "AReal",
+        "code-walkthrough",
+        "async-training",
+        "reinforcement-learning",
+        "GRPO"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/verl/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1983417813080236770",
+        "github_en": "rlhf/areal/code-walk-through_EN.md"
+      }
+    },
+    {
+      "id": "sys-design-moe-ep-fsdp",
+      "path": "rlhf/sys-design/readme-4.md",
+      "title": "深入浅出 DeepSeek MoE，EP 与 FSDP 经典二次开发",
+      "topics": [
+        "DeepSeek",
+        "MoE",
+        "expert-parallelism",
+        "FSDP",
+        "all-to-all",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "sglang/scheduler/readme.md"
+      ],
+      "series": "rl-sys-deep-dive",
+      "series_order": 4,
+      "prerequisites": [
+        "rlhf/sys-design/readme-2.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1990790333823481023",
+        "github_en": "rlhf/sys-design/readme-4-en.md"
+      }
+    },
+    {
+      "id": "sys-design-weight-update",
+      "path": "rlhf/sys-design/readme-1.md",
+      "title": "RL 系统深思：深入理解权重更新机制",
+      "topics": [
+        "weight-update",
+        "verl",
+        "slime",
+        "co-locate",
+        "FSDP",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "sglang/scheduler/readme.md"
+      ],
+      "series": "rl-sys-deep-dive",
+      "series_order": 1,
+      "prerequisites": [
+        "rlhf/verl/readme.md",
+        "rlhf/OpenRLHF/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1925210722704531547",
+        "github_en": "rlhf/sys-design/readme-1-EN.md"
+      }
+    },
+    {
+      "id": "sys-design-fsdp",
+      "path": "rlhf/sys-design/readme-2.md",
+      "title": "RL 系统深思：FSDP 训练后端",
+      "topics": [
+        "FSDP",
+        "DDP",
+        "DeepSpeed",
+        "ZeRO",
+        "training-backend",
+        "verl",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/slime/fsdp/readme.md",
+        "sglang/scheduler/readme.md"
+      ],
+      "series": "rl-sys-deep-dive",
+      "series_order": 2,
+      "prerequisites": [
+        "torch/torch-distributed/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1929115059113693341",
+        "github_en": "rlhf/sys-design/readme-2-en.md"
+      }
+    },
+    {
+      "id": "sys-design-rdma",
+      "path": "rlhf/sys-design/readme-5.md",
+      "title": "一文速览 RL 场景下基于 RDMA 方案的权重传输设计",
+      "topics": [
+        "RDMA",
+        "NCCL",
+        "weight-transfer",
+        "disaggregated-training",
+        "Miles",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": "rl-sys-deep-dive",
+      "series_order": 5,
+      "prerequisites": [
+        "rlhf/sys-design/readme-1.md",
+        "torch/nccl/readme.md"
+      ],
+      "external_links": {
+        "github_en": "rlhf/sys-design/readme-5-en.md"
+      }
+    },
+    {
+      "id": "openrlhf-develop-log",
+      "path": "rlhf/OpenRLHF/develop-log.md",
+      "title": "扩展 OpenRLHF 的推理引擎",
+      "topics": [
+        "OpenRLHF",
+        "SGLang",
+        "integration",
+        "NCCL",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/OpenRLHF/readme.md"
+      ],
+      "external_links": {}
+    },
+    {
+      "id": "openrlhf-readme",
+      "path": "rlhf/OpenRLHF/readme.md",
+      "title": "浅析以 OpenRLHF 为代表的 post-training 系统的计算流程",
+      "topics": [
+        "OpenRLHF",
+        "RLHF",
+        "PPO",
+        "post-training",
+        "computation-flow",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/verl/readme.md",
+        "rlhf/sys-design/readme-1.md"
+      ],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/16370000391"
+      }
+    },
+    {
+      "id": "verl-mem-snapshot",
+      "path": "torch/mem-snapshot/readme.md",
+      "title": "通过 Torch Memory Snapshot 分析 VLM RL 训练中的显存泄露问题",
+      "topics": [
+        "memory-leak",
+        "VLM",
+        "torch-memory-snapshot",
+        "SGLang",
+        "debugging",
+        "CUDA"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1943202817247519535",
+        "github_en": "torch/mem-snapshot/readme-en.md"
+      }
+    },
+    {
+      "id": "verl-latency-weight-updates",
+      "path": "sglang/latency-accelerate-for-weight-updates/readme.md",
+      "title": "Latency optimization for weight updates",
+      "topics": [
+        "SGLang",
+        "weight-update",
+        "latency",
+        "optimization",
+        "debugging"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/9908228168",
+        "github_cn": "sglang/latency-accelerate-for-weight-updates/readme-CN.md"
+      }
+    },
+    {
+      "id": "verl-code-walk-through-1",
+      "path": "rlhf/verl/multi-turn/code-walk-through/readme.md",
+      "title": "深入浅出理解 verl 源码（初始化）",
+      "topics": [
+        "verl",
+        "code-walkthrough",
+        "initialization",
+        "FSDP",
+        "SGLang",
+        "multi-turn",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "sglang/code-walk-through/readme.md"
+      ],
+      "referenced_by": [
+        "torch/cuda-graph/readme.md"
+      ],
+      "series": "verl-code-walk-through",
+      "series_order": 1,
+      "prerequisites": [
+        "rlhf/verl/readme.md",
+        "sglang/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1920751852749849692",
+        "github_en": "rlhf/verl/multi-turn/code-walk-through/readme_EN.md"
+      }
+    },
+    {
+      "id": "verl-code-walk-through-2",
+      "path": "rlhf/verl/multi-turn/code-walk-through/readme-2.md",
+      "title": "深入浅出理解 verl 源码（Rollout）",
+      "topics": [
+        "verl",
+        "code-walkthrough",
+        "rollout",
+        "SGLang",
+        "multi-turn",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "referenced_by": [],
+      "series": "verl-code-walk-through",
+      "series_order": 2,
+      "prerequisites": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1923349757566388159",
+        "github_en": "rlhf/verl/multi-turn/code-walk-through/readme-2-EN.md"
+      }
+    },
+    {
+      "id": "verl-agent-loop",
+      "path": "rlhf/verl/multi-turn/code-walk-through/readme-6.md",
+      "title": "AgentLoop 源码浅析",
+      "topics": [
+        "verl",
+        "AgentLoop",
+        "multi-turn",
+        "code-walkthrough",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "referenced_by": [],
+      "series": "verl-code-walk-through",
+      "series_order": 6,
+      "prerequisites": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "external_links": {}
+    },
+    {
+      "id": "verl-params",
+      "path": "rlhf/verl/multi-turn/code-walk-through/readme-5.md",
+      "title": "verl 参数速览",
+      "topics": [
+        "verl",
+        "parameters",
+        "configuration",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": "verl-code-walk-through",
+      "series_order": 5,
+      "prerequisites": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1925041836998783250",
+        "github_en": "rlhf/verl/multi-turn/code-walk-through/readme-5-EN.md"
+      }
+    },
+    {
+      "id": "verl-tokenizer",
+      "path": "rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking_ZH.md",
+      "title": "从 tokenizer 视角来分析 Agentic 多轮训练的复杂性",
+      "topics": [
+        "verl",
+        "tokenizer",
+        "multi-turn",
+        "loss-mask",
+        "agentic",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": "verl-code-walk-through",
+      "series_order": 4,
+      "prerequisites": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1917126584806139373",
+        "github_en": "rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking.md"
+      }
+    },
+    {
+      "id": "verl-profile",
+      "path": "rlhf/verl/multi-turn/tool_examples/profile.md",
+      "title": "系统性分析 verl multi-turn training 的时间消耗",
+      "topics": [
+        "verl",
+        "profiling",
+        "multi-turn",
+        "tool-calling",
+        "performance",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1929748460212552414",
+        "github_en": "rlhf/verl/multi-turn/tool_examples/profile_en.md"
+      }
+    },
+    {
+      "id": "verl-multiturn-release",
+      "path": "rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md",
+      "title": "SGLang, verl, OpenBMB 与清华大学团队联合开源：在主流 RLHF 框架上首次支持多轮交互与工具调用",
+      "topics": [
+        "verl",
+        "SGLang",
+        "multi-turn",
+        "tool-calling",
+        "release",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1906007821889283171"
+      }
+    },
+    {
+      "id": "verl-search-r1",
+      "path": "rlhf/verl/multi-turn/tool_examples/verl-multiturn-searchR1-like_ZH.md",
+      "title": "Search-R1 & veRL-SGLang: Train LLMs with Multi-Turn RL to Reason and Call a Search Engine",
+      "topics": [
+        "verl",
+        "SGLang",
+        "Search-R1",
+        "multi-turn",
+        "search-engine",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [
+        "rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md"
+      ],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/verl/multi-turn/release_log/verl-multiturn-rollout-Release_ZH.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1912156329751081620"
+      }
+    },
+    {
+      "id": "verl-server-based",
+      "path": "rlhf/verl/server-based/veRL-server-based-rollout.md",
+      "title": "SGLang-veRL Server：从 Engine 到 Server，我们需要更灵活的 RLHF rollout 接口",
+      "topics": [
+        "verl",
+        "SGLang",
+        "server",
+        "rollout",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/verl/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1890631652486665464"
+      }
+    },
+    {
+      "id": "verl-readme",
+      "path": "rlhf/verl/readme.md",
+      "title": "HybridFlow veRL 原文浅析",
+      "topics": [
+        "verl",
+        "HybridFlow",
+        "hybrid-engine",
+        "single-controller",
+        "multi-controller",
+        "RLHF",
+        "reinforcement-learning"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [
+        "rlhf/OpenRLHF/readme.md"
+      ],
+      "referenced_by": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md",
+        "rlhf/verl/server-based/veRL-server-based-rollout.md",
+        "rlhf/sys-design/readme-1.md",
+        "rlhf/slime/code-walk-through/readme.md"
+      ],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/OpenRLHF/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/24682036412"
+      }
+    },
+    {
+      "id": "kimi-k15",
+      "path": "rlhf/partial-rollout/readme.md",
+      "title": "Kimi K1.5: Long Context RL 的成功实践",
+      "topics": [
+        "Kimi",
+        "long-context",
+        "partial-rollout",
+        "reinforcement-learning",
+        "paper-reading"
+      ],
+      "depth": "summary",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1894282607325344277"
+      }
+    },
+    {
+      "id": "sglang-diffusion-llm",
+      "path": "sglang/diffusion-llm/readme.md",
+      "title": "基于 SGLang Chunked-Prefill 支持 Block-Wise Diffusion LLM",
+      "topics": [
+        "SGLang",
+        "diffusion-LLM",
+        "LLaDA",
+        "chunked-prefill",
+        "dLLM"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": "sglang-diffusion",
+      "series_order": 1,
+      "prerequisites": [
+        "sglang/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1985516215326749534",
+        "github_en": "sglang/diffusion-llm/readme-en.md"
+      }
+    },
+    {
+      "id": "sglang-diffusion-code-walk-through",
+      "path": "sglang/code-walk-through/sgl_diffusion.md",
+      "title": "SGLang Diffusion Code Walk Through",
+      "topics": [
+        "SGLang",
+        "diffusion",
+        "code-walkthrough",
+        "inference"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": "sglang-diffusion",
+      "series_order": 2,
+      "prerequisites": [
+        "sglang/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1982441236066480797",
+        "github_en": "sglang/code-walk-through/sgl_diffusion_en.md"
+      }
+    },
+    {
+      "id": "sglang-scheduler",
+      "path": "sglang/scheduler/readme.md",
+      "title": "从 KV Cache 到 Zero Overhead Scheduling，一文读懂 SGLang 的调度巧思",
+      "topics": [
+        "SGLang",
+        "scheduler",
+        "KV-cache",
+        "zero-overhead",
+        "radix-cache",
+        "scheduling"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "sglang/code-walk-through/readme.md",
+        "rlhf/sys-design/readme-4.md",
+        "rlhf/sys-design/readme-1.md",
+        "rlhf/sys-design/readme-2.md"
+      ],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "sglang/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1992587332189197731",
+        "github_en": "sglang/scheduler/readme-en.md"
+      }
+    },
+    {
+      "id": "sglang-code-walk-through",
+      "path": "sglang/code-walk-through/readme.md",
+      "title": "SGLang Code Walk Through",
+      "topics": [
+        "SGLang",
+        "code-walkthrough",
+        "architecture",
+        "inference",
+        "scheduler",
+        "tokenizer"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md",
+        "rlhf/slime/code-walk-through/readme.md",
+        "sglang/scheduler/readme.md",
+        "sglang/diffusion-llm/readme.md",
+        "sglang/code-walk-through/sgl_diffusion.md"
+      ],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "github_cn": "sglang/code-walk-through/readme-CN.md"
+      }
+    },
+    {
+      "id": "sglang-quantization",
+      "path": "sglang/quantization/quantization_architecture.md",
+      "title": "浅析 SGLang 框架的量化设计与思路",
+      "topics": [
+        "SGLang",
+        "quantization",
+        "w4afp8",
+        "FP8",
+        "CUTLASS",
+        "inference"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "sglang/code-walk-through/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1971183020338832111",
+        "github_en": "sglang/quantization/quantization_architecture_en.md"
+      }
+    },
+    {
+      "id": "sglang-constraint-decoding",
+      "path": "sglang/constraint-decoding/readme.md",
+      "title": "Constraint Decoding 的概念、方法与优化",
+      "topics": [
+        "SGLang",
+        "constraint-decoding",
+        "structured-output",
+        "JSON",
+        "grammar"
+      ],
+      "depth": "intuition",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/18336995950",
+        "github_en": "sglang/constraint-decoding/readme_en.md"
+      }
+    },
+    {
+      "id": "transformers-special-tokens",
+      "path": "transformers/special_tokens/special_tokens.md",
+      "title": "一文理解 special tokens 和 chat template",
+      "topics": [
+        "transformer",
+        "special-tokens",
+        "chat-template",
+        "tokenizer"
+      ],
+      "depth": "intuition",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/17052593700"
+      }
+    },
+    {
+      "id": "cuda-graph",
+      "path": "torch/cuda-graph/readme.md",
+      "title": "基于 torch-memory-savor 浅析 CUDA Graph",
+      "topics": [
+        "CUDA-Graph",
+        "torch-memory-saver",
+        "inference",
+        "GPU",
+        "collocate"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md"
+      ],
+      "referenced_by": [
+        "torch/cuda-graph/readme-2.md"
+      ],
+      "series": "cuda-graph",
+      "series_order": 1,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1921726788574360686",
+        "github_en": "torch/cuda-graph/readme_en.md"
+      }
+    },
+    {
+      "id": "cuda-graph-2",
+      "path": "torch/cuda-graph/readme-2.md",
+      "title": "再探 CUDA Graph：核心机制、多图复用以及 Dual AR 模型的统一覆盖优化",
+      "topics": [
+        "CUDA-Graph",
+        "SGLang-Omni",
+        "Fish-Audio",
+        "S2-Pro",
+        "TTS",
+        "dual-AR",
+        "memory-pool",
+        "deferred-capture",
+        "persistent-buffer",
+        "torch-compile"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "torch/cuda-graph/readme.md"
+      ],
+      "referenced_by": [],
+      "series": "cuda-graph",
+      "series_order": 2,
+      "prerequisites": [
+        "torch/cuda-graph/readme.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/2017950447520980998",
+        "github_en": "torch/cuda-graph/readme-2-en.md"
+      }
+    },
+    {
+      "id": "nccl",
+      "path": "torch/nccl/readme.md",
+      "title": "NCCL 与 NVIDIA TOPO",
+      "topics": [
+        "NCCL",
+        "NVIDIA",
+        "NVLink",
+        "GPU-topology",
+        "distributed-training"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/sys-design/readme-5.md"
+      ],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/6160835906",
+        "github_en": "torch/nccl/readme_en.md"
+      }
+    },
+    {
+      "id": "torch-distributed",
+      "path": "torch/torch-distributed/readme.md",
+      "title": "PyTorch Distributed",
+      "topics": [
+        "PyTorch",
+        "distributed",
+        "all-reduce",
+        "GIL",
+        "communication"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [
+        "rlhf/sys-design/readme-2.md"
+      ],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/5853094319"
+      }
+    },
+    {
+      "id": "docker-guide",
+      "path": "engineer/how-to-use-docker/readme.md",
+      "title": "How to use docker",
+      "topics": [
+        "docker",
+        "development-environment",
+        "engineering"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/1916764175230801287",
+        "github_en": "engineer/how-to-use-docker/readme_en.md"
+      }
+    },
+    {
+      "id": "uv-dev-env",
+      "path": "engineer/uv/readme.md",
+      "title": "配置清爽的开发环境",
+      "topics": [
+        "uv",
+        "development-environment",
+        "Python",
+        "engineering"
+      ],
+      "depth": "understand-reproduce",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/23440683394"
+      }
+    },
+    {
+      "id": "sglang-latency-weight-updates-cn",
+      "path": "sglang/latency-accelerate-for-weight-updates/readme-CN.md",
+      "title": "Latency Accelerate For Weight Updates (CN)",
+      "topics": [
+        "SGLang",
+        "weight-update",
+        "latency",
+        "optimization"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "cn",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {}
+    }
+  ],
+  "series": {
+    "slime": {
+      "name": "slime 框架",
+      "description": "slime RL 框架系列文章，涵盖源码赏析、FP8/INT4 量化、投机采样、FSDP 后端等",
+      "articles": [
+        "rlhf/slime/vlm-multi-turn/readme.md",
+        "rlhf/slime/int4/readme.md",
+        "rlhf/slime/mismatch/blog-cn.md",
+        "rlhf/slime/fsdp/readme.md",
+        "rlhf/slime/fp8/readme.md",
+        "rlhf/slime/spec/readme.md",
+        "rlhf/slime/code-walk-through/readme.md"
+      ]
+    },
+    "verl-code-walk-through": {
+      "name": "verl 源码系列",
+      "description": "深入浅出理解 verl 源码系列，从初始化到 Rollout 到 Make Experience",
+      "articles": [
+        "rlhf/verl/multi-turn/code-walk-through/readme.md",
+        "rlhf/verl/multi-turn/code-walk-through/readme-2.md",
+        "rlhf/verl/multi-turn/fast_tokenization/multiturn_tokenization_and_masking_ZH.md",
+        "rlhf/verl/multi-turn/code-walk-through/readme-5.md",
+        "rlhf/verl/multi-turn/code-walk-through/readme-6.md"
+      ]
+    },
+    "rl-sys-deep-dive": {
+      "name": "RL 系统深思系列",
+      "description": "RL 系统设计深度分析，包括权重更新、FSDP、Megatron、MoE/EP 和 RDMA",
+      "articles": [
+        "rlhf/sys-design/readme-1.md",
+        "rlhf/sys-design/readme-2.md",
+        "rlhf/sys-design/readme-4.md",
+        "rlhf/sys-design/readme-5.md"
+      ]
+    },
+    "sglang-diffusion": {
+      "name": "SGLang Diffusion 学习笔记",
+      "description": "SGLang 中 Diffusion LLM 的支持与源码解析",
+      "articles": [
+        "sglang/diffusion-llm/readme.md",
+        "sglang/code-walk-through/sgl_diffusion.md"
+      ]
+    },
+    "cuda-graph": {
+      "name": "CUDA Graph 系列",
+      "description": "CUDA Graph 原理浅析与实战应用",
+      "articles": [
+        "torch/cuda-graph/readme.md",
+        "torch/cuda-graph/readme-2.md"
+      ]
+    }
+  }
+}

@@ -69,6 +69,19 @@ python3 -m uv pip install -e ".[sglang,geo]"
 python3 -m uv pip install -r ./requirements.txt
 ```
 
+如果遇到这个错误:
+```bash
+Using Python 3.10.12 environment at: /root/.python/verl-sglang
+  × No solution found when resolving dependencies:
+  ╰─▶ Because there is no version of flashinfer-python==0.2.9rc2 and sglang[srt]==0.4.9.post6 depends on flashinfer-python==0.2.9rc2, we can conclude that sglang[srt]==0.4.9.post6 cannot be used.
+      And because verl[sglang]==0.5.0.dev0 depends on sglang[srt]==0.4.9.post6, we can conclude that verl[sglang]==0.5.0.dev0 cannot be used.
+      And because only verl[sglang]==0.5.0.dev0 is available and you require verl[sglang], we can conclude that your requirements are unsatisfiable.
+```
+按下面这个cmd fix:
+```bash
+python3 -m uv pip install --prerelease=allow -e ".[sglang,geo]"
+```
+
 这个过程中的 flash-attn 安装会遇到这个报错：
 
 ```bash

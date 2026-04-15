@@ -36,7 +36,7 @@ SGLang dynamically adds requests to batches through the `get_next_batch_to_run` 
 
 ![image-20250302122706407](static/get_next_batch_to_run.png)
 
-SGLang is currently **prefill-dominated**. If new prefill requests arrive, the system will temporarily interrupt the running decode requests after the current decode requests complete their forward pass. It will then run the new prefill requests, transform them into the decode phase, merge them with the previous decode batch, and continue running.
+SGLang is currently **prefill-prioritized**. If new prefill requests arrive, the system will temporarily interrupt the running decode requests after the current decode requests complete their forward pass. It will then run the new prefill requests, transform them into the decode phase, merge them with the previous decode batch, and continue running.
 
 At this point, we might ask two questions: Why interrupt the current decode requests to prioritize prefill? Won't processing a batch of new prefill requests consume a large amount of GPU resources and lead to poor user experience?
 
@@ -139,7 +139,7 @@ if running_batch is not None:
     )
 ```
 
-So how is `new_token_ratio` adjusted? SGLang's approach is to base it on whether there's a decode OOM (Out of Memory) in `update_running_batch`. When a batch executes successfully, the Scheduler decreases `new_token_ratio`, gradually increasing the scale of the next batch. When a batch experiences OOM, the Scheduler increases `new_token_ratio`, reducing the scale of the next batch to avoid resource overload.
+So how is `new_token_ratio` adjusted? SGLang's approach is to base it on whether there's a decode OOM (Out of Memory) in `update_running_batch` (meaning whether the newly generated tokens will exceed the kv pool size even after evicting free nodes). When a batch executes successfully, the Scheduler decreases `new_token_ratio`, gradually increasing the scale of the next batch. When a batch experiences OOM, the Scheduler increases `new_token_ratio`, reducing the scale of the next batch to avoid resource overload.
 
 ![image-20250302161630229](static/new_token_ratio.png)
 

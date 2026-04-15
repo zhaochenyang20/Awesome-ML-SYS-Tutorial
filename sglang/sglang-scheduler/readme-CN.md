@@ -137,7 +137,7 @@ if running_batch is not None:
     )
 ```
 
-那么怎么调整 `new_token_ratio` 呢？SGLang 的做法是在 `update_running_batch` 中基于当前是否 decode OOM。当一个批次成功执行时，Scheduler 会减小 `new_token_ratio`，即逐步增加下一批次的规模；而当一个批次OOM时，Scheduler 则会增加 `new_token_ratio`，即减少下一批次的规模，以避免资源过载。
+那么怎么调整 `new_token_ratio` 呢？SGLang 的做法是在 `update_running_batch` 中基于当前是否 decode OOM （即是否新生成的token会超过kv pool size， 即使驱逐了free nodes之后）。当一个批次成功执行时，Scheduler 会减小 `new_token_ratio`，即逐步增加下一批次的规模；而当一个批次OOM时，Scheduler 则会增加 `new_token_ratio`，即减少下一批次的规模，以避免资源过载。
 
 ![image-20250302161630229](static/new_token_ratio.png)
 

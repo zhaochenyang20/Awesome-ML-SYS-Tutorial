@@ -1,0 +1,79 @@
+<svg viewBox="0 0 850 550" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow-black" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#333" />
+    </marker>
+    <filter id="halo">
+      <feMorphology operator="dilate" radius="2" in="SourceGraphic" result="dilated"/>
+      <feFlood flood-color="white" flood-opacity="0.9"/>
+      <feComposite in2="dilated" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="850" height="550" fill="#ffffff" rx="10"/>
+
+  <rect x="20" y="20" width="180" height="40" fill="#fffbe6" stroke="#d4b106" stroke-width="1.5" rx="6"/>
+  <text x="30" y="45" font-family="Arial" font-size="14" font-weight="bold" fill="#856404">Req 1: [A, B, C, D]</text>
+  <path d="M 110 60 V 105" fill="none" stroke="#333" stroke-width="1.2" marker-end="url(#arrow-black)"/>
+
+  <rect x="20" y="70" width="510" height="450" fill="#f8fbff" stroke="#0052cc" stroke-width="1.5" rx="12"/>
+  <text x="135" y="90" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#0052cc">CPU Scheduling &amp; Control Layer</text>
+
+  <rect x="40" y="105" width="470" height="150" fill="none" stroke="#0052cc" stroke-width="1.2" stroke-dasharray="5,3" rx="8"/>
+  <text x="55" y="125" font-family="Arial" font-size="14" font-weight="bold" fill="#0052cc">L1: Radix Cache (Logical Layer)</text>
+  
+  <rect x="65" y="145" width="140" height="70" fill="#e3f2fd" stroke="#0052cc" rx="6"/>
+  <text x="80" y="175" font-family="Arial" font-size="14" font-weight="bold">Node: [A, B]</text>
+  <text x="80" y="195" font-family="Arial" font-size="12">Slots: [10, 11]</text>
+
+  <rect x="345" y="145" width="140" height="70" fill="#ffffff" stroke="#90caf9" stroke-width="1.2" stroke-dasharray="4,2" rx="6"/>
+  <text x="360" y="175" font-family="Arial" font-size="14" font-weight="bold" fill="#78909c">Node: [C, D]</text>
+  <text x="360" y="195" font-family="Arial" font-size="12" fill="#78909c">Slots: [12, 20]</text>
+
+  <rect x="40" y="275" width="470" height="225" fill="#fffdf0" stroke="#d4b106" rx="8"/>
+  <text x="55" y="295" font-family="Arial" font-size="14" font-weight="bold" fill="#856404">L2: ReqToTokenPool (Addressing Layer)</text>
+  
+  <rect x="65" y="315" width="160" height="120" fill="#fff9db" stroke="#fadb14" rx="6"/>
+  <text x="80" y="345" font-family="Arial" font-size="13" font-weight="bold" fill="#856404">Private Allocation</text>
+  <text x="80" y="375" font-family="Arial" font-size="12">C → Slot 12</text>
+  <text x="80" y="405" font-family="Arial" font-size="12">D → Slot 20</text>
+
+  <rect x="310" y="345" width="180" height="70" fill="#ffffff" stroke="#fadb14" stroke-width="1.5" rx="6"/>
+  <text x="325" y="370" font-family="Arial" font-size="13" font-weight="bold">Mapping Logical Page Table</text>
+  <text x="325" y="395" font-family="Consolas, monospace" font-size="15" font-weight="bold" fill="#d32f2f">[10|11|12|20]</text>
+
+  <rect x="560" y="70" width="260" height="160" fill="#faf5ff" stroke="#6a0dad" stroke-width="1.5" rx="12"/>
+  <text x="580" y="95" font-family="Arial" font-size="18" font-weight="bold" fill="#6a0dad">GPU Computation Layer</text>
+  <rect x="580" y="115" width="220" height="90" fill="#ffffff" stroke="#6a0dad" rx="8"/>
+  <text x="595" y="155" font-family="Arial" font-size="14" font-weight="bold">Paged Attention Kernel</text>
+  <text x="595" y="180" font-family="Arial" font-size="11" fill="#6a0dad">Lookup Physical VRAM via Vector</text>
+
+  <rect x="560" y="250" width="260" height="255" fill="#f6ffed" stroke="#237804" stroke-width="1.5" rx="12"/>
+  <text x="580" y="275" font-family="Arial" font-size="18" font-weight="bold" fill="#237804">L3: TokenToKVPool</text>
+  
+  <rect x="580" y="300" width="220" height="40" fill="#ffffff" stroke="#237804" stroke-width="1" rx="4"/>
+  <text x="595" y="325" font-family="Arial" font-size="12">Slots 10, 11: KV [A, B]</text>
+  
+  <rect x="580" y="360" width="220" height="40" fill="#ffffff" stroke="#237804" stroke-width="1" rx="4"/>
+  <text x="595" y="385" font-family="Arial" font-size="12">Slot 12: KV [C]</text>
+  
+  <rect x="580" y="425" width="220" height="40" fill="#ffffff" stroke="#237804" stroke-width="1" rx="4"/>
+  <text x="595" y="450" font-family="Arial" font-size="12">Slot 20: KV [D]</text>
+
+  <path d="M 205 180 H 270 V 380 H 310" fill="none" stroke="#333" stroke-width="1.2" marker-end="url(#arrow-black)"/>
+  <text x="215" y="175" font-family="Arial" font-size="11" filter="url(#halo)">Match Prefix [10,11]</text>
+
+  <path d="M 225 380 H 310" fill="none" stroke="#333" stroke-width="1.2" marker-end="url(#arrow-black)"/>
+  <text x="235" y="375" font-family="Arial" font-size="11" filter="url(#halo)">Alloc [12,20]</text>
+
+  <path d="M 490 380 H 540 V 160 H 580" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-black)"/>
+  
+  <path d="M 800 160 H 830 V 380 H 800" fill="none" stroke="#333" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#arrow-black)"/>
+
+  <path d="M 690 465 V 530 H 415 V 215" fill="none" stroke="#333" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow-black)"/>
+  <text x="425" y="525" font-family="Arial" font-size="13" font-weight="bold" fill="#333" filter="url(#halo)">End Inference: Async Insert (C, D)</text>
+</svg>

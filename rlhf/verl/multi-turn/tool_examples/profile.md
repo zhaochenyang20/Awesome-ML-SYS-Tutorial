@@ -18,6 +18,13 @@ Acknowledgements: Zhuoran Yinn (CMU), Changyi Yang (CMU), Chengxi Li (CMU), Huap
 
 在您的 `sglang_rollout.py` 中，定义 [`SGLangLogManager`](https://github.com/PrinsYin/verl/blob/f1c6ee60ae701789875b00616e45bd0ae5cb171c/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L93)，用法非常简单。
 
+在上方导入必要的pakage:
+```python
+import atexit
+from datetime import datetime
+import json
+```
+
 <details>
 <summary>SGLangLogManager</summary>
 
@@ -295,3 +302,107 @@ actor_rollout_ref.rollout.n=16
 从左到右，分别是前 80 步的每个 step 中不同 turn 的平均 engine generation 耗时；拥有不同 turn 的 reqs 的平均耗时；以及每一步不同 turn 的 reqs 的平均占比。
 
 直观感受其实真正在 engine generation 上的耗时都不多，而且绝大多数 reqs 都只有 1 个或者两个 turn。
+
+## Profile Over-Long Sampling
+
+正如我们前文分析过的长尾问题（80% 的 reqs 会在前 50% 的时间完成），我们在[PR #2929 – Over-sample Feature](https://github.com/volcengine/verl/pull/2929) 中添加了 over-long sampling 的 feature。简单来说，我们会在 rollout 阶段的每个 rollout worker 上，对那些返回时间在后 `over_sample_rate` 的 reqs 直接丢弃，替换为 padding 请求。实现这一 feature 后，我们需要对 profiling 代码进行一些简单的更改。
+
+代码分支：[over_sample_profile](https://github.com/zhaochenyang20/verl/tree/over_sample_profile)  
+
+这里有几个需要额外注意的点：
+
+1. 在定义了 `process_request_with_monitoring, run_with_cancellation` 函数后，实际上启动异步 rollout 的逻辑在这两个函数之后：
+
+ ```python
+# run async tasks
+self.log_path = os.path.join(self.log_dir, f"step_{self.step}", f"worker_{self._rank}.jsonl")
+torch.cuda.synchronize()
+async_rollout_with_monitoring_start_time = time.time()
+loop = asyncio.get_event_loop()
+output_req_list = loop.run_until_complete(run_with_cancellation())
+torch.cuda.synchronize()
+async_rollout_with_monitoring_end_time = time.time()
+self.log_manager.log(
+    self.log_path,
+    event="async_rollout_with_monitoring_duration",
+    duration=async_rollout_with_monitoring_end_time - async_rollout_with_monitoring_start_time,
+    workid=self._rank,
+    step=self.step,
+    extra={
+        "total_requests": total_requests,
+        "target_completion": target_completion,
+        "completed_count": completed_count,
+    },
+)
+ ```
+
+因此，`async_rollout_with_monitoring_start_time`和 `async_rollout_with_monitoring_end_time` 之间的时间就是所有 reqs 在这个 worker 上 rollout 的耗时。而具体到每个 reqs 内部的耗时，需要将 `async_rollout_with_monitoring_start_time` 申明为 `nonlocal` 变量。
+
+```python
+async def process_request_with_monitoring(req):
+    nonlocal completed_count
+    nonlocal async_rollout_with_monitoring_start_time
+    try:
+        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+
+        async with completion_lock:
+            if completed_count < target_completion:
+                completed_count += 1
+            return result
+    except asyncio.CancelledError:
+        # request is cancelled, return padding
+        logger.info(f"Request {req.request_id} was cancelled, creating padding")
+        aborted_requests.append(req.request_id)
+        torch.cuda.synchronize()
+        req_aborted_time = time.time()
+        self.log_manager.log(
+            self.log_path,
+            event="aborted_request_with_cancelled_error",
+            duration=req_aborted_time - async_rollout_with_monitoring_start_time,
+            workid=self._rank,
+            step=self.step,
+            extra={"request_id": req.request_id},
+        )
+        self._create_padding_request(req)
+
+        return
+    except Exception as e:
+        logger.error(f"Uncaught exception in process_request_with_monitoring: {e}")
+        logger.error("This shall not happen, please check the code")
+        raise e
+```
+
+这样 `async_rollout_with_monitoring_start_time` 成了全局的启动时间，而 `req_aborted_time - async_rollout_with_monitoring_start_time` 是被 abort 的请求包括 abort 在内总共花费的时间。
+
+然后我们就可以得到这样的log 分析 over_sample 这个逻辑:
+```json
+{"timestamp": "2025-08-11T23:19:45.001830", "event": "aborted_request_with_cancelled_error_padding", "duration_sec": 0.002585887908935547, "extra": {"request_id": "661a96a0-35e6-4662-9fff-bf9194bd3d49"}, "workid": 2, "step": 4}
+{"timestamp": "2025-08-11T23:19:45.001989", "event": "aborted_request_with_cancelled_error", "duration_sec": 84.5104877948761, "extra": {"request_id": "45bb6a77-b6b2-4ed5-afde-97ccf622cdb0"}, "workid": 2, "step": 4}
+{"timestamp": "2025-08-11T23:19:45.004511", "event": "aborted_request_with_cancelled_error_padding", "duration_sec": 0.0025205612182617188, "extra": {"request_id": "45bb6a77-b6b2-4ed5-afde-97ccf622cdb0"}, "workid": 2, "step": 4}
+{"timestamp": "2025-08-11T23:19:45.005685", "event": "async_rollout_with_monitoring_duration", "duration_sec": 84.51417350769043, "extra": {"total_requests": 1024, "target_completion": 921, "completed_count": 921}, "workid": 2, "step": 4}
+```
+
+可以观察到，padding 花费的时间非常短，而被 abort 的请求花费的时间非常一致，符合预期。
+
+## 查看 SGLang Engine Throughput
+
+在我公司的业务里，我有时候会遇到 rollout engine 在 60s 没无法完成某个 request 的 generation 的情况，让我怀疑是不是 verl 的参数没有调整正确，导致我们得到的 token/s 特别慢。为了监控 SGLang engine 的 throughput 性能指标，只需要在 `sglang_rollout` 的 `_init_inference_engine` 方法中启用 INFO 级别日志：
+
+```python
+log_level="INFO"
+```
+
+只需要打开这一行，运行时将显示详细的性能指标：
+
+```bash
+Decode batch. #running-req: 1, #token: 910, token usage: 0.00, cuda graph: True, gen throughput (token/s): 485.10, #queue-req: 0
+```
+
+如果想要进一步得到每个 req 的 input/output token，可以启用以下选项：
+
+```bash
+log_requests=True,
+log_requests_level=2
+```
+
+但是启动后，日志输出过于冗余，可读取性堪忧。

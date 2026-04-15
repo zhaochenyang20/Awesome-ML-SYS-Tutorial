@@ -50,7 +50,7 @@ Let's walk through the sequence in the diagram now.
 #### 1. **New Request arrived**
 The Scheduler continuously calls `recv_requests` to collect newly arrived requests, validate them and place them into the `waiting_queue`. 
 
-In our example, `Req 7` are received and enqueued.
+In our example, `Req 7` is received and enqueued.
 <!-- SV: The Scheduler listens in `event_loop_normal` and `process_input_requests` where the `_request_dispatcher` decides on how to handle the request. -->
 
 #### 2. **Merge Batches**

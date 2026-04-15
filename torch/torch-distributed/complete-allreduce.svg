@@ -1,0 +1,115 @@
+<svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <!-- 背景 -->
+    <rect width="1200" height="800" fill="white"/>
+    
+    <!-- 左侧：Ring All-Reduce -->
+    <g transform="translate(50,0)">
+        <text x="0" y="40" font-size="24" font-weight="bold">Ring All-Reduce 数据流动</text>
+        
+        <!-- Phase 1: Scatter-reduce -->
+        <g transform="translate(0,80)">
+            <text x="0" y="30" font-size="18" font-weight="bold">Phase 1: Scatter-reduce (分散-归约)</text>
+            
+            <!-- 节点和连接 -->
+            <g transform="translate(100,50)">
+                <circle cx="50" cy="50" r="25" fill="#4CAF50"/>
+                <circle cx="200" cy="50" r="25" fill="#4CAF50"/>
+                <circle cx="50" cy="200" r="25" fill="#4CAF50"/>
+                <circle cx="200" cy="200" r="25" fill="#4CAF50"/>
+                
+                <!-- 箭头表示数据流动 -->
+                <path d="M75 50 L175 50" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+                <path d="M200 75 L200 175" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+                <path d="M175 200 L75 200" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+                <path d="M50 175 L50 75" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+            </g>
+        </g>
+        
+        <!-- Phase 2: All-gather -->
+        <g transform="translate(0,400)">
+            <text x="0" y="30" font-size="18" font-weight="bold">Phase 2: All-gather (全收集)</text>
+            
+            <!-- 节点和连接 -->
+            <g transform="translate(100,50)">
+                <circle cx="50" cy="50" r="25" fill="#4CAF50"/>
+                <circle cx="200" cy="50" r="25" fill="#4CAF50"/>
+                <circle cx="50" cy="200" r="25" fill="#4CAF50"/>
+                <circle cx="200" cy="200" r="25" fill="#4CAF50"/>
+                
+                <!-- 箭头表示数据流动 -->
+                <path d="M75 50 L175 50" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+                <path d="M200 75 L200 175" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+                <path d="M175 200 L75 200" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+                <path d="M50 175 L50 75" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+            </g>
+        </g>
+    </g>
+    
+    <!-- 右侧：Tree All-Reduce -->
+    <g transform="translate(600,0)">
+        <text x="0" y="40" font-size="24" font-weight="bold">Tree All-Reduce 数据流动</text>
+        
+        <!-- Phase 1: Reduce -->
+        <g transform="translate(0,80)">
+            <text x="0" y="30" font-size="18" font-weight="bold">Phase 1: Reduce (聚合)</text>
+            <!-- 第一层 -->
+            <circle cx="250" cy="100" r="25" fill="#2196F3"/>
+            <!-- 第二层 -->
+            <circle cx="150" cy="170" r="25" fill="#2196F3"/>
+            <circle cx="350" cy="170" r="25" fill="#2196F3"/>
+            <!-- 第三层 -->
+            <circle cx="100" cy="240" r="25" fill="#2196F3"/>
+            <circle cx="200" cy="240" r="25" fill="#2196F3"/>
+            <circle cx="300" cy="240" r="25" fill="#2196F3"/>
+            <circle cx="400" cy="240" r="25" fill="#2196F3"/>
+            
+            <!-- 数据流动箭头 (自下而上) -->
+            <path d="M110 225 L140 185" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+            <path d="M190 225 L160 185" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+            <path d="M310 225 L340 185" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+            <path d="M390 225 L360 185" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+            <path d="M160 155 L240 115" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+            <path d="M340 155 L260 115" stroke="#FF5722" stroke-width="2" marker-end="url(#dataflow)"/>
+        </g>
+        
+        <!-- Phase 2: Broadcast -->
+        <g transform="translate(0,400)">
+            <text x="0" y="30" font-size="18" font-weight="bold">Phase 2: Broadcast (广播)</text>
+            <!-- 第一层 -->
+            <circle cx="250" cy="100" r="25" fill="#2196F3"/>
+            <!-- 第二层 -->
+            <circle cx="150" cy="170" r="25" fill="#2196F3"/>
+            <circle cx="350" cy="170" r="25" fill="#2196F3"/>
+            <!-- 第三层 -->
+            <circle cx="100" cy="240" r="25" fill="#2196F3"/>
+            <circle cx="200" cy="240" r="25" fill="#2196F3"/>
+            <circle cx="300" cy="240" r="25" fill="#2196F3"/>
+            <circle cx="400" cy="240" r="25" fill="#2196F3"/>
+            
+            <!-- 数据流动箭头 (自上而下) -->
+            <path d="M240 115 L160 155" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+            <path d="M260 115 L340 155" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+            <path d="M140 185 L110 225" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+            <path d="M160 185 L190 225" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+            <path d="M340 185 L310 225" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+            <path d="M360 185 L390 225" stroke="#2196F3" stroke-width="2" marker-end="url(#dataflow2)"/>
+        </g>
+    </g>
+    
+    <!-- 底部说明 -->
+    <g transform="translate(50,750)">
+        <text x="0" y="0" font-size="16" font-weight="bold">算法特点对比：</text>
+        <text x="20" y="30" font-size="14">Ring All-Reduce: 带宽利用率均衡，适合大规模集群和大数据量，通信次数 2(N-1)</text>
+        <text x="600" y="30" font-size="14">Tree All-Reduce: 延迟低，适合小规模集群，通信次数 2log₂N</text>
+    </g>
+    
+    <!-- 箭头定义 -->
+    <defs>
+        <marker id="dataflow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#FF5722"/>
+        </marker>
+        <marker id="dataflow2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#2196F3"/>
+        </marker>
+    </defs>
+</svg>
