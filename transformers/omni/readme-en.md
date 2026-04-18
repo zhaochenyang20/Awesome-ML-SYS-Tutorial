@@ -238,10 +238,10 @@ gantt
     token 5      :crit, t5, 4, 5
 
     section Talker
-    speech 1     :active, s1, 0, 2
-    speech 2     :active, s2, 1, 3
-    speech 3     :active, s3, 2, 4
-    speech 4     :active, s4, 3, 5
+    speech 1     :active, s1, 1, 2
+    speech 2     :active, s2, 2, 3
+    speech 3     :active, s3, 3, 4
+    speech 4     :active, s4, 4, 5
 ```
 
 If a single model had to alternate between generating text-side content and speech-side codec tokens in one unified loop, latency would be much harder to control.

@@ -110,7 +110,7 @@ graph LR
     AE --> Agg
     Agg --> Th
     Th --> Dec --> TextOut([Text output])
-    Th -.->|stream hidden| Tk
+    Th -.->|stream token_id + embed + hidden| Tk
     Tk -.->|stream codec| CP
     CP -.->|stream RVQ codes| CW
     CW --> AudioOut([Audio output])
@@ -133,7 +133,7 @@ graph LR
 | SGLang 的假设 | Qwen3-Omni 的需求                                                           | 冲突          |
 | ---------- | ------------------------------------------------------------------------ | ----------- |
 | 单一模型       | 多个执行单元协作，但核心压力集中在 Thinker / Talker 双主干                                   | 更像多模型时序编排   |
-| 单一 GPU     | 多 GPU 异构部署，或进一步讨论 Thinker / Talker 同 GPU placement                        | 需要 placement 与资源协同 |
+| 统一部署     | 分模块部署，或进一步讨论 Thinker / Talker 同 GPU placement                        | 需要 placement 与资源协同 |
 | 线性请求流      | DAG 拓扑只是表象，真正关键的是带因果依赖的时序推进                                           | 关键是时序编排而非静态路由 |
 | 请求独立       | 模型间有增量依赖（Thinker 逐 token 喂给 Talker）和双向反馈（Talker ↔ Code Predictor）         | 需要跨模型流式状态协同 |
 | 单一输出       | 双终端输出（文本 + 语音），需等两路都完成                                                   | 需要终态聚合      |
@@ -156,13 +156,11 @@ graph LR
 
 **1. Thinker / Talker 的 placement 与资源切分**：最本质的问题不是“模型数量多”，而是 Thinker 和 Talker 这两个重型 decode 主干如何放置。如果它们跨 GPU 部署，问题会落在跨设备传输和节奏协同；如果它们共用一张 GPU，问题又会变成显存切分、KV cache 大小、带宽竞争以及 decode 节奏的相互影响。这里真正难的是资源协同，而不是简单的“多模型”三个字。
 
-**2. 时序图而不只是 DAG**：fan-out / fan-in 只是静态拓扑的描述，真正决定运行时复杂度的是时序图。Thinker 的 token 什么时候可以交给 Talker，aggregate 什么时候才算 ready，Talker 什么时候必须等待 feedback，这些都属于带因果约束的时序推进问题。换句话说，难点不是“有没有分叉和汇聚”，而是这些分叉和汇聚在时间上如何被正确编排。
+**2. 时序传递与跨模型增量状态**：fan-out / fan-in 只是静态拓扑的描述，真正决定运行时复杂度的是时序图——Thinker 的 token 什么时候可以交给 Talker、aggregate 什么时候才算 ready、Talker 什么时候必须等待 feedback，这些都属于带因果约束的时序推进问题。而 client-facing streaming 本身并不新鲜，SGLang 当然支持流式请求，真正新的地方是把这种时序推进落到模型和 stage 之间的增量状态传递上：Thinker 逐 token 产出，Talker 增量消费，必要时还要处理背压、缓存和恢复。难点因此不是“有没有分叉和汇聚”或“能不能 stream”，而是这些分叉、汇聚和流式状态能否在时间上被正确编排、安全地跨模型传下去。
 
-**3. 跨模型的增量状态传递**：单纯的 client-facing streaming 并不新鲜，SGLang 当然支持流式请求。真正新的地方在于模型和 stage 之间的增量状态传递：Thinker 逐 token 产出，Talker 增量消费，必要时还要处理背压、缓存和恢复。这不是“能不能 stream”的问题，而是“能不能把流式状态安全地跨模型传下去”的问题。
+**3. Feedback 环路与执行恢复**：Talker 和 Code Predictor 之间的双向反馈，要求系统支持“生成一步 -> 暂停 -> 等外部结果 -> 恢复继续跑”的执行模式。这比单向流式传输更进一步，因为 runtime 不只是在搬数据，还要显式管理请求状态、暂停点和恢复点。
 
-**4. Feedback 环路与执行恢复**：Talker 和 Code Predictor 之间的双向反馈，要求系统支持“生成一步 -> 暂停 -> 等外部结果 -> 恢复继续跑”的执行模式。这比单向流式传输更进一步，因为 runtime 不只是在搬数据，还要显式管理请求状态、暂停点和恢复点。
-
-**5. 双终态聚合与分层调度**：文本和语音双输出确实是个区别，但它更像 runtime / coordinator 层的问题，相对直接；真正更值得区分的是调度层次。Thinker 和 Talker 都是需要持续 decode、维护 KV cache、控制节奏的重调度对象，而 Code Predictor、Vocoder、部分 encoder 更像轻量执行单元。也就是说，系统并不是“每个模块都需要同等级别的 scheduler”，而是需要一套分层的异构调度观。
+**4. 双终态聚合与分层调度**：文本和语音双输出确实是个区别，但它更像 runtime / coordinator 层的问题，相对直接；真正更值得区分的是调度层次。Thinker 和 Talker 都是需要持续 decode、维护 KV cache、控制节奏的重调度对象，而 Code Predictor、Vocoder、部分 encoder 更像轻量执行单元。也就是说，系统并不是“每个模块都需要同等级别的 scheduler”，而是需要一套分层的异构调度观。
 
 需要强调的是，这里的结论不是“这些能力绝对不能做进 SGLang”，而是“如果想把完整 Qwen3-Omni 顺着主线 `srt` 的方式补进去，工作量会明显变大”。原因也不是主线能力不够，而是优化目标不同：SGLang 主线当前重点放在单主干模型、音频理解、多模态输入和高吞吐 serving；而完整 Qwen3-Omni 进一步要求 Thinker / Talker placement、跨模型增量状态、feedback 恢复、双终态聚合和分层调度。这些需求一旦都进入主 runtime，调度器就会从单模型队列管理逐渐走向通用时序编排，这本身就是另一类系统问题。
 
@@ -232,9 +230,9 @@ Thinker 需要 continuous batching，要管理 KV cache、batch 动态变化和 
 
 在生产系统里，一个模型 OOM、hang 住或者局部崩溃，不应该把整条请求链路一起拖死。拆成独立进程之后，故障会被天然限制在 stage 边界内，恢复策略也更直接。
 
-**4. 灵活扩缩容**
+**4. 瓶颈优化与按需裁剪**
 
-如果瓶颈在 Thinker，就应该单独扩 Thinker；如果某个场景不需要语音输出，就应该直接裁掉 talker_ar / code_predictor / code2wav 这一支。Stage 化之后，这类扩缩容和 pipeline 裁剪都可以在配置层完成，而不需要回头重写主干框架。
+如果瓶颈在 Thinker，就应该支持围绕 Thinker 单独做扩展和优化；如果某些场景不需要语音输出，应该能直接裁掉 talker_ar / code_predictor / code2wav 。Stage 化的价值在于既能围绕瓶颈模块做局部优化，也能按场景裁剪 pipeline，而不用重写主干框架。
 
 **5. 通信效率**
 
@@ -489,7 +487,7 @@ graph LR
 1. **消息路由**：接收 `SubmitMessage` 或 `DataReadyMessage`，分派给内部 Worker。
 2. **输入聚合**：部分 Stage（如 `aggregate`）需要等待多个上游 Stage 的数据全部到达后才能开始处理，使用 `AggregatedInputHandler` 实现。
 3. **Abort 监听**：后台协程持续监听 `AbortMessage`，收到后清理该请求的所有状态（路由器队列、共享内存 slot、StreamQueue、通知 Executor 停止）。
-4. **流式块路由**：通过 `StreamQueue` 将上游的流式数据块转发给对应 Worker。
+4. **数据路由**：对非流式数据，Stage 在 Worker 处理前通过 DataPlane（SHM / CUDA IPC）读出完整 payload 再一次性投给 Worker；对流式数据，则通过 `StreamQueue` 把上游不断到达的增量块持续转发给对应 Worker，下游可以边产边消费。
 
 这里的并发模型也值得单独强调一下：`Stage.run()`、`abort_listener()` 和 `worker.run()` 这几个协程虽然都是异步的，但它们运行在**同一个 Stage 进程内部的同一个 event loop** 上，依靠 `await` 协作切换。真正意义上的并行不是靠 asyncio 本身，而是靠多 Stage 多进程部署实现的。
 
@@ -517,15 +515,15 @@ while not shutdown:
 
 ```mermaid
 sequenceDiagram
-    participant S as Stage Router
+    participant S as Stage
     participant W as Worker
     participant DP as DataPlane (Relay)
     participant E as Executor
     participant Next as Next Stage
 
-    S->>W: enqueue(work)
-    W->>DP: read_payload(shm_metadata)
-    DP-->>W: payload data
+    S->>DP: read_payload(shm_metadata)
+    DP-->>S: payload data
+    S->>W: enqueue(work, payload)
     W->>E: add_request(payload)
     E-->>W: result
     W->>W: next = get_next(request_id, result)
@@ -781,7 +779,7 @@ graph LR
     Th["thinker"]
 
     Th --> |"DataReadyMessage: full output_ids"| Dec["decode · (text postprocess)"]
-    Th --> |"stream_to: per-token hidden states"| Tk["talker_ar · (speech generation)"]
+    Th --> |"stream_to: per-token token_id + embed + hidden"| Tk["talker_ar · (speech generation)"]
 
     Dec --> TextOut["Text Output"]
     Tk --> SpeechOut["Speech Output"]
@@ -796,8 +794,9 @@ graph LR
 
 
 - **text 分支** → `decode` Stage（文本后处理），通过 `DataReadyMessage` 传输完整结果
-- **speech 分支** → `talker_ar` Stage（语音生成），通过 `stream_to` 逐 token 流式传输：
-  - `thinker_embeds`: token embeddings
+- **speech 分支** → `talker_ar` Stage（语音生成），通过 `stream_to` 逐 token 流式传输，下面三路信息会一起传给 Talker：
+  - `thinker_token_ids`: Thinker 采样出来的 token id
+  - `thinker_embeds`: Thinker 侧对应的 token embeddings
   - `thinker_hidden[layer_24]`: 第 24 层的 hidden states（供 Talker 做跨模态对齐）
 
 
