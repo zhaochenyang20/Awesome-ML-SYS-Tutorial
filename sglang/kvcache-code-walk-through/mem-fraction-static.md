@@ -14,7 +14,7 @@ SGLang 官方对这个参数的描述是：
 
 实际上，`--mem-fraction-static` 参数为 `y` 的意义是：**SGLang 在 distributed init 完成、还没开始加载模型时**，把当时的可用显存(下文记为 `pre_model_load_memory`)按 `y : (1 - y)` 切两半 —— `y` 那一份留给 model weights + KV Cache，`(1 - y)` 那一份预留给 activations、CUDA graph buffers 以及同卡上其他应用。
 
-具体公式见 `model_runner_kv_cache_mixin.py` 中 `ModelRunnerKVCacheMixin._profile_available_bytes`(本文撰写时对应上游 `main` 第 56-70 行)：
+具体公式见 [`model_runner_kv_cache_mixin.py` 中 `ModelRunnerKVCacheMixin._profile_available_bytes`](https://github.com/sgl-project/sglang/blob/4fa3482/python/sglang/srt/model_executor/model_runner_kv_cache_mixin.py#L56-L70)(本文撰写时对应上游 `main` 第 56-70 行)：
 
 ```python
 def _profile_available_bytes(self, pre_model_load_memory: int) -> int:
