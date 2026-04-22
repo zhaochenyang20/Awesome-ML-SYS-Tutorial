@@ -166,6 +166,170 @@ Of course, there are plenty of engineering details for production deployment. Fo
 
 S2 Pro's Dual AR is serially nested within the same decode loop — the two models execute sequentially within each timestep, sharing one outer loop. Qwen3-Omni takes a completely different path — the two models each run independent decode loops, collaborating through an asynchronous pipeline.
 
+Before diving into the component list and step-by-step inference flow, it is helpful to first look at Qwen3-Omni from a higher level. The key point is not just that it is "multimodal," but that it splits reasoning and speech generation into separate subsystems, and that this split directly shapes the serving architecture.
+
+### Thinker-Talker Architecture
+
+Qwen3-Omni's core design is to separate "understanding and reasoning" from "speech generation" into two different models:
+
+```mermaid
+graph TB
+    subgraph Input["Multimodal Input"]
+        text["Text"]
+        img["Image"]
+        audio["Audio"]
+    end
+
+    subgraph Thinker["Thinker · GPU:0"]
+        direction TB
+        T1["28-layer MoE Transformer"]
+        T2["128 experts, top-8 routing"]
+        T3["Understands multimodal inputs and generates text tokens"]
+        T1 --- T2 --- T3
+    end
+
+    subgraph Talker["Talker · GPU:1"]
+        direction TB
+        K1["20-layer MoE Transformer"]
+        K2["128 experts, top-6 + shared expert"]
+        K3["Converts text-side signals into speech codec tokens"]
+        K1 --- K2 --- K3
+    end
+
+    subgraph SpeechPipeline["Speech Synthesis Pipeline"]
+        CP["Code Predictor: RVQ multi-code prediction"]
+        C2W["Code2Wav: vocoder waveform synthesis"]
+        CP --> C2W
+    end
+
+    text & img & audio --> Thinker
+    Thinker -- "text tokens + hidden states (streamed token by token)" --> Talker
+    Thinker -- "text tokens" --> TextOut["Text Output"]
+    Talker -- "codec tokens" --> CP
+    C2W --> AudioOut["Audio Output"]
+
+    style Thinker fill:#4a9eff,color:#fff
+    style Talker fill:#ff6b6b,color:#fff
+    style SpeechPipeline fill:#ffa94d,color:#fff
+    style TextOut fill:#51cf66,color:#fff
+    style AudioOut fill:#51cf66,color:#fff
+```
+
+### Why Split Thinker and Talker
+
+There are several reasons this split is attractive:
+
+1. Capability decoupling: reasoning and speaking are fundamentally different tasks. Understanding the input and deciding what to say requires strong language and multimodal reasoning ability; turning that content into natural speech requires acoustic modeling. One model can in principle do both, but separating them makes each subproblem cleaner.
+2. Streaming output: once the models are separated, the Thinker can emit one text token and the Talker can immediately start consuming it, which greatly reduces first-audio latency.
+3. Reuse of pretrained text models: the Thinker can stay close to an already strong text/multimodal LLM, while the Talker can remain comparatively lightweight and specialized.
+4. Deployment flexibility: the Thinker and Talker can live on different GPUs and scale independently.
+
+```mermaid
+gantt
+    title Streaming: Thinker and Talker in parallel
+    dateFormat X
+    axisFormat %s
+
+    section Thinker
+    token 1      :crit, t1, 0, 1
+    token 2      :crit, t2, 1, 2
+    token 3      :crit, t3, 2, 3
+    token 4      :crit, t4, 3, 4
+    token 5      :crit, t5, 4, 5
+
+    section Talker
+    speech 1     :active, s1, 1, 2
+    speech 2     :active, s2, 2, 3
+    speech 3     :active, s3, 3, 4
+    speech 4     :active, s4, 4, 5
+```
+
+If a single model had to alternate between generating text-side content and speech-side codec tokens in one unified loop, latency would be much harder to control.
+
+### Talker Is Not Traditional TTS
+
+It is also important not to misunderstand the Talker as a regular standalone TTS model.
+
+Traditional TTS takes a complete text string as input and produces speech as output. Qwen3-Omni's Talker is much more tightly coupled to the Thinker: besides text-side signals, it also receives the Thinker's hidden states. In other words, the Talker is not just reading text aloud; it is conditioning on the Thinker's internal semantic representation.
+
+```mermaid
+graph LR
+    subgraph Traditional["Traditional TTS"]
+        direction LR
+        A1["Text string"] --> A2["TTS model"] --> A3["Speech"]
+    end
+
+    subgraph Qwen3["Qwen3-Omni Talker"]
+        direction LR
+        B1["Thinker hidden states + text tokens"] --> B2["Talker"] --> B3["Speech codec"] --> B4["Waveform"]
+    end
+
+    style Traditional fill:#e9ecef,color:#333
+    style Qwen3 fill:#d0ebff,color:#333
+    style A1 fill:#f1f3f5,color:#333
+    style A2 fill:#adb5bd,color:#fff
+    style A3 fill:#ced4da,color:#333
+    style B1 fill:#4a9eff,color:#fff
+    style B2 fill:#ff6b6b,color:#fff
+    style B3 fill:#ffa94d,color:#fff
+    style B4 fill:#51cf66,color:#fff
+```
+
+This is why the Talker has to live inside the same end-to-end pipeline, rather than being replaced by an external TTS system with only text input.
+
+### Speech Generation Pipeline: Talker AR -> Code Predictor -> Code2Wav
+
+Speech generation is not completed by the Talker alone. It is itself a small pipeline, and there is even a feedback loop between the Talker and the Code Predictor:
+
+```mermaid
+graph LR
+    subgraph TalkerAR["Talker AR"]
+        TA1["AR sampling"]
+        TA2["Generate one layer-0 codec token"]
+        TA1 --> TA2
+    end
+
+    subgraph CodePredictor["Code Predictor"]
+        CP1["Receive layer-0 code + talker hidden"]
+        CP2["AR predict layers 1-15"]
+        CP3["Assemble 16-layer RVQ codes"]
+        CP1 --> CP2 --> CP3
+    end
+
+    subgraph Code2Wav["Code2Wav"]
+        CW1["Vocoder"]
+        CW2["24kHz float32 audio"]
+        CW1 --> CW2
+    end
+
+    TA2 -- "stream: talker hidden + codec token" --> CP1
+    CP3 -- "stream: 16-layer codes" --> CW1
+    CP3 -. "feedback: summed embeddings" .-> TA1
+
+    style TalkerAR fill:#ff6b6b,color:#fff
+    style CodePredictor fill:#ffa94d,color:#fff
+    style Code2Wav fill:#51cf66,color:#fff
+```
+
+The feedback loop matters. After the Talker generates a codec token, it cannot always simply continue to the next step. The Code Predictor completes the remaining RVQ layers and feeds a summarized embedding back to the Talker, which then uses it as additional context for the next decoding step.
+
+### Token-Level Alignment Between Thinker and Talker
+
+At a high level, the Talker stays aligned with the Thinker token by token through a mechanism like `trailing_text_hidden`:
+
+```mermaid
+graph LR
+    T["Thinker: token 1, token 2, ..."] -- "text projection" --> Q["trailing_text_hidden: [proj 1, proj 2, ...]"]
+    Q -- "consume per token" --> K["Talker: codec 1, codec 2, ..."]
+    T -- "tts_eos_embed on finish" --> Q
+
+    style T fill:#4a9eff,color:#fff
+    style Q fill:#fff3bf,color:#333
+    style K fill:#ff6b6b,color:#fff
+```
+
+As each new Thinker token arrives, its corresponding representation is projected and appended to this text-side buffer. The Talker consumes that buffer incrementally while continuing its own codec-token generation. When the Thinker is finished, a special EOS embedding signals that no more text-side conditioning will arrive.
+
 ### Model Overview
 
 [Qwen3-Omni](https://github.com/QwenLM/Qwen3-Omni) is an end-to-end multimodal model from the Qwen team, accepting text, audio, image, and video inputs, generating text + speech outputs. Unlike S2 Pro (pure TTS), it does both speech synthesis and multimodal understanding. Parameter scale: Thinker 30B-A3B (MoE) + Talker 3B-A0.3B (MoE) + MTP Module 80M + Code2Wav 200M + AuT Encoder 650M + Vision Encoder 540M. Already supported in SGLang Omni.
