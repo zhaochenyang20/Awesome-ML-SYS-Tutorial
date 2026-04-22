@@ -4,6 +4,10 @@
 
 本文档基于 [sglang-omni](https://github.com/sgl-project/sglang-omni) 的 commit [2489a10](https://github.com/sgl-project/sglang-omni/commit/2489a10) 进行解读。后续 benchmarking 与 tests 上的迭代不影响本文讨论的主框架结构，因此不改变这里的整体分析。
 
+下图是本文涉及内容的整体地图：从仓库定位、核心架构、请求生命周期，到目录结构与典型使用场景，可以先扫一眼建立整体印象，再带着这张图阅读后续章节。
+
+![SGLang-Omni Repo Deep Dive](./sglang_omni.png)
+
 ## 目录
 
 - [SGLang Omni 框架简介](#sglang-omni-框架简介)
