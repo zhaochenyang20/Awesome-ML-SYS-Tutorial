@@ -1,16 +1,32 @@
-# `mem_fraction_static` 深入解析：从一次 OOM 调参说起
+# 当 SGLang OOM 的时候，究竟在 OOM 什么？
 
-## 背景
+在开始全力开发 SGLang Omni 两个月之际，我们在先前的 H200 开发发机器加上 H20 CI 机器的基础上，得到了一台崭新的 H100，，能够参与到社区的开发。一台机器的加入自然是令人兴奋的，于是我们火速将新的 H100 机器投入到了生产中，来解决 [#280](https://github.com/sgl-project/sglang-omni/pull/280)。
 
-我最近意识到了一个严重的问题。Hao Jin 在 H100 上测 SeedTTS（[#280](https://github.com/sgl-project/sglang-omni/pull/280)）拿到的 WER 高达 3.0+，华鹏在 H100 上跑 MMSU benchmark（[#261](https://github.com/sgl-project/sglang-omni/pull/261)）时 Qwen3-Omni 在默认 `mem_fraction_static=0.7` 下直接启动 OOM。这两个问题很可能有同一个根因：**H100 80 GB 对 60 GB 的 Qwen3-Omni 模型来说显存太紧了**。
+280 本身是个非常简单的 PR，看上去删改代码都接近 2000 行，实际上逻辑并不复杂。简单来说，我们之前基于 SeedTTS 数据集有一个测试 Omni Model Voice Clone 性能的脚本，还有一个测试 Omni Model Voice Clone 正确性的脚本。但是这两个脚本显然是可以合并的，测量正确性的同时自然可以测量性能，而 280 就是进行这样的合并。毫无疑问，这个任务非常清晰，AI 绝对可以做的非常完美。所以 Hao Jin（AAA 湾区网球金教练）火速完成了 280 本身，然后对着新合并的脚本开始测试。
 
-之前我在 S2 Pro 上就发现过：即便服务器 OOM 了，server 也会继续完成其他请求，但触发了 OOM 的那些请求的 WER 会非常高。今天华鹏跟我说，他在 H100 上需要把 `mem_fraction_static` 调到 0.85 才能启动 Qwen3-Omni，即便如此推理速度还是很慢。这让我对 SGLang 的 `mem_fraction_static` 有了更深入的认知。
+这里，就出现了非常严肃的问题。金教练测出来合并后的脚本 Qwen3 Omni 的 TTS WER 在全集的分数竟然到了 3.0+，注意到 WER 是一个越搞越坏的分数，这让我们如临大敌。所以，我们马上展开了分析，究竟是什么原因导致正确性出现了如此大规模的回退。因为注意到，在 #280 之前，我们已经建立起了当时看来武装到脚趾甲的 CI，Qwen3 Omni 会在每个 commit 上验证 SeedTTS 的一个 50 samples 的 subset，确保性能和正确性没有一丝一毫的回归。所以见到新的脚本居然出现了显著的性能损失，这让我们有了一系列不太好的猜想：
+
+1. 我们的 CI 是虚假的；之前某个 PR 把 Qwen3 Omni 的精度弄崩了，但是没有捕捉到；
+2. 我们的 benchmark 错了；可能在合并两个 benchmark 脚本为一个的过程中写错了什么；
+
+然后，我们在 SGLang Omni 开发群讨论了这个问题，发觉这个事情可能不是我们想的那么麻烦。你看我刚才的叙述中，其实对转换开发机器这个事情轻描淡写。在 PR 280 之前，我们都使用的是 H200 作为开发机器；但是到了 PR 280，我们换了 H100。起初我不以为意，但事实上，这才是问题所在。我记得金教练第一次给我说他在验证 280 的时候，就说之前启动 server 的脚本居然启动不了 server 了。这让我非常费解，当时周末，我一边在 Mountain View 跑步，一边寻思，“这都什么和什么呀”。然后，他拿着 Claude debug 了下，将 SGLang Omni 启动 Qwen3 Omni 的 `mem_fraction_static` 调到了 0.8，server 才成功启动。
+
+现在回想起来，这其实就是问题本身。我默认从 H200 到 H100 的迁移没有任何问题，甚至出现了性能回归，我也没有怪罪到 H100 上。直到和聪明的群友们聊起来，我才意识到，先前 SGLang Omni 的 Thinker 居然 hard coded 了 `mem_fraction_static` 到 0.7。这么一来，80GB 的 H100 根本无法启动 Qwen3 Omni 的 Thinker（30B MoE），进而导致了上述的性能回归。即便我们把 `mem_fraction_static` 调到了 0.8，也才让 server 能够启动，但是还是有相当量的 request 因为显存压力而 fail 了。
+
+这篇简单的博客便会来分享我们解决这一过程的思路。具体来说，我们会讨论：
+
+1. `mem_fraction_static` 参数的实际作用。当 SGLang OOM 时，究竟在 OOM 什么？
+2. 为什么 H100 上将 `mem_fraction_static` 调到 0.8 后，即便能启动 server，也有相当量的 request 因为显存原因而 fail？
+3. 我们如何基于 SGLang 对 `mem_fraction_static` 的 auto-tune 机制来让 H100 重获新生？
+4. 我们如何修改了 SGLang Omni 的 Error Handling 来让用户更清晰地知道问题所在？
+
+致谢：感谢 Huapeng，Yifei，Ratish，金教练和 xuesong，Let's Make SGLang Omni Great Again!
 
 ## `mem_fraction_static` 到底在分配什么
 
 SGLang 官方对这个参数的描述是：
 
-> The fraction of the memory used for static allocation (model weights and KV cache memory pool).
+> The fraction of the memory used for static allocation (model weights and KV cache memory pool). Use a smaller value if you see out-of-memory errors.
 
 实际上，`--mem-fraction-static` 参数为 `y` 的意义是：**SGLang 在 distributed init 完成、还没开始加载模型时**，把当时的可用显存(下文记为 `pre_model_load_memory`)按 `y : (1 - y)` 切两半 —— `y` 那一份留给 model weights + KV Cache，`(1 - y)` 那一份预留给 activations、CUDA graph buffers 以及同卡上其他应用。
 
