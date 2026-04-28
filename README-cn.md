@@ -120,7 +120,7 @@ $$
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md)：介绍 SGLang 中 `online_update_weights` 接口的实现，区别于从磁盘读取权重的 `update_weights`，该接口从训练 engine 中直接通过 nccl 广播新的权重。
 - [Pending Review] [SGLang Verl Engine 优化解析](./sglang/sglang-verl-engine/readme.md)：解析 SGLang 中 verl engine 的优化，包括 `update_weights_from_tensor` 等接口的实现。
 - [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
-- [Pending Review] [开源实现练推万亿参数模型的P2P RDMA传输](./sglang/rdma-transfer/readme.md)：基于RDMA的训推权重传输，512 卡 H100 上 7 秒完成 1T Kimi FP8 的传输，相比此前开源的NCCL方案约 7 倍加速。[英文版本](./sglang/rdma-transfer/readme-en.md)。
+- [Pending Review] [开源实现训推万亿参数模型的P2P RDMA传输](./sglang/rdma-transfer/readme.md)：基于RDMA的训推权重传输，512 卡 H100 上 7 秒完成 1T Kimi FP8 的传输，相比此前开源的NCCL方案约 7 倍加速。[英文版本](./sglang/rdma-transfer/readme-en.md)。
 
 ### 使用与实践
 
