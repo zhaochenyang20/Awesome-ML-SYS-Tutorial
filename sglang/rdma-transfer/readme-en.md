@@ -1,4 +1,5 @@
 # Open-Source Instant Transfer of Trillion-Parameter Models Between Training and Inference
+Written by: Jiadong Guo, Xin Ji, Letian Ruan
 
 Last year I started working on RL infrastructure. The system at the time required going through disk to update inference parameters — as you can imagine, the update speed was abysmal. Inference units competed for disk bandwidth until other parts of the system crashed. That's when I read Lequn's "[Explorations in Cross-Machine Instant RL Model Parameter Updates](https://abcdabcd987.com/2025/09/07/rl-weight-transfer/)" and was blown away. Since I'm not great at building wheels from scratch (couldn't hand-roll a new RDMA communication library), I figured that mounting existing wheels and contributing to the open-source community was still making a difference.
 

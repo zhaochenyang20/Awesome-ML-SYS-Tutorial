@@ -106,7 +106,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md): Introduction to the implementation of the `online_update_weights` interface in SGLang. Unlike `update_weights` which reads weights from the disk, this interface broadcasts new weights directly from the training engine via NCCL.
 - [Pending Review] [SGLang Verl Engine Optimization Analysis](./sglang/sglang-verl-engine/readme.md): Analysis of optimizations in the SGLang verl engine, including the implementation of interfaces like `update_weights_from_tensor`.
 - [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
-- [RDMA P2P Weight Transfer of Trillion-Parameter Models Between Training and Inference](./sglang/rdma-transfer/readme-en.md): RDMA-based weight transfer between training and inference, achieving ~7s for 1T Kimi FP8 on 512 H100s — roughly 7x faster than prior NCCL-based solutions. [Chinese version](./sglang/rdma-transfer/readme.md).
+- [Pending Review] [RDMA P2P Weight Transfer of Trillion-Parameter Models Between Training and Inference](./sglang/rdma-transfer/readme-en.md): RDMA-based weight transfer between training and inference, achieving ~7s for 1T Kimi FP8 on 512 H100s — roughly 7x faster than prior NCCL-based solutions. [Chinese version](./sglang/rdma-transfer/readme.md).
 
 ### Usage and Practice
 
