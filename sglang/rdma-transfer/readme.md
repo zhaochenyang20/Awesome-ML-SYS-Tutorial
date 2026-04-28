@@ -95,7 +95,7 @@ for hf_tensors in all_gather(self.bucketed_update()):
 
     for hf_tensor in hf_tensors:
         sglang_name, shard_id, num_shards, expert_id, num_local_experts = parameter_mapper.map(hf_tensor)
-        ready_tensor.append(self.is_tensor_ready(sglang_name, shard_id, expert_id))
+        ready_tensors.append(self.is_tensor_ready(sglang_name, shard_id, expert_id))
 
     for engine in local_engine_replicas:
 
@@ -103,7 +103,7 @@ for hf_tensors in all_gather(self.bucketed_update()):
 
         for target_rank in self.get_target_ranks(engine):
 
-            submit_transfer(ready_tensor, target_rank, self.thread_pool)
+            submit_transfer(ready_tensors, target_rank, self.thread_pool)
 ```
 
 我们用slime/miles自带的check weight equal flag来验证传输得到的权重和预先准备的硬盘上的权重能做到一一对应，以证明正确性。
