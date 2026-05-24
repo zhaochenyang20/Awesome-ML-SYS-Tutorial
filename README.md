@@ -21,6 +21,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 ## Omni Model Inference Notes
 
 - [Codec、RVQ、Dual AR、Thinker-Talker——A Deep Dive into Omni Model Inference for Qwen3-Omni and S2 Pro](./transformers/omni/readme-en.md): available in [Chinese version](./transformers/omni/readme.md) and [Zhihu](https://zhuanlan.zhihu.com/p/2023413564229042799).
+- [When SGLang OOMs, What Exactly Runs Out of Memory?](./sglang/kvcache-code-walk-through/mem-fraction-static-en.md): available in [Chinese version](./sglang/kvcache-code-walk-through/mem-fraction-static.md) and [Zhihu](https://zhuanlan.zhihu.com/p/2041811635405336677).
 
 ## RLHF System Development Notes
 
