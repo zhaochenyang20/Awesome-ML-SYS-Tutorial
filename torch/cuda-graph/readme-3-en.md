@@ -338,8 +338,8 @@ Overall, the S2-Pro CUDA Graph work made me deeply realize that **optimization i
 
 ## References
 
-- [A Brief Analysis of CUDA Graph Based on torch-memory-saver](./readme_en.md) (Part 1 of this series)
-- [CUDA Graph vs torch.compile: Practical Analysis on the S2-Pro TTS Model](./readme-2-en.md) (Part 2 of this series)
+- [Quick Understanding of CUDA Graph](./readme_en.md) (Part 1 of this series)
+- [Revisiting CUDA Graph: Core Mechanisms, Multi-Graph Memory Sharing, and Unified Coverage for Dual AR Models](./readme-2-en.md) (Part 2 of this series)
 - [SGLang Code Walk Through](../../sglang/code-walk-through/readme.md)
 - [Understanding verl Source Code from the Ground Up (Initialization)](../../rlhf/verl/multi-turn/code-walk-through/readme.md)
 - [SGLang-Omni PR #153](https://github.com/sgl-project/sglang-omni/pull/153)
