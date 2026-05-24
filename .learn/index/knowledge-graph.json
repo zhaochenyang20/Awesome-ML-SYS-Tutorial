@@ -861,6 +861,34 @@
       }
     },
     {
+      "id": "sglang-mem-fraction-static",
+      "path": "sglang/kvcache-code-walk-through/mem-fraction-static.md",
+      "title": "当 SGLang OOM 的时候，究竟在 OOM 什么？",
+      "topics": [
+        "SGLang",
+        "SGLang-Omni",
+        "OOM",
+        "mem_fraction_static",
+        "KV-cache",
+        "GPU-memory",
+        "H100",
+        "Qwen3-Omni",
+        "multi-modal-encoder"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/2041811635405336677",
+        "github_en": "sglang/kvcache-code-walk-through/mem-fraction-static-en.md"
+      }
+    },
+    {
       "id": "sglang-code-walk-through",
       "path": "sglang/code-walk-through/readme.md",
       "title": "SGLang Code Walk Through",
