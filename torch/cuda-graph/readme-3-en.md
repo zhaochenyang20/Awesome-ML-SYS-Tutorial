@@ -100,7 +100,7 @@ Deeper discussion of the CUDAGraph Trees mechanism, the `fullgraph=True` constra
 
 ## The Rise and Fall of torch.compile in S2-Pro
 
-The previous chapter established the five-layer overhead model and the division-of-labor principle behind `no-cudagraphs`. This chapter uses the actual iteration process of PR #153 and benchmark data to **validate** that model.
+The previous chapter established the five-layer overhead model and the division-of-labor principle behind `no-cudagraphs`. This chapter uses the actual iteration process of [PR #153](https://github.com/sgl-project/sglang-omni/pull/153) and benchmark data to **validate** that model.
 
 ### Narrative Line Across Seven Commits
 
