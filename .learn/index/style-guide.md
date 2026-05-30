@@ -571,3 +571,45 @@
 - [ ] KV cache 描述是否同时回答了"是什么"和"为什么"？
 - [ ] 涉及具体实现细节的断言是否经过源码验证？
 - [ ] 是否存在稻草人对比（没有真实参照的假想替代方案）？
+
+---
+
+## 13. 翻译规则（中译英 / 英译中时遵守）
+
+`/learn-review` 在用户明确授权下进入翻译步骤时，**必须**遵守以下规则。这些规则同样适用于任何独立的翻译任务。
+
+### 13.1 内部链接必须切换至对应语种版本（硬约束）
+
+- 中文版指向 repo 内部 `.md` 文件的相对链接（如 `[文章标题](../../foo/bar/readme.md)`），在英文版中**必须**切换至对应英文版文件（通常是 `readme-en.md`、`readme_en.md`、`readme-EN.md` 等，以目标文件的实际命名为准）。
+- **禁止**英文版正文中继续指向中文 `.md`——这会让英文读者跳进中文文章；反向同理，中文版**禁止**指向 `-en.md`。
+- 完成翻译后**必须**自检：`grep -nE '\]\([^)]+\.md\)' <translated-file>`，逐条核对每个相对路径目标是否存在对应语种版本。如目标文章没有对应语种版本，应在链接文本旁加注 `(Chinese only)` / `(English only)`，或保留原语种链接并标注。
+- 链接目标命名要查 `knowledge-graph.json` 的 `external_links.github_en` / `external_links.github_cn` 字段，或同目录内已有的同类文件，**禁止**凭直觉拼接 `-en.md`。
+
+### 13.2 外部链接保持不变
+
+- arxiv、GitHub（带 commit hash）、Hugging Face、官网、Zhihu 等外部 URL **不翻译**、不替换、不调整。
+
+### 13.3 格式严格对齐原文
+
+- 标题层级、列表层级、表格、代码块、引用块、图片位置、链接结构与原文**严格一致**。
+- 原文每一处加粗在译文同样位置加粗；每一处 `> ` 引用块在同样位置保留。
+- 译文行数顺序与原文一一对应——译文章节数、子节数、表格行数**必须**与原文相同。
+
+### 13.4 技术术语与代码注释
+
+- 技术术语保持英文原文（CUDA Graph、Thinker、Talker、paged KV cache、OmniScheduler、autoregressive、decode loop、kernel launch 等），**禁止**生硬翻译。
+- 代码块内部的代码与注释**不翻译**，保持原样。
+- 图片 alt text **翻译**。
+
+### 13.5 文件命名遵循 repo 现有惯例
+
+- 中文版为 `readme.md` → 英文版 `readme-en.md` 或 `readme_en.md`（看同目录或同系列文章的惯例，**保持一致**）。
+- 中文版为 `readme-CN.md` → 英文版 `readme.md` 或 `readme-EN.md`。
+- 中文版为 `why-foo.md` → 英文版 `why-foo-en.md`。
+- 同一目录或同一系列内的英文版后缀风格**必须**统一，不要一篇 `-en.md` 一篇 `_en.md`。
+
+### 13.6 翻译需用户明确授权
+
+- `/learn-review` 输出检查报告后，**未经**用户明确允许**不得**执行翻译。
+- 翻译前所有 P0 级修改建议应已被采纳（或用户明确表示忽略）。
+- 翻译后**必须**同步更新：(1) 根目录 `README.md` 与 `README-cn.md` 的索引条目；(2) `.learn/index/knowledge-graph.json` 中该文章的 `external_links.github_en` / `external_links.github_cn` 字段，以及 `language` 字段（从 `cn` 升级为 `bilingual`）。

@@ -34,6 +34,7 @@ $$
 
 - [Codec、RVQ、Dual AR、Thinker-Talker——深入 Qwen3-Omni 与 S2 Pro 的 Omni 模型推理流程](./transformers/omni/readme.md)：分析 Qwen3-Omni 与 S2 Pro 的 Omni 模型推理流程，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/2023413564229042799)和[英文版本](./transformers/omni/readme-en.md)。
 - [当 SGLang OOM 的时候，究竟在 OOM 什么？](./sglang/kvcache-code-walk-through/mem-fraction-static.md)：分析 SGLang Omni 在 OOM 的时候，究竟在 OOM 什么，同样刊载于[知乎](https://zhuanlan.zhihu.com/p/2041811635405336677)和[英文版本](./sglang/kvcache-code-walk-through/mem-fraction-static-en.md)。
+- [SGLang Omni：从 decode 计算特性出发，重新设计多 stage 生成模型的推理框架](./sglang/sglang-omni/why-sglang-omni.md)：为什么 multi-stage decoding 才是划分模型的正确视角、multi-stage decoding 模型有什么计算共性，以及 SGLang Omni 的调度解耦 / 通信分层 / 显存隔离三层设计。同样刊载于[英文版本](./sglang/sglang-omni/why-sglang-omni-en.md)和[知乎：SGLang Omni：从 decode 计算特性出发，重新设计多 stage 生成模型的推理框架](https://zhuanlan.zhihu.com/p/2043972741326451200)。
 
 ## RLHF System 开发笔记
 
