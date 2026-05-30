@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated": "2026-03-19",
+  "generated": "2026-05-30",
   "articles": [
     {
       "id": "slime-vlm-multi-turn",
@@ -792,7 +792,9 @@
       "status": "published",
       "language": "bilingual",
       "references_to": [],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/sglang-omni/why-sglang-omni.md"
+      ],
       "series": "sglang-diffusion",
       "series_order": 1,
       "prerequisites": [
@@ -879,13 +881,54 @@
       "status": "published",
       "language": "bilingual",
       "references_to": [],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/sglang-omni/why-sglang-omni.md"
+      ],
       "series": null,
       "series_order": null,
       "prerequisites": [],
       "external_links": {
         "zhihu": "https://zhuanlan.zhihu.com/p/2041811635405336677",
         "github_en": "sglang/kvcache-code-walk-through/mem-fraction-static-en.md"
+      }
+    },
+    {
+      "id": "sglang-omni-why",
+      "path": "sglang/sglang-omni/why-sglang-omni.md",
+      "title": "SGLang Omni：从 decode 计算特性出发，重新设计多 stage 生成模型的推理框架",
+      "topics": [
+        "SGLang",
+        "SGLang-Omni",
+        "multi-stage-decoding",
+        "Thinker-Talker",
+        "MTP",
+        "Qwen3-Omni",
+        "Fish-S2-Pro",
+        "Ming-Omni",
+        "LLaDA-Uni",
+        "scheduler",
+        "CUDA-Graph",
+        "memory-budget",
+        "vision"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "torch/cuda-graph/readme-2.md",
+        "transformers/omni/readme.md",
+        "sglang/kvcache-code-walk-through/mem-fraction-static.md",
+        "sglang/diffusion-llm/readme.md"
+      ],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "transformers/omni/readme.md",
+        "sglang/kvcache-code-walk-through/mem-fraction-static.md"
+      ],
+      "external_links": {
+        "github_en": "sglang/sglang-omni/why-sglang-omni-en.md"
       }
     },
     {
@@ -1041,7 +1084,9 @@
       "references_to": [
         "torch/cuda-graph/readme.md"
       ],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/sglang-omni/why-sglang-omni.md"
+      ],
       "series": "cuda-graph",
       "series_order": 2,
       "prerequisites": [
