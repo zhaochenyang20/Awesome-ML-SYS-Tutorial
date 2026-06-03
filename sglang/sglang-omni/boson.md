@@ -236,7 +236,7 @@ curl -X POST http://localhost:8000/v1/audio/speech \
   -d '{
     "input": "<|emotion:surprise|><|prosody:pitch_high|><|sfx:screaming|>Ah! Wait, I almost forgot! Higgs Audio v3 also supports over one hundred languages.",
     "references": [{
-      "audio_path": "[docs/_static/audio](https://sgl-project.github.io/sglang-omni/_static/audio)/ref_voice.wav",
+      "audio_path": "https://sgl-project.github.io/sglang-omni/_static/audio/ref_voice.wav",
       "text": "It was the night before my birthday. Hooray! It’s almost here! It may not be a holiday, but it’s the best day of the year."
     }],
     "temperature": 0.8,
