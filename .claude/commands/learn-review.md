@@ -190,13 +190,19 @@
 1. 用户在输入中明确要求翻译
 2. 检查报告中所有 P0 项都已通过（或用户明确表示忽略）
 
-翻译要求：
-- 格式与中文版**严格一致**（标题层级、代码块、图片位置、链接结构）
-- 技术术语保持英文原文（不过度翻译）
-- 代码注释不翻译
-- 图片 alt text 翻译
-- commit hash 链接保持不变
-- 输出文件名：如果中文版为 `readme.md`，英文版为 `readme-en.md`；如果中文版为 `readme-CN.md`，英文版为 `readme.md` 或 `readme-EN.md`（保持 repo 现有命名惯例）
+翻译要求（完整规则见 `.learn/index/style-guide.md` §13）：
+- 格式与中文版**严格一致**（标题层级、列表层级、代码块、引用块、图片位置、链接结构）
+- 技术术语保持英文原文（不过度翻译，如 CUDA Graph / Thinker / Talker / paged KV cache / OmniScheduler 等）
+- 代码块内代码与注释**不翻译**，保持原样
+- 图片 alt text **翻译**
+- **repo 内部相对链接必须切换至对应语种版本（硬约束）**：
+  - 中文版 `[xxx](../foo/readme.md)` → 英文版 `[xxx](../foo/readme-en.md)`（或 `readme_en.md`、`readme-EN.md`，以目标文件实际命名为准）
+  - **禁止**英文版正文中保留指向中文 `.md` 的链接
+  - 译完后**必须**执行 `grep -nE '\]\([^)]+\.md\)' <translated-file>` 自检，逐条核对每个相对路径目标的对应语种文件确实存在
+  - 链接目标命名应查 `.learn/index/knowledge-graph.json` 的 `external_links.github_en` / `external_links.github_cn` 字段或同目录已有文件，不要凭直觉拼接 `-en.md`
+- 外部 URL（arxiv / GitHub 带 commit hash / Hugging Face / Zhihu / 官网）**不翻译、不替换**
+- 输出文件命名遵循 repo 现有惯例：`readme.md` → `readme-en.md`；`readme-CN.md` → `readme.md` 或 `readme-EN.md`；`why-foo.md` → `why-foo-en.md`。同一目录或系列内的英文版后缀风格必须统一。
+- 翻译完成后**必须**同步：(1) `README.md` 与 `README-cn.md` 的索引条目互链；(2) `knowledge-graph.json` 中该文章的 `external_links.github_en` / `external_links.github_cn` 字段与 `language` 字段
 
 ## 用户输入
 
