@@ -201,7 +201,7 @@ curl -N -X POST http://localhost:8000/v1/audio/speech \
 Reference output:
 
 <audio controls>
-  <source src="https://sgl-project.github.io/sglang-omni/_static/audio/male-voice.wav" type="audio/wav">
+  <source src="https://sgl-project.github.io/sglang-omni/_static/audio/higgs-4.wav" type="audio/wav">
 </audio>
 
 ### Inline Control Tokens
