@@ -167,17 +167,6 @@ curl -X POST http://localhost:8000/v1/audio/speech \
     "max_new_tokens": 1024
   }' \
   --output output.wav
-
-curl -X POST http://localhost:8000/v1/audio/speech \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "Have a nice day and enjoy the southern California sunshine.",
-    "references": [{
-      "audio_path": "https://.../reference.wav",
-      "text": "We asked over twenty different people, and they all said it was his."
-    }]
-  }' \
-  --output output.wav
 ```
 
 Reference input:
