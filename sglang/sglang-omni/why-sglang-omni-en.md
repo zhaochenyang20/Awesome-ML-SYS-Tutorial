@@ -25,7 +25,7 @@ Fortunately, this time I am not exploring alone either. Starting from the SGLang
 
 Acknowledgements (in alphabetical order by surname pinyin):
 
-Ke Bai, Haoguang Cai, Shangming Cai, Qiujiang Chen, Chen Cheng, Jiaxin Deng, Wenyao Gao, Yifei Gao, Jingwen Gu, Yitong Guan, Chenchen Hong, Hao Jin, Xinli Jing, Shenggui Li, Junrong Lin, Xinyuan Liu, Xinyu Lu, Yuan Luo, Silin Men, Ratish P, Chengliang Qian, Jinjiang Qu, Dongming Sheng, Shuai Shi, Chao Wang, Richard Wang, Shuwen Wang, Zijie Xia, Yuhao Yang, Xuesong Ye, Fan Yin, Gaokai Zhang, Xiaoyu Zhang, Yichi Zhang, Huapeng Zhou, Chenyang Zhao
+Ke Bai, Haoguang Cai, Shangming Cai, Qiujiang Chen, Chen Cheng, Jiaxin Deng, Wenyao Gao, Yifei Gao, Jingwen Gu, Yitong Guan, Chenchen Hong, Hao Jin, Xinli Jing, Shenggui Li, Junrong Lin, Xinyuan Liu, Xinyu Lu, Yuan Luo, Silin Men, Ratish P, Chengliang Qian, Jintao Qu, Dongming Sheng, Shuai Shi, Chao Wang, Richard Wang, Shuwen Wang, Zijie Xia, Yuhao Yang, Xuesong Ye, Fan Yin, Gaokai Zhang, Xiaoyu Zhang, Yichi Zhang, Huapeng Zhou, Chenyang Zhao
 
 ## What Kind of Computation Are We Optimizing?
 
