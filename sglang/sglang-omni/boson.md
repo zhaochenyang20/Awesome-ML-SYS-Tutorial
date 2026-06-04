@@ -2,21 +2,21 @@
 
 *Boson AI & SGLang-Omni Team*
 
-Boson AI and the SGLang community are jointly releasing **Higgs Audio v3 Generation**, a chat-native text-to-speech model built for real-time, expressive, and controllable speech in voice-agent settings — speaking 100+ languages with state-of-the-art accuracy and directable inline control over emotion, style, prosody, and sound effects. The model is served end-to-end by [**SGLang-Omni**](https://github.com/sgl-project/sglang-omni), the multi-stage inference framework we built together with the LMSYS team.
+Boson AI and the SGLang community are jointly releasing **Higgs Audio v3 TTS**, a chat-native text-to-speech model built for real-time, expressive, and controllable speech in voice-agent settings — [101 languages with single-digit WER/CER](https://www.boson.ai/blog/higgs-audio-v3-tts), state-of-the-art accuracy, and directable inline control over emotion, style, prosody, and sound effects. The model is served end-to-end by [**SGLang-Omni**](https://github.com/sgl-project/sglang-omni), the multi-stage inference framework we built together with the LMSYS team.
 
 > **[ DEMO VIDEO — hero ] @huapeng**
 
-## Meet Higgs Audio v3 Generation
+## Meet Higgs Audio v3 TTS
 
 ### Chat-Native by Design
 
-A good conversational TTS model should be able to start speaking given only half a sentence — or even just a few words — and keep going as the rest of the text streams in. Higgs Audio v3 Generation was designed from the ground up for this kind of turn-taking: speech begins within milliseconds, never has to wait for a punctuation mark, and stays consistent in voice, emotion, and pace as more text arrives. The result is a voice that feels like it is *listening and answering*, rather than transcribing a finished script.
+A good conversational TTS model should be able to start speaking given only half a sentence — or even just a few words — and keep going as the rest of the text streams in. Higgs Audio v3 TTS was designed from the ground up for this kind of turn-taking: speech begins within milliseconds, never has to wait for a punctuation mark, and stays consistent in voice, emotion, and pace as more text arrives. The result is a voice that feels like it is *listening and answering*, rather than transcribing a finished script.
 
 Architecturally, Higgs is a ~4B autoregressive decoder built on a Qwen3-4B backbone. It consumes interleaved text and audio tokens; audio is encoded into 8 discrete codebooks at 25 fps, staggered via a delay pattern, mapped to backbone hidden states through a fused multi-codebook embedding, and decoded back to 24 kHz waveform through a fused multi-codebook head. Multi-turn generation interleaves text and audio chunks so each new chunk is grounded on the reference and prior context.
 
 ### Multilingual, with Quality that Holds
 
-Out of the box the model speaks **100+ languages and dialects**, with **90+ languages reaching single-digit WER/CER** on internal multilingual evaluations. Across the standard public benchmarks, v3 sets Boson's highest accuracy to date while *also* pushing WavLM speaker similarity up, rather than trading one for the other. Zero-shot voice cloning needs only a short reference clip — and works across languages from the same reference.
+Out of the box the model speaks [**101 languages with single-digit WER/CER**](https://www.boson.ai/blog/higgs-audio-v3-tts) on internal multilingual evaluations. Across the standard public benchmarks, v3 sets Boson's highest accuracy to date while *also* pushing WavLM speaker similarity up, rather than trading one for the other. Zero-shot voice cloning needs only a short reference clip — and works across languages from the same reference.
 
 WER/CER (↓, %) and WavLM speaker similarity (↑, ×100), macro-averaged per benchmark, zero-shot voice cloning at release:
 
@@ -75,7 +75,7 @@ Higgs joins a roster of TTS and omni models already supported by SGLang-Omni:
 
 | Model | Type | Notes |
 |---|---|---|
-| [Higgs Audio v3](https://huggingface.co/boson-sglang/higgs-audio-v3-generation-4B-base) | TTS | Voice cloning, streaming, 100+ languages |
+| [Higgs Audio v3 TTS](https://huggingface.co/bosonai/higgs-audio-v3-tts) | TTS | Voice cloning, streaming, 101 languages |
 | [Fish Audio S2-Pro](https://huggingface.co/fishaudio/s2-pro) | TTS | Voice cloning, streaming |
 | [Voxtral TTS](https://huggingface.co/mistralai/Voxtral-4B-TTS-2603) | TTS | Named voices, streaming, 9 languages |
 | [Qwen3-TTS](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) | TTS | Voice cloning, streaming, 10 languages |
@@ -127,10 +127,10 @@ uv pip install -v -e .
 
 ```bash
 export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-hf download boson-sglang/higgs-audio-v3-generation-4B-base
+hf download bosonai/higgs-audio-v3-tts
 
 sgl-omni serve \
-  --model-path boson-sglang/higgs-audio-v3-generation-4B-base \
+  --model-path bosonai/higgs-audio-v3-tts \
   --port 8000
 ```
 
@@ -356,13 +356,14 @@ SGLang-Omni is an open community project, and it is still growing fast. Cross-no
 
 ## Acknowledgments
 
-**Higgs Audio v3 (Boson AI)** — Mu Li, Alex Smola, Lindsey Allen. Silin Meng, Ke Bai. Ruskin Raj Manku, Huapeng Zhou, Silin Meng, Dongming Shen. Jonah Mackey, Ke Bai, Ruskin Raj Manku, Erik Li, Weisu Yin, Yizhi Liu. 
+**Higgs Audio v3 TTS (Boson AI)** — Mu Li, Alex Smola, Lindsey Allen. Silin Meng, Ke Bai. Ruskin Raj Manku, Huapeng Zhou, Dongming Shen, Jonah Mackey, Erik Li, Weisu Yin, Yizhi Liu, Xinyu Wang, Hao Yu. 
 
 **SGLang-Omni** — Haoguang Cai, Shangming Cai, Qiujiang Chen, Jiaxin Deng, Wenyao Gao, Yifei Gao, Jingwen Gu, Yitong Guan, Chenchen Hong, Hao Jin, Xinli Jing, Shenggui Li, Junrong Lin, Xinyu Lu, Yuan Luo, Ratish Palanisamy, Mick Qian, Jinjiang Qu, Shuai Shi, Chao Wang, Richard Wang, Shuwen Wang, Zijie Xia, Yuhao Yang, Xuesong Ye, Fan Yin, Gaokai Zhang, Xiaoyu Zhang, Yichi Zhang, Chenyang Zhao.
 
 ## Learn More
 
-- **Model:** [`boson-sglang/higgs-audio-v3-generation-4B-base`](https://huggingface.co/boson-sglang/higgs-audio-v3-generation-4B-base)
+- **Model:** [`bosonai/higgs-audio-v3-tts`](https://huggingface.co/bosonai/higgs-audio-v3-tts)
+- **Blog:** [Higgs Audio v3 TTS](https://www.boson.ai/blog/higgs-audio-v3-tts)
 - **Serving framework:** [SGLang-Omni on GitHub](https://github.com/sgl-project/sglang-omni)
 - **Documentation:** [SGLang-Omni docs](https://sgl-project.github.io/sglang-omni/) · [Higgs TTS cookbook](https://sgl-project.github.io/sglang-omni/cookbook/higgs_tts.html)
 - **Higgs optimization roadmap:** [#478](https://github.com/sgl-project/sglang-omni/issues/478)
