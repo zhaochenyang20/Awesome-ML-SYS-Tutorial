@@ -377,7 +377,14 @@ ffmpeg -y \
 CUDA_VISIBLE_DEVICES=0 ./playground/higgs/start.sh
 ```
 
-> **TODO [ DEMO VIDEO PLACEHOLDER ] @yichi**
+<iframe
+  width="960"
+  height="540"
+  src="https://drive.google.com/file/d/1QBxraffYEm68LBKy16Q-M_Gfbb0ek3cl/preview"
+  title="SGLang-Omni Higgs playground 演示"
+  allow="autoplay"
+  allowfullscreen
+></iframe>
 
 ## Roadmap
 
