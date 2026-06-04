@@ -90,6 +90,7 @@ Higgs 已经加入 SGLang-Omni 支持的 TTS 与 omni 模型生态：
 | [Fish Audio S2-Pro](https://huggingface.co/fishaudio/s2-pro) | TTS | 声音克隆、流式 |
 | [Voxtral TTS](https://huggingface.co/mistralai/Voxtral-4B-TTS-2603) | TTS | 命名音色、流式、9 种语言 |
 | [Qwen3-TTS](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) | TTS | 声音克隆、流式、10 种语言 |
+| [MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5) | TTS | 声音克隆、流式、31 种语言 |
 | [Qwen3-Omni](https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct) | Omni | 文本/图像/音频/视频 → 文本 + 音频 |
 | [Ming-flash-omni-2.0](https://huggingface.co/inclusionAI/Ming-flash-omni-2.0) | Omni | 流式 TTS |
 | [LLaDA2.0-Uni](https://huggingface.co/inclusionAI/LLaDA2.0-Uni) | Multimodal | 文本 + 图像理解与生成 |
