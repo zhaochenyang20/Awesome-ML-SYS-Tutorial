@@ -37,10 +37,10 @@ WER/CER (↓, %) and WavLM speaker similarity (↑, ×100), macro-averaged per b
 Beyond raw quality, v3 is built to be *directed*. Inline control tags let you change emotion, switch speaking style, adjust speed and pitch, insert pauses, and trigger sound effects — all mid-utterance, all from the text stream:
 
 ```text
-I can't believe it! <|emotion:surprise|> <|prosody:pause|> <|style:whispering|> Higgs and SGLang are absolutely incredible.
+<|emotion:amusement|><|prosody:expressive_high|>Wait, wait, that was kind of hilarious. <|sfx:laughter|>Hehe, no, seriously, I was not ready for that.
 ```
 
-The tag families cover 20+ emotions (`<|emotion:elation|>`, `<|emotion:anger|>`, `<|emotion:sadness|>`, …), styles (`<|style:singing|>`, `<|style:whispering|>`, `<|style:shouting|>`), prosody (`<|prosody:speed_very_slow|>`, `<|prosody:pitch_high|>`, `<|prosody:pause|>`, `<|prosody:long_pause|>`), and sound effects (`<|sfx:cough|>`, `<|sfx:laughter|>`, `<|sfx:sigh|>`, …). Tags from different categories can be combined freely. The full catalogue lives in the [model card](https://huggingface.co/bosonai/higgs-audio-v3-tts).
+The tag families cover 20+ emotions (`<|emotion:elation|>`, `<|emotion:anger|>`, `<|emotion:sadness|>`, …), styles (`<|style:singing|>`, `<|style:whispering|>`, `<|style:shouting|>`), prosody (`<|prosody:speed_very_slow|>`, `<|prosody:pitch_high|>`, `<|prosody:pause|>`, `<|prosody:long_pause|>`), and sound effects (`<|sfx:cough|>`, `<|sfx:laughter|>`, `<|sfx:sigh|>`, …). Tags from different categories can be combined freely. The full catalogue lives in the [SGLang Omni Higgs Cookbook](https://sgl-project.github.io/sglang-omni/cookbook/higgs_tts.html#inline-control-tokens).
 
 ---
 
@@ -160,8 +160,11 @@ curl -X POST http://localhost:8000/v1/audio/speech \
     "input": "Have a nice day and enjoy the southern California sunshine.",
     "references": [{
       "audio_path": "https://.../reference.wav",
-      "text": "We asked over twenty different people, and they all said it was his."
-    }]
+      "text": "Hey, Adam here. Let'\''s create something that feels real, sounds human, and connects every time."
+    }],
+    "temperature": 0.8,
+    "top_k": 50,
+    "max_new_tokens": 1024
   }' \
   --output output.wav
 ```
@@ -169,7 +172,7 @@ curl -X POST http://localhost:8000/v1/audio/speech \
 Reference input:
 
 <audio controls>
-  <source src="https://sgl-project.github.io/sglang-omni/_static/audio/higgs-3.wav" type="audio/wav">
+  <source src="https://sgl-project.github.io/sglang-omni/_static/audio/male-voice.wav" type="audio/wav">
 </audio>
 
 Reference output:
@@ -185,7 +188,14 @@ Set `"stream": true` to receive audio over Server-Sent Events and start playback
 ```bash
 curl -N -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Get the trust fund to the bank early.", "stream": true}'
+  -d '{
+    "input": "Get the trust fund to the bank early.",
+    "references": [{
+      "audio_path": "https://.../reference.wav",
+      "text": "Hey, Adam here. Let'\''s create something that feels real, sounds human, and connects every time."
+    }],
+    "stream": true
+  }'
 ```
 
 Reference output:
@@ -198,37 +208,47 @@ Reference output:
 
 Embed control tokens directly in the `input` field. Tokens from different categories can be combined.
 
-**Emotion: surprise**
+**Emotion: anger**
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "input": "I cant believe it! <|emotion:surprise|> <|prosody:pause|> <|style:whispering|> Higgs Model and SGLang are absolutely incredible."
+    "input": "<|emotion:anger|><|style:shouting|>No, that is not okay! We cannot ship something that sounds broken, delayed, and unnatural.",
+    "temperature": 0.8,
+    "top_k": 50,
+    "max_new_tokens": 1024
   }' \
   --output output.wav
 ```
 
-Reference output:
-
-<audio controls>
-  <source src="https://sgl-project.github.io/sglang-omni/_static/audio/control-tokens-test1.wav" type="audio/wav">
-</audio>
-
-**Prosody: speed_slow**
-
-```bash
-curl -X POST http://localhost:8000/v1/audio/speech \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "<|emotion:enthusiasm|> Welcome to the show! <|prosody:pause|> <|prosody:speed_slow|> Today we have something truly special for you."
-  }' \
-  --output output.wav
-```
 Reference output:
 
 <audio controls>
   <source src="https://sgl-project.github.io/sglang-omni/_static/audio/control-tokens-test2.wav" type="audio/wav">
+</audio>
+
+**Prosody: pitch_high**
+
+```bash
+curl -X POST http://localhost:8000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "<|emotion:surprise|><|prosody:pitch_high|><|sfx:screaming|>Ah! Wait, I almost forgot! Higgs Audio v3 also supports over one hundred languages.",
+    "references": [{
+      "audio_path": "https://sgl-project.github.io/sglang-omni/_static/audio/ref_voice.wav",
+      "text": "It was the night before my birthday. Hooray! It’s almost here! It may not be a holiday, but it’s the best day of the year."
+    }],
+    "temperature": 0.8,
+    "top_k": 50,
+    "max_new_tokens": 1024
+  }' \
+  --output output.wav
+```
+Reference output:
+
+<audio controls>
+  <source src="https://sgl-project.github.io/sglang-omni/_static/audio/control-tokens-test5.wav" type="audio/wav">
 </audio>
 
 **Combine them together:**
@@ -238,56 +258,56 @@ Here is an example of combining emotion, prosody and style tokens together:
 <details>
 <summary>Commands</summary>
 
-Part 1 — female asks:
+Part 1 — she asks about the missed class:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "input": "<|prosody:pitch_high|> <|prosody:speed_slow|> Excuse me. Can you tell me how much the shirt is?",
+    "input": "<|emotion:contemplation|>Hi David, I missed the biology class today because I caught a cold. <|sfx:cough|>Ahem! Sorry, Could you tell me what the teacher covered?",
     "references": [{
-      "audio_path": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_103675.wav",
-      "text": "Excuse me. Can you tell me how much the shirt is?"
+      "audio_path": "docs/_static/audio/female-voice.wav",
+      "text": "By repeating what students say, teachers can demonstrate that they are listening. By extending what students say."
     }],
-    "temperature": 0.5,
-    "top_k": 30,
-    "seed": 404
+    "temperature": 0.8,
+    "top_k": 50,
+    "max_new_tokens": 1024
   }' \
   --output part1.wav
 ```
 
-Part 2 — male answers:
+Part 2 — he explains what was covered:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "input": "<|prosody:speed_very_slow|> <|prosody:expressive_low|> Yes, it is nine fifteen.",
+    "input": "<|emotion:enthusiasm|>Sure, no problem! We learned how plants make food through photosynthesis, and <|prosody:long_pause|> there will be a quiz this Friday.",
     "references": [{
-      "audio_path": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
-      "text": "We asked over twenty different people, and they all said it was his."
+      "audio_path": "docs/_static/audio/male-voice.wav",
+      "text": "Hey, Adam here. Let'\''s create something that feels real, sounds human, and connects every time."
     }],
-    "temperature": 0.5,
-    "top_k": 30,
-    "seed": 43
+    "temperature": 0.8,
+    "top_k": 50,
+    "max_new_tokens": 1024
   }' \
   --output part2.wav
 ```
 
-Part 3 — female reads the question:
+Part 3 — she reads the result:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "input": "<|prosody:speed_slow|> <|prosody:expressive_low|> Question: How much is the shirt?",
+    "input": "<|emotion:relief|>Oh, that is really helpful. Thank you!",
     "references": [{
-      "audio_path": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_103675.wav",
-      "text": "We asked over twenty different people, and they all said it was his."
+      "audio_path": "docs/_static/audio/female-voice.wav",
+      "text": "By repeating what students say, teachers can demonstrate that they are listening. By extending what students say."
     }],
-    "temperature": 0.5,
-    "top_k": 30,
-    "seed": 44
+    "temperature": 0.8,
+    "top_k": 50,
+    "max_new_tokens": 1024
   }' \
   --output part3.wav
 ```
