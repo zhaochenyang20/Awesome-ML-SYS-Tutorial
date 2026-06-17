@@ -253,9 +253,9 @@ SGLang-Omni is an open community project, and it is still growing fast. Cross-no
 
 **SGLang-Omni** — Haoguang Cai, Shangming Cai, Qiujiang Chen, Yuhao Chen, Jiaxin Deng, Wenyao Gao, Yifei Gao, Jingwen Gu, Yitong Guan, Zhihao Guo, Chenchen Hong, Hao Jin, Xinli Jing, Xiangrui Ke, Shenggui Li, Junrong Lin, Estella Liu, Xinyu Lu, Yuan Luo, Ratish Palanisamy, Mick Qian, JinTao Qu, Shuai Shi, Yijiang Tian, Chao Wang, Richard Wang, Shuwen Wang, Zijie Xia, Yuhao Yang, Xuesong Ye, Fan Yin, Yue Yin, Gaokai Zhang, Xiaoyu Zhang, Yichi Zhang, Chenyang Zhao.
 
-**Higgs Audio v3 TTS (Boson AI)** — Lindsey Allen, Ke Bai, Erik Li, Mu Li, Yizhi Liu, Jonah Mackey, Ruskin Raj Manku, Silin Meng, Dongming Shen, Alex Smola, Xinyu Wang, Weisu Yin, Hao Yu, Huapeng Zhou.
+**Higgs Audio v3 TTS (Boson AI)** — Mu Li, Alex Smola, Lindsey Allen. Silin Meng, Ke Bai. Ruskin Raj Manku, Huapeng Zhou, Dongming Shen, Jonah Mackey, Erik Li, Weisu Yin, Yizhi Liu, Xinyu Wang, Hao Yu.
 
-**MOSS-TTS Local-Transformer-v1.5 (MOSI.AI)** — Kuangwei Chen, Qinyuan Chen, Zhaoye Fei, Yang Gao, Yitian Gong, Botian Jiang, Shimin Li, Xipeng Qiu, Xiaogui Yang, Kang Yu, Yiyang Zhang, Zhicheng Zhang.
+**MOSS-TTS Local-Transformer-v1.5 (MOSI.AI)** — Yitian Gong, Kuangwei Chen, Zhicheng Zhang, Botian Jiang, Yiyang Zhang, Kang Yu, Yang Gao, Xiaogui Yang, Qinyuan Chen, Zhaoye Fei, Shimin Li, Xipeng Qiu.
 
 ## Learn More
 
