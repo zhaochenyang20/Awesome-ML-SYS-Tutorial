@@ -25,7 +25,7 @@ To optimize the system, we first have to understand the computing process throug
 
 ![MOSS Audio Tokenizer Architecture](images/tts-opt-moss-pipeline.png)
 
-MOSS-TTS-v1.5 (OpenMOSS) shares the same four-stage pipeline structure. Below we describe each stage in the same format as Higgs, followed by a comparison of the two architectures.
+MOSS-TTS-v1.5 (OpenMOSS) uses the `local transformer` architecture and shares the same four-stage pipeline structure — including the delay pattern — as Higgs. Below we describe each stage in the same format as Higgs, followed by a comparison of the two architectures.
 
 - **Preprocessing (CPU):** Text tokenization and reference audio loading, same as Higgs. Purely IO-bound.
 - **Audio Encoder (GPU):** Uses MOSS-Audio-Tokenizer-v2, a ~1B-parameter neural audio codec. The encoder converts reference audio into discrete RVQ tokens. MOSS-TTS-v1.5 uses 32 RVQ codebooks; the MOSS-TTS-Local variant uses 12. In addition to audio channels, MOSS includes one text/control channel, so the full token layout is `[T, 33]` (v1.5) or `[T, 13]` (Local).
@@ -36,17 +36,17 @@ MOSS-TTS-v1.5 (OpenMOSS) shares the same four-stage pipeline structure. Below we
 
 ![Higgs vs MOSS Architecture Comparison](images/tts-opt-arch-comparison.png)
 
-As shown in the picture, the two models have nearly opposite weight distributions. Higgs is a "heavy backbone, light codec": its ~4B-param AR backbone dominates total model size, while the DAC-based codec is small and bundled inside the checkpoint. MOSS is the reverse — "light backbone, heavy codec": the Qwen3 backbone is significantly smaller, but each ~1B-param codec instance occupies a lot more than DAC.
+As shown in the picture, both models share a similarly sized Qwen3 backbone (~4B params), but differ significantly in codec weight. Higgs is a "heavy backbone, light codec" system: its DAC-based codec is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs the same-scale backbone with a much heavier codec (~1B-param MOSS-Audio-Tokenizer-v2), making it a "similar backbone, heavy codec" system — the unusually heavy codec brings extra optimization challenges on the codec side.
 
 They also differ in how codebook tokens are generated: Higgs's backbone directly emits all 8 audio codebook tokens per step via the delay pattern, while MOSS's backbone only produces a hidden state, leaving a local transformer to sequentially sample 12 codes per frame. Finally, their vocoders have opposite streaming properties — Higgs's DAC decoder is not natively streamable (requiring windowed chunking with crossfade), whereas MOSS's codec supports frame-by-frame streaming out of the box.
 
 This weight distribution directly shapes our optimization strategy:
 
-- **Encoder caching is more critical for MOSS:** Each MOSS encode costs ~0.25 GPU-seconds (vs 50–100ms for Higgs) due to the ~1B-param codec. This motivates a bigger cache for MOSS to amortize encoder time cost.
+- **Encoder caching is more critical for MOSS:** Each MOSS encode costs ~250ms per reference (vs 50–100ms for Higgs) due to the ~1B-param codec. This motivates a bigger cache for MOSS to amortize encoder time cost.
 - **Kernel launch overhead matters more for MOSS:** Because the MOSS backbone is lighter, per-step compute is shorter, making kernel launch overhead a proportionally larger fraction of step time. This is why CUDA Graph capture of the frame-decode micro-loop (1 + 12 micro-steps) is essential for MOSS.
 - **Batched encoding & AR stage optimization is more important for Higgs:** Since Higgs AR backbone is much heavier and takes most of the time, higher-concurrency batched processing can greatly increase throughput on Higgs.
 - **Vocoder optimization is more important for MOSS:** We find out that the vocoder in MOSS has much heavier workload than Higgs, so we implemented CUDA Graph optimization specifically for MOSS vocoder to reduce each-step launch overhead.
-- **Streaming strategy is fundamentally different:** Higgs needs windowed chunking with stride/overlap/holdback to work around DAC's non-streamable decoder. MOSS's natively streamable codec eliminates this entirely, but introduces slot management complexity at high concurrency.
+- **Streaming strategy is fundamentally different:** While Higgs needs windowed chunking with stride/overlap/holdback to work around DAC's non-streamable decoder, MOSS's natively streamable codec eliminates this entirely, but introduces slot management complexity at high concurrency.
 
 ### Know Before Dive In: the Codebook & RVQ
 
@@ -70,9 +70,9 @@ To balance this, Higgs uses a Delay Pattern where Codebook i is delayed by i tim
 - ... and so on.
 - Step 7: CB0 + CB1 + … CB7 activate
 - … decode for more steps until complete, and start winding-down
-- Step n-8: CB0 hits EOC and stop; CB1 – CB7 still activate
-- Step n-7: CB0 + CB1 hits EOC stop; CB2 – CB7 still activate
-- … until finish at the end
+- Step n-8: CB0 hits EOC and stops; CB1 – CB7 remain active
+- Step n-7: CB0 + CB1 hit EOC and stop; CB2 – CB7 remain active
+- ... until the generation finishes
 
 ![Delay Pattern State Machine](images/tts-opt-delay-pattern.png)
 
