@@ -147,41 +147,6 @@ Compact deployment is important for users who want the shortest path from model 
 
 In a single-card colocated configuration at concurrency 8, explicit codec memory budgeting improved throughput by **8.9%** and reduced mean RTF by **8.4%**. More importantly, it makes deployment behavior more predictable under memory pressure.
 
-## Performance
-
-We evaluate the optimized MOSS-TTS Local Transformer v1.5 serving path on the SeedTTS English set (N=1088). All optimizations are enabled (AR CUDA Graph, frame-decode CUDA Graph, vocoder CUDA Graph, compiled seeded sampler). Each data point is the mean of 3 runs.
-
-### Single-GPU (1× H100 80GB, colocate)
-
-**Non-streaming:**
-
-| Concurrency | Throughput (qps) | RTF | Latency mean (s) |
-|---:|---:|---:|---:|
-| 2  | 2.974 | 0.157 | 0.676 |
-| 4  | 4.870 | 0.192 | 0.821 |
-| 8  | 6.111 | 0.310 | 1.306 |
-| 16 | 6.144 | 0.623 | 2.593 |
-
-**Streaming:**
-
-| Concurrency | Throughput (qps) | RTF | Latency mean (s) | TTFP (ms) |
-|---:|---:|---:|---:|---:|
-| 2  | 2.256 | 0.206 | 0.888 | 261 |
-| 4  | 2.649 | 0.356 | 1.509 | 726 |
-| 8  | 2.633 | 0.726 | 3.033 | 2239 |
-| 16 | 2.635 | 1.458 | 6.045 | 5227 |
-
-### Dual-GPU (2× GPU, concurrency 16)
-
-| Mode | Throughput | Audio Throughput | Mean Latency | Mean RTF | WER |
-|---|---:|---:|---:|---:|---:|
-| Non-streaming | 5.976 req/s | 26.303 audio s/s | 2.669 s | 0.644 | 1.75% |
-| Streaming | 2.909 req/s | 12.804 audio s/s | 5.474 s | 1.322 | 2.14% |
-
-Non-streaming throughput scales well with concurrency, reaching **6.1 qps on a single H100** and **6.0 qps on 2× GPU** at concurrency 16. The streaming path trades throughput for incremental delivery — the vocoder runs more frequently on smaller chunks and shares GPU time with the AR engine. Improving high-concurrency streaming scalability is on the roadmap.
-
-Quality remains stable across serving modes: non-streaming WER is **1.75%** and streaming WER is **2.14%** in the dual-GPU evaluation, confirming that the CUDA Graph and streaming scheduler paths preserve the model's audio semantics.
-
 ## Try It Yourself
 
 Detailed instructions are available in the [SGLang-Omni MOSS-TTS-Local cookbook](https://sgl-project.github.io/sglang-omni/cookbook/moss_tts_local.html). The commands below show the shortest path from a clean container to a working speech endpoint.
@@ -363,9 +328,25 @@ MOSS-TTS Local exposes the usual speech-generation controls through the OpenAI-c
 
 The model has separate text-channel and audio-channel sampling defaults. A single `temperature`, `top_p`, or `top_k` applies to both; channel-specific fields can be used when more control is needed.
 
-### Benchmarking and Performance
+## Benchmarking and Performance
 
-[TODO: Yichi please help to review this part]
+**Non-streaming:**
+
+| Concurrency | Throughput (qps) | RTF | Latency mean (s) |
+|---:|---:|---:|---:|
+| 2  | 2.974 | 0.157 | 0.676 |
+| 4  | 4.870 | 0.192 | 0.821 |
+| 8  | 6.111 | 0.310 | 1.306 |
+| 16 | 6.144 | 0.623 | 2.593 |
+
+**Streaming:**
+
+| Concurrency | Throughput (qps) | RTF | Latency mean (s) | TTFP (ms) |
+|---:|---:|---:|---:|---:|
+| 2  | 2.256 | 0.206 | 0.888 | 261 |
+| 4  | 2.649 | 0.356 | 1.509 | 726 |
+| 8  | 2.633 | 0.726 | 3.033 | 2239 |
+| 16 | 2.635 | 1.458 | 6.045 | 5227 |
 
 To reproduce the serving benchmarks, start the server and run the benchmark client:
 
