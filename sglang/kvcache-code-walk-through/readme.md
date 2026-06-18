@@ -137,8 +137,9 @@ A map from a request to its tokens' KV cache indices.
 #### `tree_cache`
 `tree_cache` is a tree structure to enhance the reuse of prefix KV Cache across requests. `tree_cache` is responsible for updating `req_to_token_pool` and `token_to_kv_pool` on a token level for each request. Across `tree_cache`, `req_to_token_pool`, and `token_to_kv_pool`, tokens are linked via it's KV Cache indices.
 - **Access:**
-  - Key: Token ID, same token's KV Cache is agnostic from requests
+  - Key: Token ID (the full prefix obtained by walking the tree path from the root to the current node)
   - Value: Token's KV Cache Indices
+  - Note: What can be reused across requests is the KV Cache of a **complete prefix**, not that of an isolated token. In a transformer, the K/V at layer N (N>0) is computed from a hidden state that already aggregates information from all preceding tokens, so an individual token's KV depends strongly on its context. Only when the entire prefix starting at position 0 matches exactly is the corresponding KV Cache agnostic to the request and reusable. This is precisely why `tree_cache` is implemented as a tree (rather than a simple per-token hash table).
 
 ### Sequence
 Let's walk through the sequence in the diagram now.
