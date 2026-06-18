@@ -128,7 +128,7 @@ The vocoder stage turns generated RVQ frames into audio chunks. Because MOSS-Aud
 
 The scheduler manages stream slots, an offline fallback slot, chunk thresholds, and coalesced decode steps. The first chunk can use a smaller threshold to reduce time to first audio, while later chunks can use larger windows to improve throughput. When several requests have enough pending frames, the scheduler decodes them together in one codec call.
 
-Short streaming chunks are launch-heavy, so SGLang-Omni also captures common vocoder frame counts with CUDA Graphs. The graph path helps most when chunks are short. For larger chunks, codec compute dominates and graph replay adds less.
+Short streaming chunks are launch-bound rather than compute-bound: on each scheduler tick the codec decodes only a handful of frames, so the per-step cost is dominated by kernel launch overhead. SGLang-Omni captures the stateful codec decode for the common streaming frame counts into CUDA Graphs and replays them, collapsing that launch storm into a single replay. The win is largest at the smallest steps and fades as the step grows compute-bound:
 
 | Frames per Step | Eager | CUDA Graph | Speedup |
 |---:|---:|---:|---:|
@@ -139,7 +139,7 @@ Short streaming chunks are launch-heavy, so SGLang-Omni also captures common voc
 | 25 | 74.8 ms | 58.3 ms | 1.28x |
 | 100 | 222.9 ms | 215.3 ms | 1.04x |
 
-The graph path falls back to eager decode when needed and is covered by streaming/non-streaming consistency checks.
+Replay is bit-identical to eager decode, with zero max delta across all captured frame counts, because the streaming state buffers stay at fixed addresses and are updated in place. End to end, at concurrency 8 on a single colocated card, the graph cut the vocoder decode span by about **40%** and request latency by about **22%**; the end-to-end number is smaller because the vocoder is one stage of several. The path is default-on with a safe fallback to eager when a frame count is not captured or VRAM is tight, and the absolute times above are box-sensitive, so the speedup ratios travel better than the raw numbers.
 
 ### Memory Budgeting
 
@@ -385,19 +385,19 @@ python -m benchmarks.eval.benchmark_tts_seedtts \
 
 ## Roadmap
 
-【TODO：Jiaxin Please help to change】
-
 Serving MOSS end to end is an important step for SGLang-Omni, but there is still follow-up work on the serving path:
 
-**Pool-native frame CUDA Graph.** The current frame-decode graph already uses persistent state pools, but some staging remains around sampling parameters and generated rows. A more native pool-to-pool graph path can further reduce host-device movement and simplify the launch/resolve boundary.
+**Pool-native frame CUDA Graph.** The current frame-decode graph already uses persistent state pools, but some staging remains around sampling parameters and generated rows, and some sampling configurations still fall back to eager: setting `audio_repetition_penalty` above 1.0 forces the batch onto the eager path because that penalty is not yet captured in the graph. A more native pool-to-pool graph path can reduce device-side staging and extend graph coverage to more sampling configurations.
 
-**Adaptive streaming scheduling.** Streaming TTS has a real latency-throughput trade-off. The next step is load-aware chunk sizing and better coalescing, so low-load requests can receive fast first audio while high-load deployments recover more throughput.
+**Adaptive streaming scheduling.** Streaming TTS has a real latency-throughput trade-off. The next step is load-aware chunk sizing, priority-aware slot scheduling, and better coalescing, so low-load requests can receive fast first audio while high-load deployments recover more throughput.
 
-**Broader compilation coverage.** The codec encoder and Qwen3 backbone still have room for targeted compilation experiments. We will continue to evaluate compile scope carefully, prioritizing steady-state gains that do not damage cold-start latency or output consistency.
+**Wider compilation and graph coverage.** Several parts of the model zoo still run eager. We want to extend CUDA Graph and targeted compilation to more of them, including the MOSS codec encoder and backbone where the cold-start cost can be justified, and models such as LLaDA2.0-Uni that currently rely on eager execution.
 
-**Wider benchmark coverage.** Current measurements focus on SeedTTS English in CI. We plan to expand coverage to Chinese, multilingual evaluation, long-form generation, multiple speaker pools, different reference lengths, and production-like traffic mixes.
+**Reusable optimization templates across models.** The patterns behind these gains, launch-collapse via CUDA Graphs, batched and compiled hot paths, and cutting per-step CPU work and device-to-host synchronization, are not MOSS-specific. Profiling other TTS paths points to per-step CPU overhead and repeated host-device syncs as the next bottleneck to attack, and we are factoring these optimizations into shared templates so models such as Higgs can adopt them directly instead of re-deriving each one.
 
-**General TTS onboarding.** The long-term goal is to keep moving repeated TTS serving patterns into shared SGLang-Omni runtime modules, so new models can be described as stages, topology, memory contracts, and model-specific hooks rather than as separate serving stacks.
+**Wider benchmark coverage.** Current measurements focus on SeedTTS English in CI. We plan to cover Chinese and multilingual evaluation, long-form generation, multiple speaker pools, varied reference lengths, additional quality metrics beyond WER and similarity, multi-GPU placement, and production-like traffic mixes.
+
+**Broader model and modality coverage.** SGLang-Omni already serves the TTS and omni models listed above, and the next models on this path are on the image-generation side, including BAGEL, SenseNova, and Janus-Pro, extending the framework from speech and understanding into multimodal generation. Onboarding each one should be mostly stages, topology, memory contracts, and model-specific hooks, with a round of framework abstraction so that work keeps getting cheaper, and with productionization (playground, cookbook, and docs) for each model. The same path also covers ASR and audio understanding. Looking further out, we want the stage abstraction to reach across hardware backends beyond a single vendor.
 
 ## Join Us
 
