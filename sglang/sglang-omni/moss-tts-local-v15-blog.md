@@ -12,7 +12,7 @@ MOSS-TTS Local Transformer v1.5 is the second flagship model in the MOSS-TTS v1.
 
 The model is built for speech generation where speaker identity, acoustic detail, and long-form stability matter. It supports direct text-to-speech generation, voice cloning from a short reference clip, continuation, duration control, explicit pause control such as `[pause 3.2s]`, and long-form generation up to 10 minutes. It covers 31 major world languages and was trained on roughly 4 million hours of multilingual speech data.
 
-![MOSS-TTS Local Transformer v1.5 model architecture](images/moss-local-transformer-arch.png)
+![MOSS-TTS Local Transformer v1.5 model architecture](images/moss-local-transformer-arch.svg)
 
 At the audio interface, MOSS-TTS Local Transformer v1.5 uses **MOSS-Audio-Tokenizer-v2**, a neural audio tokenizer with an encoder and decoder totaling about 2B parameters. The tokenizer runs at a 12.5 Hz frame rate, supports variable bitrate compression from 0.125 kbps to 4 kbps, reconstructs 48 kHz stereo audio, and represents speech with residual vector quantization (RVQ).
 
@@ -45,13 +45,11 @@ SGLang-Omni serves MOSS-TTS Local Transformer v1.5 as a three-stage pipeline:
 preprocessing -> tts_engine -> vocoder
 ```
 
-![MOSS-TTS Local inference pipeline](images/tts-opt-moss-pipeline.png)
-
 The **preprocessing** stage parses the OpenAI-compatible speech request, prepares the multi-channel prompt, and encodes reference audio when voice cloning is used. The **tts_engine** stage is backed by `OmniScheduler`, preserving SGLang's continuous batching, KV cache management, RadixAttention, and CUDA Graph support while adapting the request format to MOSS's `[T, 13]` rows. The **vocoder** stage consumes generated rows as a stream and returns audio chunks from a persistent codec streaming session.
 
 This stage boundary is useful because the bottlenecks are different. Reference encoding is a neural codec encoder. AR generation has a Qwen3 backbone plus a frame-local loop with 12 sequential codebook samples. The vocoder is a stateful decoder that must preserve streaming state across chunks. Keeping them as separate stages lets the runtime batch, cache, stream, and budget memory where each decision belongs.
 
-For users, this is exposed through `/v1/audio/speech`, with support for synthesis, voice cloning, streaming PCM, duration control, pause markup, language hints, style instructions, seeds, and sampling parameters.
+For users, this is exposed through `/v1/audio/speech`, with support for synthesis, voice cloning, streaming PCM, duration control, pause markup, language hints, seeds, and sampling parameters.
 
 ## Reusing Omni-Specific Optimizations
 
@@ -88,7 +86,7 @@ These models differ in architecture and user-facing behavior, but they share the
 
 Beyond the basic pipeline, we optimized the MOSS serving path end to end. The main pieces are:
 
-**Preprocessing.** Batched reference encoding, content-addressed LRU caching, and single-flight handling for repeated speaker references.
+**Preprocessing.** Content-addressed LRU caching and single-flight deduplication for repeated speaker references.
 
 **AR engine.** CUDA Graph capture for the Qwen3 backbone and the MOSS frame-decode loop, plus persistent GPU-side decode state for graph replay.
 
@@ -102,11 +100,11 @@ Beyond the basic pipeline, we optimized the MOSS serving path end to end. The ma
 
 ### Reference Audio Encoding
 
-Voice cloning workloads often reuse the same speakers across many prompts. In early serving runs, repeated references still paid the codec encoder cost when the file path changed, or when several concurrent requests missed the cache for the same speaker at the same time.
+Voice cloning workloads often reuse the same speakers across many prompts. In MOSS, that pattern matters because reference encoding runs a ~1B-parameter neural codec encoder (~0.25 GPU-seconds per reference) before AR generation can begin.
 
 ![Reference audio cache](images/tts-opt-encoder-cache.png)
 
-SGLang-Omni combines batched reference encoding with a content-addressed LRU cache. Concurrent references can be encoded together, and repeated references are keyed by audio content rather than by path, so copied or renamed files still reuse the same encoded RVQ result. A single-flight path also merges concurrent misses for the same speaker, preventing a cold-cache burst from launching duplicate codec encodes.
+SGLang-Omni addresses this with a content-addressed LRU cache and single-flight deduplication. References are keyed by audio content rather than by path, so copied or renamed files still reuse the same encoded RVQ result. A single-flight path merges concurrent cache misses for the same speaker, preventing a cold-cache burst from launching duplicate codec encodes. References are encoded one at a time through a serialized encoder thread: the upstream codec encoder is not batch-invariant (batched encoding produces ~5-7% element-level code mismatches due to GEMM accumulation order), so SGLang-Omni encodes each reference independently to preserve determinism.
 
 In SeedTTS English evaluation on 2x H100 at concurrency 16, increasing the reference cache capacity from 256 to 1024 entries improved throughput by **32.0%** and reduced mean latency by **24.3%**. The memory cost is modest because encoded code tensors are compact; the larger cache mainly prevents eviction of the active speaker working set.
 
@@ -114,7 +112,7 @@ In SeedTTS English evaluation on 2x H100 at concurrency 16, increasing the refer
 
 The MOSS AR engine has two levels of computation: the Qwen3 backbone and the local transformer frame-decode loop. SGLang-Omni captures both with CUDA Graphs, but keeps them separate because they have different structure and ownership.
 
-![CUDA Graph execution](images/tts-opt-cuda-graph.png)
+![CUDA Graph execution](images/tts-opt-cuda-graph.svg)
 
 The backbone graph uses SGLang's standard CUDA Graph path for causal LM decode. The MOSS-specific frame graph captures the local transformer micro-loop for a full frame, including stop/continue sampling, 12 sequential codebook projections, codebook feedback, and feedback embedding assembly for the next frame. This removes launch overhead from a small but highly sequential loop.
 
@@ -186,7 +184,7 @@ curl -X POST http://localhost:8000/v1/audio/speech \
 
 ### Voice Cloning
 
-For voice cloning, provide a reference audio clip and its transcript. The `references` field accepts `audio_path` as a local path readable by the server, an HTTP(S) URL, or a base64 data URI. Supplying the transcript usually improves speaker similarity:
+For voice cloning, provide a reference audio clip. The `references` field accepts `audio_path` as a local path readable by the server, an HTTP(S) URL, or a base64 data URI:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
@@ -194,14 +192,13 @@ curl -X POST http://localhost:8000/v1/audio/speech \
   -d '{
     "input": "Get the trust fund to the bank early.",
     "references": [{
-      "audio_path": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
-      "text": "We asked over twenty different people, and they all said it was his."
+      "audio_path": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav"
     }]
   }' \
   --output output.wav
 ```
 
-The shorthand fields `ref_audio` and `ref_text` are also accepted.
+The shorthand field `ref_audio` is also accepted.
 
 #### Python
 
@@ -213,7 +210,6 @@ response = requests.post(
     json={
         "input": "Get the trust fund to the bank early.",
         "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
-        "ref_text": "We asked over twenty different people, and they all said it was his.",
     },
 )
 response.raise_for_status()
@@ -245,7 +241,6 @@ response = requests.post(
     json={
         "input": "SGLang-Omni is a great project!",
         "ref_audio": reference_audio,
-        "ref_text": "We asked over twenty different people, and they all said it was his.",
     },
 )
 response.raise_for_status()
@@ -266,7 +261,6 @@ curl -N -X POST http://localhost:8000/v1/audio/speech \
   -d '{
     "input": "Get the trust fund to the bank early.",
     "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
-    "ref_text": "We asked over twenty different people, and they all said it was his.",
     "stream": true,
     "response_format": "pcm",
     "stream_format": "audio"
@@ -283,27 +277,23 @@ curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
     "input": "${token:150}A sentence with an explicit duration target.",
-    "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
-    "ref_text": "We asked over twenty different people, and they all said it was his."
+    "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav"
   }' \
   --output output_duration_tokens.wav
 ```
 
 The duration token count is a control hint rather than an exact wall-clock duration. It is useful for making generated clips shorter or longer while preserving the model's natural pacing.
 
-### Pronunciation, Style, and Language Hints
+### Pronunciation and Language Hints
 
-Inline markup that the model understands is passed through unchanged. This includes pause markers such as `[pause 0.5s]`, as well as pronunciation controls such as Pinyin and IPA. The optional `language` field guides multilingual generation, and `instructions` carries a free-text style directive:
+Inline markup that the model understands is passed through unchanged. This includes pause markers such as `[pause 0.5s]`, as well as pronunciation controls such as Pinyin and IPA. The optional `language` field guides multilingual generation:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
     "input": "Today we are serving MOSS-TTS Local Transformer v1.5 on SGLang-Omni. [pause 0.5s] The model supports high-fidelity native streaming speech.",
-    "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
-    "ref_text": "We asked over twenty different people, and they all said it was his.",
-    "language": "English",
-    "instructions": "Use a natural conversational style."
+    "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav"
   }' \
   --output output_markup.wav
 ```
@@ -315,20 +305,18 @@ MOSS-TTS Local exposes the usual speech-generation controls through the OpenAI-c
 | Parameter | Notes |
 |---|---|
 | `input` | Text to synthesize; may include a `${token:N}` duration prefix and inline markup |
-| `references` | Reference clips for cloning; each item has `audio_path` and `text` |
-| `ref_audio` / `ref_text` | Shorthand for `references[0].audio_path` and `references[0].text` |
+| `references` | Reference clips for cloning; each item has `audio_path` |
+| `ref_audio` | Shorthand for `references[0].audio_path` |
 | `stream` | Set to `true` for streaming output |
 | `response_format` | Use `pcm` with streaming raw chunks |
 | `stream_format` | Set to `audio` when piping raw PCM bytes directly into an audio decoder |
 | `language` | Optional target-language hint |
-| `instructions` | Optional free-text style directive |
 | `token_count` / `duration_tokens` | Target duration in codec frames |
 | `max_new_tokens` | Maximum generated frames |
 | `temperature`, `top_p`, `top_k` | Sampling controls; single values apply to both text and audio channels |
-| `repetition_penalty` | Audio repetition penalty |
 | `seed` | Non-negative integer for reproducible sampling on a fixed server configuration |
 
-The model has separate text-channel and audio-channel sampling defaults. A single `temperature`, `top_p`, or `top_k` applies to both; channel-specific fields can be used when more control is needed.
+The model has separate text-channel and audio-channel sampling defaults. A single `temperature`, `top_p`, or `top_k` applies to both.
 
 ## Benchmarking and Performance
 
