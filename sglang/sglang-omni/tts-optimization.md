@@ -277,50 +277,70 @@ MOSS streaming throughput plateaus at ~2.6 qps from c=4 onward. Improving high-c
 
 The benchmarks use [`benchmarks/eval/benchmark_tts_seedtts.py`](https://github.com/sgl-project/sglang-omni/blob/main/benchmarks/eval/benchmark_tts_seedtts.py) from the [sglang-omni](https://github.com/sgl-project/sglang-omni) repository.
 
-**1. Start the server** (one GPU per server instance):
+**1. Start the server** (one GPU per server instance, colocate single-card):
 
 ```bash
 # Higgs — perf (all optimizations on, default config)
 CUDA_VISIBLE_DEVICES=0 sgl-omni serve \
   --model-path bosonai/higgs-audio-v3-tts-4b \
-  --port 8101
+  --port 8101 --allowed-local-media-path /tmp
 
 # Higgs — vanilla (CUDA graph off, async decode off)
-# Use a config with: disable_cuda_graph: true, enable_async_decode: false
+# Use a config with runtime_overrides:
+#   tts_engine.enable_async_decode: false
+#   tts_engine.server_args_overrides.disable_cuda_graph: true
+CUDA_VISIBLE_DEVICES=1 sgl-omni serve \
+  --model-path bosonai/higgs-audio-v3-tts-4b \
+  --config higgs_vanilla.yaml \
+  --port 8102 --allowed-local-media-path /tmp
 
 # MOSS — perf (all optimizations on, default config)
-CUDA_VISIBLE_DEVICES=1 sgl-omni serve \
+CUDA_VISIBLE_DEVICES=2 sgl-omni serve \
   --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
-  --port 8102
+  --port 8103 --allowed-local-media-path /tmp
 
 # MOSS — vanilla (AR CUDA graph off, vocoder CUDA graph off, frame-sampler compile off)
-# Use a config with: cuda_graph: false, disable_cuda_graph: true
+# Use a config with:
+#   cuda_graph: false  (disables vocoder CUDA graph)
+#   tts_engine.server_args_overrides.disable_cuda_graph: true  (disables AR graph + frame graph)
+CUDA_VISIBLE_DEVICES=3 sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --config moss_local_vanilla.yaml \
+  --port 8104 --allowed-local-media-path /tmp
 ```
 
 **2. Run the benchmark** (against a running server):
 
 ```bash
-# Higgs example: streaming, concurrency 4
+# Sweep concurrency {2,4,8,16}, 3 runs per point
+MODEL=bosonai/higgs-audio-v3-tts-4b   # MOSS: OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5
+PORT=8101; LABEL=higgs_perf_stream
+STREAM=--stream                        # non-streaming: leave empty
+EXTRA=""                               # MOSS only: EXTRA="--token-count auto"
+
+for c in 2 4 8 16; do
+  for r in 1 2 3; do
+    python -m benchmarks.eval.benchmark_tts_seedtts \
+      --use-existing-server --generate-only \
+      --base-url http://localhost:$PORT --model $MODEL \
+      --ref-format references --lang en --max-concurrency $c \
+      --output-dir results/${LABEL}_c${c}_r${r} $STREAM $EXTRA
+  done
+done
+```
+
+Single-run example (Higgs perf streaming, c=4):
+
+```bash
 python -m benchmarks.eval.benchmark_tts_seedtts \
   --use-existing-server --generate-only \
   --base-url http://localhost:8101 \
   --model bosonai/higgs-audio-v3-tts-4b \
-  --ref-format references --lang en \
-  --max-concurrency 4 \
-  --output-dir results/higgs_perf_stream_c4 \
-  --stream
-
-# MOSS example: non-streaming, concurrency 8
-python -m benchmarks.eval.benchmark_tts_seedtts \
-  --use-existing-server --generate-only \
-  --base-url http://localhost:8102 \
-  --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
-  --ref-format references --lang en --token-count auto \
-  --max-concurrency 8 \
-  --output-dir results/moss_perf_nostream_c8
+  --ref-format references --lang en --max-concurrency 4 \
+  --output-dir results/higgs_perf_stream_c4 --stream
 ```
 
-Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qps`, `latency_mean_s`, `latency_p95_s`, `rtf_mean`. Streaming runs also report `audio_ttfp_mean_s` (time to first audio).
+Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qps`, `latency_mean_s`, `latency_p95_s`, `rtf_mean`. Streaming runs also report `audio_ttfp_mean_s` (time to first audio). Average the 3 runs per `(label, concurrency)` to get the table values above.
 
 ### Summary
 
