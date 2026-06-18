@@ -1,8 +1,8 @@
 # MOSS-TTS Local Transformer v1.5 on SGLang-Omni: Serving Native-Streaming 48 kHz Speech
 
-OpenMOSS Team, MOSI.AI & SGLang-Omni Team
+MOSI, OpenMOSS Team & SGLang-Omni Team
 
-We are releasing end-to-end serving support for **MOSS-TTS-Local-Transformer-v1.5** on **SGLang-Omni**, together with MOSI.AI and the OpenMOSS team.
+We are releasing end-to-end serving support for **MOSS-TTS-Local-Transformer-v1.5** on **SGLang-Omni**, together with [MOSI](https://mosi.cn/) and the [OpenMOSS Team](https://www.open-moss.com/).
 
 MOSS-TTS-Local-Transformer-v1.5 is an open TTS model for 48 kHz stereo speech, zero-shot voice cloning, long-form synthesis, multilingual generation, duration control, and native streaming. The model is not hard to call from a demo script. Serving it well is harder: one request crosses reference-audio encoding, a Qwen3-4B autoregressive backbone, a frame-local 12-codebook sampling loop, and a stateful codec decoder.
 
@@ -42,8 +42,6 @@ A standard LLM serving engine is built around one repeated model loop. MOSS has 
 - **Preprocessing and reference encoding.** Text is tokenized, reference audio is loaded, and the reference waveform is encoded into RVQ codes.
 - **Autoregressive TTS engine.** The Qwen3 backbone and local transformer generate `[1, 13]` frame rows.
 - **Streaming vocoder.** Generated RVQ rows are decoded by a stateful MOSS codec decoder into waveform chunks.
-
-![MOSS-TTS Local inference pipeline](images/tts-opt-moss-pipeline.png)
 
 Each stage has a different bottleneck. Reference encoding runs a large neural codec encoder. AR generation mixes a normal backbone decode with a tiny but strictly sequential local codebook loop. The vocoder is a stateful decoder that must preserve streaming state across chunks. The system has to manage all three without letting one stage's batching or memory behavior damage the others.
 
