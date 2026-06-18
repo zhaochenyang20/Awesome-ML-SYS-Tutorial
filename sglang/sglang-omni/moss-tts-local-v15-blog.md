@@ -12,7 +12,7 @@ MOSS-TTS Local Transformer v1.5 is the second flagship model in the MOSS-TTS v1.
 
 The model is built for speech generation where speaker identity, acoustic detail, and long-form stability matter. It supports direct text-to-speech generation, voice cloning from a short reference clip, continuation, duration control, explicit pause control such as `[pause 3.2s]`, and long-form generation up to 10 minutes. It covers 31 major world languages and was trained on roughly 4 million hours of multilingual speech data.
 
-![MOSS-TTS Local Transformer v1.5 model architecture](images/moss-local-transformer-arch.png)
+![MOSS-TTS Local Transformer v1.5 model architecture](images/moss-local-transformer-arch.svg)
 
 At the audio interface, MOSS-TTS Local Transformer v1.5 uses **MOSS-Audio-Tokenizer-v2**, a neural audio tokenizer with an encoder and decoder totaling about 2B parameters. The tokenizer runs at a 12.5 Hz frame rate, supports variable bitrate compression from 0.125 kbps to 4 kbps, reconstructs 48 kHz stereo audio, and represents speech with residual vector quantization (RVQ).
 
@@ -112,7 +112,7 @@ In SeedTTS English evaluation on 2x H100 at concurrency 16, increasing the refer
 
 The MOSS AR engine has two levels of computation: the Qwen3 backbone and the local transformer frame-decode loop. SGLang-Omni captures both with CUDA Graphs, but keeps them separate because they have different structure and ownership.
 
-![CUDA Graph execution](images/tts-opt-cuda-graph.png)
+![CUDA Graph execution](images/tts-opt-cuda-graph.svg)
 
 The backbone graph uses SGLang's standard CUDA Graph path for causal LM decode. The MOSS-specific frame graph captures the local transformer micro-loop for a full frame, including stop/continue sampling, 12 sequential codebook projections, codebook feedback, and feedback embedding assembly for the next frame. This removes launch overhead from a small but highly sequential loop.
 

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1336" height="368" viewBox="0 0 1336 368" font-family="Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1336" height="368" fill="#F9F9F7"/>
+  <line x1="0" y1="4.5" x2="1336" y2="4.5" stroke="#E4E4E2" stroke-width="1"/>
+  <line x1="0" y1="363.5" x2="1336" y2="363.5" stroke="#E4E4E2" stroke-width="1"/>
+
+  <!-- Eager -->
+  <text x="18" y="72" font-size="26" font-weight="700" fill="#1A1A1A">Eager</text>
+  <text x="140" y="72" font-size="22" fill="#5B5B5B">CPU launches each kernel individually</text>
+  <text x="18" y="129" font-size="21" fill="#5B5B5B">GPU</text>
+
+  <!-- eager track + blue kernel blocks (gaps show gray track) -->
+  <rect x="91" y="106" width="659" height="32" rx="5" fill="#CECECC"/>
+  <g fill="#112897">
+    <rect x="91"  y="106" width="74" height="32" rx="5"/>
+    <rect x="189" y="106" width="73" height="32" rx="5"/>
+    <rect x="286" y="106" width="74" height="32" rx="5"/>
+    <rect x="384" y="106" width="73" height="32" rx="5"/>
+    <rect x="481" y="106" width="74" height="32" rx="5"/>
+    <rect x="579" y="106" width="73" height="32" rx="5"/>
+    <rect x="676" y="106" width="74" height="32" rx="5"/>
+  </g>
+  <text x="779" y="130" font-size="24" fill="#5B5B5B">&#8230;</text>
+  <text x="872" y="119" font-size="22" fill="#5B5B5B">Gaps = CPU launch overhead</text>
+  <text x="872" y="144" font-size="22" fill="#5B5B5B">Adds up across ~250 steps</text>
+
+  <!-- divider -->
+  <line x1="0" y1="177" x2="1336" y2="177" stroke="#CBCBC9" stroke-width="1.5" stroke-dasharray="7 7"/>
+
+  <!-- CUDA Graph -->
+  <text x="18" y="236" font-size="26" font-weight="700" fill="#112897">CUDA Graph</text>
+  <text x="270" y="236" font-size="22" fill="#5B5B5B">Record once, replay entire step as one call</text>
+  <text x="18" y="294" font-size="21" fill="#5B5B5B">GPU</text>
+
+  <!-- cuda track + two replay bars (gap shows gray track) -->
+  <rect x="91" y="271" width="1245" height="32" rx="5" fill="#CECECC"/>
+  <g fill="#112897">
+    <rect x="91"  y="271" width="659" height="32" rx="5"/>
+    <rect x="811" y="271" width="525" height="32" rx="5"/>
+  </g>
+  <text x="420" y="295" font-size="21" fill="#FFFFFF" text-anchor="middle">Graph Replay: Forward + Sample + State Update</text>
+  <text x="420"  y="330" font-size="20" fill="#5B5B5B" text-anchor="middle">Step N</text>
+  <text x="1073" y="330" font-size="20" fill="#5B5B5B" text-anchor="middle">Step N+1</text>
+</svg>
