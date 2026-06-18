@@ -424,8 +424,6 @@ python -m benchmarks.eval.benchmark_tts_seedtts \
   --stream
 ```
 
-Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qps`, `latency_mean_s`, `rtf_mean`. Streaming runs also report `audio_ttfp_mean_s` (time to first audio). Sweep concurrency with `--max-concurrency {2,4,8,16}`.
-
 ## Roadmap
 
 Serving MOSS-TTS Local Transformer v1.5 is an important step for SGLang-Omni, and we are continuing to push the system in several directions.
