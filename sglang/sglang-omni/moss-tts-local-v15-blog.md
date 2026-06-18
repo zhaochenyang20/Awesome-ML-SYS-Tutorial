@@ -1,28 +1,26 @@
-# MOSS-TTS Local Transformer v1.5 on SGLang-Omni: High-Fidelity Native-Streaming Speech Generation
+# MOSS-TTS Local Transformer v1.5 on SGLang-Omni: Streaming 48 kHz Speech and Voice Cloning
 
 OpenMOSS Team, MOSI.AI & SGLang-Omni Team
 
-Today we are announcing end-to-end serving for **MOSS-TTS-Local-Transformer-v1.5** on **SGLang-Omni** working with MOSI.AI, OpenMOSS team and SGLang-Omni team.
+Today we are announcing end-to-end serving for **MOSS-TTS Local Transformer v1.5** on **SGLang-Omni**, in collaboration with MOSI.AI, the OpenMOSS team, and the SGLang-Omni team. MOSS-TTS Local Transformer v1.5 is an open text-to-speech model for 48 kHz stereo generation, zero-shot voice cloning, multilingual speech, long-form synthesis, duration control, and native streaming.
 
-MOSS-TTS-Local-Transformer-v1.5 is an open text-to-speech model that brings 48 kHz stereo generation, zero-shot voice cloning, long-form synthesis, multilingual speech, and native streaming into a single Local Transformer architecture. It has a distinctive inference shape. Text and reference audio are first converted into a multi-channel prompt. A Qwen3-4B global transformer advances the sequence frame by frame. A local transformer expands each global frame into 12 RVQ audio codebooks. A stateful MOSS-Audio-Tokenizer-v2 decoder then turns those generated codes into streaming 48 kHz stereo waveform chunks.
-
-That path is model-native and quality-driven, but it is also demanding for inference systems. It mixes neural reference encoding, backbone autoregressive decoding, frame-local codebook sampling, and stateful vocoder execution in one request lifecycle. The serving runtime must batch what can be batched, stream what should be streamed, keep per-request state alive across stages, and protect GPU memory for both the AR engine and the codec.
-
-SGLang-Omni handles this by serving MOSS as a multi-stage pipeline rather than forcing it into a single LLM decode loop. On top of the stage runtime, we added MOSS-specific optimizations across the full path: reference-audio caching, batched codec encoding, CUDA-Graph-friendly frame decoding, GPU-native cache keys, compiled seeded sampling, native streaming vocoder scheduling, vocoder CUDA Graph replay, and colocated memory budgeting. The result is a production-ready OpenAI-compatible speech API for one of the most capable open TTS models available today.
+For SGLang-Omni, serving MOSS is another example of why modern TTS systems no longer fit cleanly into a single autoregressive decode loop. A request moves through reference-audio encoding, multi-channel autoregressive frame generation, local codebook sampling, and a stateful streaming vocoder. Each stage has different batching, memory, and latency behavior, so we serve MOSS as a multi-stage pipeline rather than as a modified LLM endpoint.
 
 ## Meet MOSS-TTS Local Transformer v1.5
 
-MOSS-TTS-Local-Transformer-v1.5 is the second flagship model in the MOSS-TTS v1.5 family. It continues the Audio Tokenizer + LLM autoregressive paradigm and upgrades the audio codec, backbone architecture, training scale, and streaming path for high-fidelity speech generation.
+MOSS-TTS Local Transformer v1.5 is the second flagship model in the MOSS-TTS v1.5 family. It continues the Audio Tokenizer + LLM autoregressive paradigm, with upgrades to the audio codec, backbone architecture, training scale, and streaming generation path.
 
-The model is designed around a simple goal: produce natural, long, multilingual speech while preserving the voice identity and acoustic detail needed for realistic zero-shot cloning. It supports direct text-to-speech generation, voice cloning from a short reference clip, continuation, duration control, explicit pause control such as `[pause 3.2s]`, and long-form generation up to 10 minutes. It covers 31 major world languages and was trained on roughly 4 million hours of multilingual speech data.
+The model is built for speech generation where speaker identity, acoustic detail, and long-form stability matter. It supports direct text-to-speech generation, voice cloning from a short reference clip, continuation, duration control, explicit pause control such as `[pause 3.2s]`, and long-form generation up to 10 minutes. It covers 31 major world languages and was trained on roughly 4 million hours of multilingual speech data.
 
 ![MOSS-TTS Local Transformer v1.5 model architecture](images/moss-local-transformer-arch.png)
 
-At the audio interface, MOSS-TTS Local Transformer v1.5 uses **MOSS-Audio-Tokenizer-v2**, a high-quality neural audio tokenizer with an encoder and decoder totaling about 2B parameters. The tokenizer runs at a 12.5 Hz frame rate, supports variable bitrate compression from 0.125 kbps to 4 kbps, reconstructs 48 kHz stereo audio, and represents speech with residual vector quantization (RVQ). This gives the language-model side of the system a discrete acoustic space that carries both semantic and fine-grained audio information.
+At the audio interface, MOSS-TTS Local Transformer v1.5 uses **MOSS-Audio-Tokenizer-v2**, a neural audio tokenizer with an encoder and decoder totaling about 2B parameters. The tokenizer runs at a 12.5 Hz frame rate, supports variable bitrate compression from 0.125 kbps to 4 kbps, reconstructs 48 kHz stereo audio, and represents speech with residual vector quantization (RVQ).
 
-At the generation core, the model uses a **Qwen3-4B backbone** with a **Global Transformer + Local Transformer** architecture. The global transformer models text semantics, multilingual context, speaker identity, and prosody from the prompt and reference audio. The local transformer then generates acoustic codes inside each frame. The Local variant uses the first 12 RVQ layers at 12.5 Hz and one local transformer layer, forming a pure autoregressive path that is naturally streamable at the frame level.
+At the generation core, the model uses a **Qwen3-4B backbone** with a **Global Transformer + Local Transformer** architecture. The global transformer models text semantics, multilingual context, speaker identity, and prosody from the prompt and reference audio. The local transformer then expands each global frame into acoustic codes.
 
-Each sequence position is a multi-channel row rather than a scalar token. The MOSS Local layout is `[T, 13]`: one text/control channel and 12 audio codebook channels. Text positions carry a text token in channel 0 and audio padding in the remaining channels. Audio-frame positions carry a slot/control token in channel 0 and one RVQ code from each of the 12 audio codebooks. This representation is central to both model quality and serving complexity: it lets the model reason over text and audio in a unified autoregressive stream, while requiring the inference engine to handle multi-channel embeddings, frame-local sampling, and feedback into the next frame.
+Each sequence position is a multi-channel row rather than a scalar token. The MOSS Local layout is `[T, 13]`: one text/control channel and 12 audio codebook channels. Text positions carry a text token in channel 0 and audio padding in the remaining channels. Audio-frame positions carry a slot/control token in channel 0 and one RVQ code from each of the 12 audio codebooks. This representation gives the model a unified autoregressive stream over text and audio, but it also makes serving more involved than standard next-token generation.
+
+## Multilingual and Voice-Cloning Quality
 
 On public evaluation sets, MOSS-TTS Local Transformer v1.5 achieves strong multilingual and voice-cloning quality:
 
@@ -35,23 +33,11 @@ On public evaluation sets, MOSS-TTS Local Transformer v1.5 achieves strong multi
 
 These are model-level offline evaluation results. The serving benchmarks later in this post use a different evaluation pipeline and should be read as end-to-end system measurements.
 
-MOSS-TTS Local Transformer v1.5 was trained at thousand-card scale on Alibaba Cloud's PPU-ZW810 cluster. The serving work described below focuses on making this model fast, stable, streamable, and easy to deploy through SGLang-Omni.
-
-## Why MOSS Needs a Multi-Stage Serving Runtime
-
-A standard LLM serving engine is usually optimized around one hidden assumption: generation is one repeated model loop. MOSS-TTS Local Transformer v1.5 has a different shape. A request passes through three heterogeneous stages:
-
-1. **Preprocessing and reference encoding:** text is tokenized, reference audio is loaded, and the reference waveform is encoded into RVQ codes.
-2. **Autoregressive TTS engine:** a Qwen3 backbone and local transformer generate multi-channel frame rows one frame at a time.
-3. **Streaming vocoder:** generated RVQ rows are decoded by a stateful MOSS codec decoder into 48 kHz waveform chunks.
-
-![MOSS-TTS Local inference pipeline](images/tts-opt-moss-pipeline.png)
-
-The important point is that each stage is computationally meaningful. Reference encoding runs a neural codec encoder; AR generation is not one scalar next-token step but a frame-level loop with 12 sequential codebook samples; the vocoder is a neural decoder that must preserve streaming state across chunks. This creates a mix of memory-bound backbone work, launch-bound local sampling, stateful codec execution, and cross-stage GPU memory pressure.
-
-SGLang-Omni is designed for exactly this regime: heterogeneous stages, stage-specific schedulers, streaming intermediate data, and resource isolation across a multi-model generation path.
+MOSS-TTS Local Transformer v1.5 was trained at thousand-card scale on Alibaba Cloud's PPU-ZW810 cluster. This post focuses on the serving work: how the model is mapped onto SGLang-Omni, which bottlenecks show up in the runtime, and what the current end-to-end performance looks like.
 
 ## Serving MOSS with SGLang-Omni
+
+MOSS is served and optimized on SGLang-Omni. Unlike a standard LLM, its end-to-end path contains several heterogeneous stages: a codec encoder for reference audio, an autoregressive TTS engine for multi-channel frame rows, and a streaming vocoder that consumes generated RVQ rows and returns waveform chunks.
 
 SGLang-Omni serves MOSS-TTS Local Transformer v1.5 as a three-stage pipeline:
 
@@ -59,38 +45,70 @@ SGLang-Omni serves MOSS-TTS Local Transformer v1.5 as a three-stage pipeline:
 preprocessing -> tts_engine -> vocoder
 ```
 
-The **preprocessing** stage parses the OpenAI-compatible speech request, prepares the multi-channel prompt, and encodes reference audio when voice cloning is used. The **tts_engine** stage is backed by `OmniScheduler`, inheriting SGLang's continuous batching, KV cache management, RadixAttention, and CUDA Graph support while adapting them to MOSS's `[T, 13]` request format. The **vocoder** stage consumes generated rows as a stream and returns audio chunks from a persistent codec streaming session.
+![MOSS-TTS Local inference pipeline](images/tts-opt-moss-pipeline.png)
 
-This layout follows the model's natural computation graph. It also gives every optimization a clear home: encoder caching belongs in preprocessing, continuous batching and KV reuse belong in the AR engine, slot management belongs in the vocoder, and memory budgeting belongs at stage boundaries. For users, the complexity is hidden behind `/v1/audio/speech`, with support for synthesis, voice cloning, streaming PCM, duration control, pause markup, language hints, style instructions, seeds, and sampling parameters.
+The **preprocessing** stage parses the OpenAI-compatible speech request, prepares the multi-channel prompt, and encodes reference audio when voice cloning is used. The **tts_engine** stage is backed by `OmniScheduler`, preserving SGLang's continuous batching, KV cache management, RadixAttention, and CUDA Graph support while adapting the request format to MOSS's `[T, 13]` rows. The **vocoder** stage consumes generated rows as a stream and returns audio chunks from a persistent codec streaming session.
+
+This stage boundary is useful because the bottlenecks are different. Reference encoding is a neural codec encoder. AR generation has a Qwen3 backbone plus a frame-local loop with 12 sequential codebook samples. The vocoder is a stateful decoder that must preserve streaming state across chunks. Keeping them as separate stages lets the runtime batch, cache, stream, and budget memory where each decision belongs.
+
+For users, this is exposed through `/v1/audio/speech`, with support for synthesis, voice cloning, streaming PCM, duration control, pause markup, language hints, style instructions, seeds, and sampling parameters.
+
+## Reusing Omni-Specific Optimizations
+
+MOSS uses the same stage abstraction as other SGLang-Omni TTS and omni models. The model-specific work is in the prompt format, local codebook generation, codec integration, and sampling path; the runtime still handles routing, scheduling, streaming, placement, and stage-level resource isolation.
+
+Several optimizations also follow patterns that are becoming common across SGLang-Omni:
+
+**CUDA-Graph-friendly feedback runners.** The MOSS `tts_engine` has a repeated AR + multi-codebook feedback loop. The runtime keeps per-request state at stable GPU addresses so graph replay can cover both backbone decode and frame-local decoding.
+
+**Streaming vocoder scheduling.** MOSS, Higgs, Qwen3-Omni, Fish Audio S2-Pro, and related models all need a similar audio lifecycle: initialize per-request state, accumulate incoming code chunks, emit audio as soon as enough context is available, flush on stream completion, and return a final payload to the client.
+
+**Stage-level memory budgeting.** In colocated deployments, the AR engine and codec runtime share the same GPU. SGLang-Omni gives each GPU-backed stage an explicit memory contract so one stage does not silently consume memory needed by another.
+
+## A Growing Multi-Stage Model Ecosystem
+
+MOSS now joins the TTS and omni models already supported by SGLang-Omni:
+
+| Model | Type | Notes |
+|---|---|---|
+| Higgs Audio v3 TTS | TTS | Voice cloning, streaming, 100 languages |
+| Fish Audio S2-Pro | TTS | Voice cloning, streaming |
+| Voxtral TTS | TTS | Named voices, streaming, 9 languages |
+| Qwen3-TTS | TTS | Voice cloning, streaming, 10 languages |
+| MOSS-TTS | TTS | 48 kHz stereo, voice cloning, streaming, 31 languages |
+| Qwen3-Omni | Omni | Text/image/audio/video to text + audio |
+| Ming-Omni | Omni | Streaming TTS |
+| LLaDA2.0-Uni | Multimodal | Text + image understanding and generation |
+
+These models differ in architecture and user-facing behavior, but they share the same serving problem: multiple heterogeneous stages need to be organized into one stable generation pipeline. Onboarding MOSS was therefore mostly about declaring the pipeline, adapting the request and decode path to MOSS's multi-channel rows, and adding model-specific hooks where the model actually needs them.
 
 ## Optimizing MOSS End-to-End
 
 [TODO: Yichi xinyu please help to review this part]
 
-Once the pipeline was functionally complete, we optimized it stage by stage. The guiding principle was simple: each bottleneck should be solved where it naturally appears, and each optimization should preserve a clear fallback path for production.
+Beyond the basic pipeline, we optimized the MOSS serving path end to end. The main pieces are:
 
-| Stage | Optimization | Main Benefit |
-|---|---|---|
-| Preprocessing | Batched reference encoding | Amortizes codec encoder cost across concurrent requests |
-| Preprocessing | Content-addressed LRU cache + single-flight | Removes repeated reference encoding and avoids cold-start duplication |
-| AR engine | Backbone CUDA Graph + frame-decode CUDA Graph | Removes launch overhead from both backbone decode and local codebook micro-loop |
-| AR engine | Decode state pool | Provides fixed-address GPU state for graph replay and request lifecycle management |
-| AR engine | GPU-native Radix row hash | Removes per-frame CPU hashing and D2H synchronization |
-| AR engine | Compiled seeded sampler | Fuses the hot sampling path while preserving deterministic per-request sampling |
-| Vocoder | Stateful streaming session + slot management | Enables frame-level audio streaming with request isolation |
-| Vocoder | Dual-threshold coalesced steps | Balances time to first audio and steady-state throughput |
-| Vocoder | Vocoder CUDA Graph | Speeds up short streaming decode steps |
-| Cross-stage | Explicit memory budgeting | Prevents codec and AR memory pressure from interfering with each other |
+**Preprocessing.** Batched reference encoding, content-addressed LRU caching, and single-flight handling for repeated speaker references.
+
+**AR engine.** CUDA Graph capture for the Qwen3 backbone and the MOSS frame-decode loop, plus persistent GPU-side decode state for graph replay.
+
+**Caching.** A GPU-native Radix row hash for generated multi-channel rows, avoiding per-frame CPU hashing and device-to-host synchronization.
+
+**Sampling.** A compiled seeded sampler for the repeated per-frame text/control and audio-codebook sampling path.
+
+**Vocoder.** Stateful streaming sessions, stream-slot management, coalesced decode steps, and CUDA Graph replay for short streaming chunks.
+
+**Memory.** Explicit colocated memory budgeting so AR generation and codec runtime allocations do not compete unpredictably on one GPU.
 
 ### Reference Audio Encoding
 
-Voice cloning workloads often reuse the same speakers across many prompts. In MOSS, that pattern matters because reference encoding runs a neural codec encoder before AR generation can begin.
+Voice cloning workloads often reuse the same speakers across many prompts. In early serving runs, repeated references still paid the codec encoder cost when the file path changed, or when several concurrent requests missed the cache for the same speaker at the same time.
 
-![Reference audio cache:](images/tts-opt-encoder-cache.png)
+![Reference audio cache](images/tts-opt-encoder-cache.png)
 
 SGLang-Omni combines batched reference encoding with a content-addressed LRU cache. Concurrent references can be encoded together, and repeated references are keyed by audio content rather than by path, so copied or renamed files still reuse the same encoded RVQ result. A single-flight path also merges concurrent misses for the same speaker, preventing a cold-cache burst from launching duplicate codec encodes.
 
-In SeedTTS English evaluation on 2x H100 at concurrency 16, increasing the reference cache capacity from 256 to 1024 entries improved throughput by **32.0%** and reduced mean latency by **24.3%**. The memory cost was small because encoded code tensors are compact; the larger cache mainly prevents eviction of the active speaker working set.
+In SeedTTS English evaluation on 2x H100 at concurrency 16, increasing the reference cache capacity from 256 to 1024 entries improved throughput by **32.0%** and reduced mean latency by **24.3%**. The memory cost is modest because encoded code tensors are compact; the larger cache mainly prevents eviction of the active speaker working set.
 
 ### AR Engine
 
@@ -98,21 +116,19 @@ The MOSS AR engine has two levels of computation: the Qwen3 backbone and the loc
 
 ![CUDA Graph execution](images/tts-opt-cuda-graph.png)
 
-The backbone graph uses SGLang's standard CUDA Graph path for causal LM decode. The MOSS-specific frame graph captures the local transformer micro-loop for a full frame, including stop/continue sampling, 12 sequential codebook projections, codebook feedback, and feedback embedding assembly for the next frame. This removes the launch overhead that otherwise dominates a small but highly sequential local loop.
+The backbone graph uses SGLang's standard CUDA Graph path for causal LM decode. The MOSS-specific frame graph captures the local transformer micro-loop for a full frame, including stop/continue sampling, 12 sequential codebook projections, codebook feedback, and feedback embedding assembly for the next frame. This removes launch overhead from a small but highly sequential loop.
 
-To make graph replay possible, MOSS keeps per-request decode state in a persistent GPU-side pool. Feedback embeddings, sampling parameters, seeds, counters, and audio history live at stable addresses across frames. SGLang-Omni also moves the generated-row radix hash to the GPU, avoiding a per-frame CPU hash and D2H synchronization. Finally, the 13 per-frame sampling operations use a seeded GPU sampler and a narrow compile scope to fuse the hot sampling path without changing the backbone or local transformer execution.
+To make graph replay possible, MOSS keeps per-request decode state in a persistent GPU-side pool. Feedback embeddings, sampling parameters, seeds, counters, and audio history live at stable addresses across frames. SGLang-Omni also moves the generated-row radix hash to the GPU, avoiding a per-frame CPU hash and device-to-host synchronization.
 
-On SeedTTS English evaluation at concurrency 16, the compiled seeded sampler improved throughput by **12.3%**, reduced mean latency by **11.1%**, and reduced mean RTF by **10.5%**. The narrow compile scope was intentional: it targets a real hot path while avoiding broad compile-time overhead and graph changes in the backbone or local transformer.
+The compile scope is intentionally narrow. Instead of compiling the full backbone or local transformer path, MOSS compiles the repeated seeded sampling path that runs for each frame. On SeedTTS English evaluation at concurrency 16, the compiled seeded sampler improved throughput by **12.3%**, reduced mean latency by **11.1%**, and reduced mean RTF by **10.5%**.
 
 ### Streaming Vocoder
 
 The vocoder stage turns generated RVQ frames into audio chunks. Because MOSS-Audio-Tokenizer-v2 supports stateful streaming decode, SGLang-Omni keeps a persistent codec streaming session inside the vocoder executor.
 
-The scheduler manages stream slots, an offline fallback slot, chunk thresholds, and coalesced decode steps. The first chunk can use a small threshold to reduce time to first audio, while later chunks use larger windows to improve throughput. When several requests have enough pending frames, the scheduler decodes them together in one codec call.
+The scheduler manages stream slots, an offline fallback slot, chunk thresholds, and coalesced decode steps. The first chunk can use a smaller threshold to reduce time to first audio, while later chunks can use larger windows to improve throughput. When several requests have enough pending frames, the scheduler decodes them together in one codec call.
 
-Short streaming chunks are launch-heavy, so SGLang-Omni also captures common vocoder frame counts with CUDA Graphs. The implementation keeps codec state buffers at stable addresses and updates them in place, allowing graph replay across streaming steps.
-
-The speedup is largest for short streaming chunks:
+Short streaming chunks are launch-heavy, so SGLang-Omni also captures common vocoder frame counts with CUDA Graphs. The graph path helps most when chunks are short. For larger chunks, codec compute dominates and graph replay adds less.
 
 | Frames per Step | Eager | CUDA Graph | Speedup |
 |---:|---:|---:|---:|
@@ -123,13 +139,13 @@ The speedup is largest for short streaming chunks:
 | 25 | 74.8 ms | 58.3 ms | 1.28x |
 | 100 | 222.9 ms | 215.3 ms | 1.04x |
 
-The graph path has safe fallback to eager decode and is covered by streaming/non-streaming consistency checks.
+The graph path falls back to eager decode when needed and is covered by streaming/non-streaming consistency checks.
 
 ### Memory Budgeting
 
-Compact deployment is important for users who want the simplest path from model download to serving. In the default MOSS Local config, preprocessing, AR generation, and vocoder execution can be colocated on one GPU. SGLang-Omni therefore gives the AR engine an explicit colocated memory contract and reserves headroom for codec runtime allocations and streaming state.
+Compact deployment is important for users who want the shortest path from model download to serving. In the default MOSS Local config, preprocessing, AR generation, and vocoder execution can be colocated on one GPU. SGLang-Omni therefore gives the AR engine an explicit colocated memory contract and reserves headroom for codec runtime allocations and streaming state.
 
-This is a small change with visible impact. In a single-card colocated configuration at concurrency 8, explicit codec memory budgeting improved throughput by **8.9%** and reduced mean RTF by **8.4%**. More importantly, it makes the deployment behavior more predictable under memory pressure.
+In a single-card colocated configuration at concurrency 8, explicit codec memory budgeting improved throughput by **8.9%** and reduced mean RTF by **8.4%**. More importantly, it makes deployment behavior more predictable under memory pressure.
 
 ## Performance
 
@@ -142,15 +158,15 @@ We evaluate the optimized MOSS-TTS Local Transformer v1.5 serving path on the Se
 
 For non-streaming requests, the system reaches **5.976 requests per second** at concurrency 16 with a mean RTF of **0.644**. This mode is the best fit for throughput-oriented workloads where the client receives the final WAV after generation finishes.
 
-For streaming requests, the system emits incremental audio chunks through the vocoder stage. At concurrency 16, the average inter-chunk interval is **0.109 seconds**, and the average number of audio chunks per request is **8.82**. The streaming path trades some high-concurrency throughput for incremental delivery because the vocoder runs more frequently on smaller chunks and shares GPU time with the AR engine. This is an inherent latency-throughput trade-off in streaming TTS serving, and SGLang-Omni exposes the scheduler controls needed to continue improving that balance.
+For streaming requests, the system emits incremental audio chunks through the vocoder stage. At concurrency 16, the average inter-chunk interval is **0.109 seconds**, and the average number of audio chunks per request is **8.82**. Streaming trades some high-concurrency throughput for incremental delivery because the vocoder runs more frequently on smaller chunks and shares GPU time with the AR engine.
 
-The quality numbers remain stable across serving modes. In the same CI evaluation, non-streaming WER is **1.75%**, and streaming WER is **2.14%**. Streaming and non-streaming artifact consistency checks pass, giving us confidence that the streaming scheduler and CUDA Graph paths preserve the model's audio semantics.
+The quality numbers remain stable across serving modes. In the same CI evaluation, non-streaming WER is **1.75%**, and streaming WER is **2.14%**. Streaming and non-streaming artifact consistency checks pass, which gives us confidence that the scheduler and CUDA Graph paths preserve the model's audio semantics.
 
 The individual optimization measurements should not be summed into one headline speedup because they were collected under different hardware and concurrency settings. They are more useful as a map of where the system spends time: reference caching removes redundant encoder work, frame CUDA Graphs remove local-loop launch overhead, sampler compilation improves the hot sampling path, vocoder CUDA Graphs accelerate short streaming chunks, and memory budgeting stabilizes colocated deployment.
 
 ## Try It Yourself
 
-Detailed instructions are available in the [SGLang-Omni MOSS-TTS-Local cookbook](https://sgl-project.github.io/sglang-omni/cookbook/moss_tts_local.html). The commands below show the shortest path from a clean container to a working speech endpoint, followed by the most common request patterns.
+Detailed instructions are available in the [SGLang-Omni MOSS-TTS-Local cookbook](https://sgl-project.github.io/sglang-omni/cookbook/moss_tts_local.html). The commands below show the shortest path from a clean container to a working speech endpoint.
 
 ### Install and Serve
 
@@ -176,7 +192,7 @@ The default server layout colocates the AR backbone and codec/vocoder on one GPU
 
 ### Zero-Shot Synthesis
 
-MOSS-TTS-Local can synthesize speech without a reference clip. The response is a WAV file by default:
+MOSS-TTS Local can synthesize speech without a reference clip. The response is a WAV file by default:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
@@ -276,7 +292,7 @@ curl -N -X POST http://localhost:8000/v1/audio/speech \
 
 ### Duration Control
 
-MOSS-TTS-Local can condition on a target duration token count. The count is measured in codec frames; a larger count usually yields longer audio. You can set it with an inline `${token:N}` prefix or with the `token_count` field:
+MOSS-TTS Local can condition on a target duration token count. The count is measured in codec frames; a larger count usually yields longer audio. You can set it with an inline `${token:N}` prefix or with the `token_count` field:
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \
@@ -310,7 +326,7 @@ curl -X POST http://localhost:8000/v1/audio/speech \
 
 ### Generation Parameters
 
-MOSS-TTS-Local exposes the usual speech-generation controls through the OpenAI-compatible request body:
+MOSS-TTS Local exposes the usual speech-generation controls through the OpenAI-compatible request body:
 
 | Parameter | Notes |
 |---|---|
@@ -329,7 +345,7 @@ MOSS-TTS-Local exposes the usual speech-generation controls through the OpenAI-c
 
 The model has separate text-channel and audio-channel sampling defaults. A single `temperature`, `top_p`, or `top_k` applies to both; channel-specific fields can be used when more control is needed.
 
-### Benchmarking And Performance
+### Benchmarking and Performance
 
 [TODO: Yichi please help to review this part]
 
@@ -351,21 +367,21 @@ python -m benchmarks.eval.benchmark_tts_seedtts \
 
 【TODO：Jiaxin Please help to change】
 
-Serving MOSS-TTS Local Transformer v1.5 is an important step for SGLang-Omni, and we are continuing to push the system in several directions.
+Serving MOSS end to end is an important step for SGLang-Omni, but there is still follow-up work on the serving path:
 
 **Pool-native frame CUDA Graph.** The current frame-decode graph already uses persistent state pools, but some staging remains around sampling parameters and generated rows. A more native pool-to-pool graph path can further reduce host-device movement and simplify the launch/resolve boundary.
 
-**Adaptive streaming scheduling.** Streaming TTS has a real latency-throughput trade-off. We are exploring load-aware chunk sizing, priority-aware slot scheduling, and better coalescing policies so low-load requests receive fast first audio while high-load deployments recover more throughput.
+**Adaptive streaming scheduling.** Streaming TTS has a real latency-throughput trade-off. The next step is load-aware chunk sizing and better coalescing, so low-load requests can receive fast first audio while high-load deployments recover more throughput.
 
 **Broader compilation coverage.** The codec encoder and Qwen3 backbone still have room for targeted compilation experiments. We will continue to evaluate compile scope carefully, prioritizing steady-state gains that do not damage cold-start latency or output consistency.
 
 **Wider benchmark coverage.** Current measurements focus on SeedTTS English in CI. We plan to expand coverage to Chinese, multilingual evaluation, long-form generation, multiple speaker pools, different reference lengths, and production-like traffic mixes.
 
-**General multi-stage model onboarding.** The long-term goal of SGLang-Omni is to make new TTS and omni models easy to serve without building a custom inference stack each time. A model should be expressed as stages, topology, memory contracts, and model-specific hooks, while scheduling, communication, streaming, placement, and resource isolation stay in the framework.
+**General TTS onboarding.** The long-term goal is to keep moving repeated TTS serving patterns into shared SGLang-Omni runtime modules, so new models can be described as stages, topology, memory contracts, and model-specific hooks rather than as separate serving stacks.
 
 ## Join Us
 
-SGLang-Omni is moving quickly toward a general inference foundation for multi-stage generative models. TTS models like MOSS show why this direction matters: model quality increasingly comes from heterogeneous generation paths, and inference systems need to handle those paths directly rather than forcing them into a single-loop abstraction.
+SGLang-Omni is still moving quickly. We want it to become a general inference foundation for multi-stage generative models: new models should not need a serving stack from scratch, nor special-case logic scattered across a dozen files. They should be expressible as clear stages, topology declarations, and model-specific hooks, with scheduling, communication, memory management, and streaming handled by the framework.
 
 If you are interested in TTS, omni models, streaming inference, CUDA Graphs, scheduling, communication, model onboarding, benchmarking, or production serving, we would love to work with you. Contributions, issues, discussions, and new model integrations are welcome.
 
@@ -382,6 +398,6 @@ If you are interested in TTS, omni models, streaming inference, CUDA Graphs, sch
 - **Model:** [OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5)
 - **Serving framework:** [SGLang-Omni on GitHub](https://github.com/sgl-project/sglang-omni)
 - **Documentation:** [SGLang-Omni docs](https://sgl-project.github.io/sglang-omni/)
-- **MOSS-TTS-Local cookbook:** [MOSS-TTS-Local in SGLang-Omni](https://sgl-project.github.io/sglang-omni/cookbook/moss_tts_local.html)
+- **MOSS-TTS Local cookbook:** [MOSS-TTS Local in SGLang-Omni](https://sgl-project.github.io/sglang-omni/cookbook/moss_tts_local.html)
 - **MOSS optimization roadmap:** [#637](https://github.com/sgl-project/sglang-omni/issues/637)
 - **Design background:** [SGLang-Omni: Redesigning the Inference Framework for Multi-Stage Generative Models](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/sglang-omni/why-sglang-omni-en.md)
