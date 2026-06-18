@@ -149,20 +149,38 @@ In a single-card colocated configuration at concurrency 8, explicit codec memory
 
 ## Performance
 
-We evaluate the optimized MOSS-TTS Local Transformer v1.5 serving path on the SeedTTS English set with 1088 samples. The results below come from the full CI evaluation after the vocoder CUDA Graph path was enabled, using 2x GPU and client concurrency 16. ASR scoring uses Qwen3-ASR-1.7B, and speaker similarity uses WavLM-Large finetune.
+We evaluate the optimized MOSS-TTS Local Transformer v1.5 serving path on the SeedTTS English set (N=1088). All optimizations are enabled (AR CUDA Graph, frame-decode CUDA Graph, vocoder CUDA Graph, compiled seeded sampler). Each data point is the mean of 3 runs.
 
-| Mode | Completed / Failed | Throughput | Audio Throughput | Mean Latency | Mean RTF | WER |
-|---|---:|---:|---:|---:|---:|---:|
-| Non-streaming | 1088 / 0 | 5.976 req/s | 26.303 audio s/s | 2.669 s | 0.644 | 1.75% |
-| Streaming | 1088 / 0 | 2.909 req/s | 12.804 audio s/s | 5.474 s | 1.322 | 2.14% |
+### Single-GPU (1× H100 80GB, colocate)
 
-For non-streaming requests, the system reaches **5.976 requests per second** at concurrency 16 with a mean RTF of **0.644**. This mode is the best fit for throughput-oriented workloads where the client receives the final WAV after generation finishes.
+**Non-streaming:**
 
-For streaming requests, the system emits incremental audio chunks through the vocoder stage. At concurrency 16, the average inter-chunk interval is **0.109 seconds**, and the average number of audio chunks per request is **8.82**. Streaming trades some high-concurrency throughput for incremental delivery because the vocoder runs more frequently on smaller chunks and shares GPU time with the AR engine.
+| Concurrency | Throughput (qps) | RTF | Latency mean (s) |
+|---:|---:|---:|---:|
+| 2  | 2.974 | 0.157 | 0.676 |
+| 4  | 4.870 | 0.192 | 0.821 |
+| 8  | 6.111 | 0.310 | 1.306 |
+| 16 | 6.144 | 0.623 | 2.593 |
 
-The quality numbers remain stable across serving modes. In the same CI evaluation, non-streaming WER is **1.75%**, and streaming WER is **2.14%**. Streaming and non-streaming artifact consistency checks pass, which gives us confidence that the scheduler and CUDA Graph paths preserve the model's audio semantics.
+**Streaming:**
 
-The individual optimization measurements should not be summed into one headline speedup because they were collected under different hardware and concurrency settings. They are more useful as a map of where the system spends time: reference caching removes redundant encoder work, frame CUDA Graphs remove local-loop launch overhead, sampler compilation improves the hot sampling path, vocoder CUDA Graphs accelerate short streaming chunks, and memory budgeting stabilizes colocated deployment.
+| Concurrency | Throughput (qps) | RTF | Latency mean (s) | TTFP (ms) |
+|---:|---:|---:|---:|---:|
+| 2  | 2.256 | 0.206 | 0.888 | 261 |
+| 4  | 2.649 | 0.356 | 1.509 | 726 |
+| 8  | 2.633 | 0.726 | 3.033 | 2239 |
+| 16 | 2.635 | 1.458 | 6.045 | 5227 |
+
+### Dual-GPU (2× GPU, concurrency 16)
+
+| Mode | Throughput | Audio Throughput | Mean Latency | Mean RTF | WER |
+|---|---:|---:|---:|---:|---:|
+| Non-streaming | 5.976 req/s | 26.303 audio s/s | 2.669 s | 0.644 | 1.75% |
+| Streaming | 2.909 req/s | 12.804 audio s/s | 5.474 s | 1.322 | 2.14% |
+
+Non-streaming throughput scales well with concurrency, reaching **6.1 qps on a single H100** and **6.0 qps on 2× GPU** at concurrency 16. The streaming path trades throughput for incremental delivery — the vocoder runs more frequently on smaller chunks and shares GPU time with the AR engine. Improving high-concurrency streaming scalability is on the roadmap.
+
+Quality remains stable across serving modes: non-streaming WER is **1.75%** and streaming WER is **2.14%** in the dual-GPU evaluation, confirming that the CUDA Graph and streaming scheduler paths preserve the model's audio semantics.
 
 ## Try It Yourself
 
@@ -349,18 +367,37 @@ The model has separate text-channel and audio-channel sampling defaults. A singl
 
 [TODO: Yichi please help to review this part]
 
-To reproduce SeedTTS-style serving measurements, run the benchmark client against the local server:
+To reproduce the serving benchmarks, start the server and run the benchmark client:
+
+**1. Start the server:**
 
 ```bash
+sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --port 8000
+```
+
+**2. Run the benchmark** (against the running server):
+
+```bash
+# Non-streaming, concurrency 16
 python -m benchmarks.eval.benchmark_tts_seedtts \
-  --meta zhaochenyang20/seed-tts-eval-arrow \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8000 \
   --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
-  --port 8000 \
-  --ref-format references \
-  --token-count auto \
-  --output-dir results/moss_tts_en \
-  --lang en \
-  --max-concurrency 16
+  --ref-format references --lang en --token-count auto \
+  --max-concurrency 16 \
+  --output-dir results/moss_perf_nostream_c16
+
+# Streaming, concurrency 16
+python -m benchmarks.eval.benchmark_tts_seedtts \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8000 \
+  --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --ref-format references --lang en --token-count auto \
+  --max-concurrency 16 \
+  --output-dir results/moss_perf_stream_c16 \
+  --stream
 ```
 
 ## Roadmap

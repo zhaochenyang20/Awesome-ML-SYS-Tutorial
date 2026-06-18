@@ -227,17 +227,126 @@ Finally, a holdback of 4 frames retains the trailing rows where high-layer codeb
 
 The delay pattern also creates an irreducible startup cost: the vocoder needs at least N rows (N = number of codebooks) just to reverse the pattern and produce the first audio frame. Combined with the stride, the actual TTFB lands at ~300–400ms at our measured RTF — well under the 500ms conversational threshold.
 
-## Benchmark Result
+## Benchmark Results
 
-Referring directly to the data from the sglang-omni benchmark reference (`benchmarks/eval/benchmark_tts_seedtts.py`):
+We benchmarked both Higgs and MOSS-TTS-Local to quantify the speedup from our optimizations. Each model is tested in two builds: **vanilla** (all optimizations off) vs **perf** (all optimizations on).
 
-Throughput on Seed-TTS (full set, EN=1088, ZH=2020). Client max-concurrency sweep against a Higgs server (`max_running_requests=16`, bf16, CUDA Graph on, `torch.compile` off). Single reference run. Hardware: 1× H200. Last verified: 2026-05-25.
+**Environment:** 1× H100 80GB, colocate single-GPU. Seed-TTS-Eval EN full set (N=1088). Each data point is the mean of 3 runs.
 
-![Benchmark Results 1](images/tts-opt-benchmark-1.png)
+### Higgs TTS — Streaming (vanilla vs perf)
 
-![Benchmark Results 2](images/tts-opt-benchmark-2.png)
+| Concurrency | qps vanilla | qps perf | **Speedup** | RTF van / perf | Latency mean (s) van / perf | TTFP (ms) van / perf |
+|---:|---:|---:|:---:|---:|---:|---:|
+| 2  | 1.286 | 2.908  | **2.26×** | 0.373 / 0.166 | 1.555 / 0.688 | 162 / 153 |
+| 4  | 2.411 | 5.934  | **2.46×** | 0.393 / 0.163 | 1.658 / 0.673 | 166 / 109 |
+| 8  | 4.313 | 9.856  | **2.29×** | 0.442 / 0.196 | 1.852 / 0.810 | 182 / 126 |
+| 16 | 7.077 | 14.634 | **2.07×** | 0.533 / 0.261 | 2.247 / 1.088 | 214 / 176 |
 
-<span style="color:red">**[Placeholder]** Confirm this is the data we want, also we need to get the baseline data for comparison.</span>
+Optimizations deliver a stable **~2.1–2.5×** throughput gain across all concurrency levels, with RTF roughly halved and first-audio latency (TTFP) also reduced.
+
+### Higgs TTS — Non-streaming (vanilla vs perf)
+
+| Concurrency | qps vanilla | qps perf | **Speedup** | RTF van / perf | Latency mean (s) van / perf |
+|---:|---:|---:|:---:|---:|---:|
+| 2  | 1.412 | 2.941  | **2.08×** | 0.342 / 0.164 | 1.416 / 0.680 |
+| 4  | 2.552 | 5.715  | **2.24×** | 0.372 / 0.166 | 1.568 / 0.699 |
+| 8  | 4.426 | 10.077 | **2.28×** | 0.423 / 0.191 | 1.771 / 0.793 |
+| 16 | 8.156 | 15.174 | **1.86×** | 0.464 / 0.245 | 1.937 / 1.028 |
+
+### MOSS-TTS-Local-v1.5 — Streaming (vanilla vs perf)
+
+| Concurrency | qps vanilla | qps perf | **Speedup** | RTF van / perf | Latency mean (s) van / perf | TTFP (ms) van / perf |
+|---:|---:|---:|:---:|---:|---:|---:|
+| 2  | 0.817 | 2.256 | **2.76×** | 0.561 / 0.206 | 2.448 / 0.888 | 257 / 261 |
+| 4  | 1.444 | 2.649 | **1.83×** | 0.635 / 0.356 | 2.768 / 1.509 | 280 / 726 |
+| 8  | 2.089 | 2.633 | **1.26×** | 0.887 / 0.726 | 3.848 / 3.033 | 626 / 2239 |
+| 16 | 2.516 | 2.635 | **1.05×** | 1.495 / 1.458 | 6.337 / 6.045 | 3452 / 5227 |
+
+MOSS streaming throughput plateaus at ~2.6 qps from c=4 onward. Improving high-concurrency streaming scalability is on the roadmap for future work.
+
+### MOSS-TTS-Local-v1.5 — Non-streaming (vanilla vs perf)
+
+| Concurrency | qps vanilla | qps perf | **Speedup** | RTF van / perf | Latency mean (s) van / perf |
+|---:|---:|---:|:---:|---:|---:|
+| 2  | 0.968 | 2.974 | **3.07×** | 0.475 / 0.157 | 2.069 / 0.676 |
+| 4  | 1.816 | 4.870 | **2.68×** | 0.504 / 0.192 | 2.200 / 0.821 |
+| 8  | 3.017 | 6.111 | **2.03×** | 0.606 / 0.310 | 2.645 / 1.306 |
+| 16 | 4.668 | 6.144 | **1.32×** | 0.781 / 0.623 | 3.406 / 2.593 |
+
+### Reproducing the Benchmarks
+
+The benchmarks use [`benchmarks/eval/benchmark_tts_seedtts.py`](https://github.com/sgl-project/sglang-omni/blob/main/benchmarks/eval/benchmark_tts_seedtts.py) from the [sglang-omni](https://github.com/sgl-project/sglang-omni) repository.
+
+**1. Start the server** (one GPU per server instance, colocate single-card):
+
+```bash
+# Higgs — perf (all optimizations on, default config)
+CUDA_VISIBLE_DEVICES=0 sgl-omni serve \
+  --model-path bosonai/higgs-audio-v3-tts-4b \
+  --port 8101 --allowed-local-media-path /tmp
+
+# Higgs — vanilla (CUDA graph off, async decode off)
+# Use a config with runtime_overrides:
+#   tts_engine.enable_async_decode: false
+#   tts_engine.server_args_overrides.disable_cuda_graph: true
+CUDA_VISIBLE_DEVICES=1 sgl-omni serve \
+  --model-path bosonai/higgs-audio-v3-tts-4b \
+  --config higgs_vanilla.yaml \
+  --port 8102 --allowed-local-media-path /tmp
+
+# MOSS — perf (all optimizations on, default config)
+CUDA_VISIBLE_DEVICES=2 sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --port 8103 --allowed-local-media-path /tmp
+
+# MOSS — vanilla (AR CUDA graph off, vocoder CUDA graph off, frame-sampler compile off)
+# Use a config with:
+#   cuda_graph: false  (disables vocoder CUDA graph)
+#   tts_engine.server_args_overrides.disable_cuda_graph: true  (disables AR graph + frame graph)
+CUDA_VISIBLE_DEVICES=3 sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --config moss_local_vanilla.yaml \
+  --port 8104 --allowed-local-media-path /tmp
+```
+
+**2. Run the benchmark** (against a running server):
+
+```bash
+# Sweep concurrency {2,4,8,16}, 3 runs per point
+MODEL=bosonai/higgs-audio-v3-tts-4b   # MOSS: OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5
+PORT=8101; LABEL=higgs_perf_stream
+STREAM=--stream                        # non-streaming: leave empty
+EXTRA=""                               # MOSS only: EXTRA="--token-count auto"
+
+for c in 2 4 8 16; do
+  for r in 1 2 3; do
+    python -m benchmarks.eval.benchmark_tts_seedtts \
+      --use-existing-server --generate-only \
+      --base-url http://localhost:$PORT --model $MODEL \
+      --ref-format references --lang en --max-concurrency $c \
+      --output-dir results/${LABEL}_c${c}_r${r} $STREAM $EXTRA
+  done
+done
+```
+
+Single-run example (Higgs perf streaming, c=4):
+
+```bash
+python -m benchmarks.eval.benchmark_tts_seedtts \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8101 \
+  --model bosonai/higgs-audio-v3-tts-4b \
+  --ref-format references --lang en --max-concurrency 4 \
+  --output-dir results/higgs_perf_stream_c4 --stream
+```
+
+Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qps`, `latency_mean_s`, `latency_p95_s`, `rtf_mean`. Streaming runs also report `audio_ttfp_mean_s` (time to first audio). Average the 3 runs per `(label, concurrency)` to get the table values above.
+
+### Summary
+
+- **Higgs (stream & non-stream):** Stable **~1.9–2.5×** speedup in both modes. Stream ≈ non-stream throughput — the cleanest win across all four quadrants.
+- **MOSS non-streaming:** **~3× at low concurrency**, narrowing to ~1.3× at high concurrency.
+- **MOSS streaming:** **~2.8× at low concurrency**, with throughput plateauing at higher concurrency. Improving streaming scalability is on the roadmap.
 
 ## Conclusion
 
