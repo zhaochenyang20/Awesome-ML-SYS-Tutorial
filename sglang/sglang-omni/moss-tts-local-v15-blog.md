@@ -391,19 +391,40 @@ The model has separate text-channel and audio-channel sampling defaults. A singl
 
 ### Benchmarking
 
-To reproduce SeedTTS-style serving measurements, run the benchmark client against the local server:
+To reproduce the serving benchmarks, start the server and run the benchmark client:
+
+**1. Start the server:**
 
 ```bash
-python -m benchmarks.eval.benchmark_tts_seedtts \
-  --meta zhaochenyang20/seed-tts-eval-arrow \
-  --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
-  --port 8000 \
-  --ref-format references \
-  --token-count auto \
-  --output-dir results/moss_tts_en \
-  --lang en \
-  --max-concurrency 16
+sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --port 8000
 ```
+
+**2. Run the benchmark** (against the running server):
+
+```bash
+# Non-streaming, concurrency 16
+python -m benchmarks.eval.benchmark_tts_seedtts \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8000 \
+  --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --ref-format references --lang en --token-count auto \
+  --max-concurrency 16 \
+  --output-dir results/moss_perf_nostream_c16
+
+# Streaming, concurrency 16
+python -m benchmarks.eval.benchmark_tts_seedtts \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8000 \
+  --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --ref-format references --lang en --token-count auto \
+  --max-concurrency 16 \
+  --output-dir results/moss_perf_stream_c16 \
+  --stream
+```
+
+Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qps`, `latency_mean_s`, `rtf_mean`. Streaming runs also report `audio_ttfp_mean_s` (time to first audio). Sweep concurrency with `--max-concurrency {2,4,8,16}`.
 
 ## Roadmap
 

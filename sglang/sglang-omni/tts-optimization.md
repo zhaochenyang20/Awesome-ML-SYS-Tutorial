@@ -273,6 +273,55 @@ MOSS streaming throughput plateaus at ~2.6 qps from c=4 onward. Improving high-c
 | 8  | 3.017 | 6.111 | **2.03×** | 0.606 / 0.310 | 2.645 / 1.306 |
 | 16 | 4.668 | 6.144 | **1.32×** | 0.781 / 0.623 | 3.406 / 2.593 |
 
+### Reproducing the Benchmarks
+
+The benchmarks use [`benchmarks/eval/benchmark_tts_seedtts.py`](https://github.com/sgl-project/sglang-omni/blob/main/benchmarks/eval/benchmark_tts_seedtts.py) from the [sglang-omni](https://github.com/sgl-project/sglang-omni) repository.
+
+**1. Start the server** (one GPU per server instance):
+
+```bash
+# Higgs — perf (all optimizations on, default config)
+CUDA_VISIBLE_DEVICES=0 sgl-omni serve \
+  --model-path bosonai/higgs-audio-v3-tts-4b \
+  --port 8101
+
+# Higgs — vanilla (CUDA graph off, async decode off)
+# Use a config with: disable_cuda_graph: true, enable_async_decode: false
+
+# MOSS — perf (all optimizations on, default config)
+CUDA_VISIBLE_DEVICES=1 sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --port 8102
+
+# MOSS — vanilla (AR CUDA graph off, vocoder CUDA graph off, frame-sampler compile off)
+# Use a config with: cuda_graph: false, disable_cuda_graph: true
+```
+
+**2. Run the benchmark** (against a running server):
+
+```bash
+# Higgs example: streaming, concurrency 4
+python -m benchmarks.eval.benchmark_tts_seedtts \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8101 \
+  --model bosonai/higgs-audio-v3-tts-4b \
+  --ref-format references --lang en \
+  --max-concurrency 4 \
+  --output-dir results/higgs_perf_stream_c4 \
+  --stream
+
+# MOSS example: non-streaming, concurrency 8
+python -m benchmarks.eval.benchmark_tts_seedtts \
+  --use-existing-server --generate-only \
+  --base-url http://localhost:8102 \
+  --model OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --ref-format references --lang en --token-count auto \
+  --max-concurrency 8 \
+  --output-dir results/moss_perf_nostream_c8
+```
+
+Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qps`, `latency_mean_s`, `latency_p95_s`, `rtf_mean`. Streaming runs also report `audio_ttfp_mean_s` (time to first audio).
+
 ### Summary
 
 - **Higgs (stream & non-stream):** Stable **~1.9–2.5×** speedup in both modes. Stream ≈ non-stream throughput — the cleanest win across all four quadrants.
