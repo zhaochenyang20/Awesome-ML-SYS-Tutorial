@@ -258,7 +258,7 @@ The server caches and coalesces reference encodes. Reusing the same reference cl
 
 ### Streaming
 
-Set `"stream": true` and `"response_format": "pcm"` to receive raw 48 kHz PCM chunks as they are produced. Pipe the stream through `ffmpeg` when you want a playable WAV file:
+Set `"stream": true`, `"response_format": "pcm"`, and `"stream_format": "audio"` to receive raw 48 kHz mono PCM chunks as they are produced. Pipe the stream through `ffmpeg` when you want a playable WAV file:
 
 ```bash
 curl -N -X POST http://localhost:8000/v1/audio/speech \
@@ -268,7 +268,8 @@ curl -N -X POST http://localhost:8000/v1/audio/speech \
     "ref_audio": "https://huggingface.co/datasets/zhaochenyang20/seed-tts-eval-mini/resolve/main/en/prompt-wavs/common_voice_en_10119832.wav",
     "ref_text": "We asked over twenty different people, and they all said it was his.",
     "stream": true,
-    "response_format": "pcm"
+    "response_format": "pcm",
+    "stream_format": "audio"
   }' \
   | ffmpeg -f s16le -ar 48000 -ac 1 -i pipe:0 output_stream.wav
 ```
@@ -318,6 +319,7 @@ MOSS-TTS Local exposes the usual speech-generation controls through the OpenAI-c
 | `ref_audio` / `ref_text` | Shorthand for `references[0].audio_path` and `references[0].text` |
 | `stream` | Set to `true` for streaming output |
 | `response_format` | Use `pcm` with streaming raw chunks |
+| `stream_format` | Set to `audio` when piping raw PCM bytes directly into an audio decoder |
 | `language` | Optional target-language hint |
 | `instructions` | Optional free-text style directive |
 | `token_count` / `duration_tokens` | Target duration in codec frames |
