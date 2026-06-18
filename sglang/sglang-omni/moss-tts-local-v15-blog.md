@@ -189,8 +189,6 @@ The current path works end to end, but several parts are still worth improving:
 
 ## Join Us
 
-MOSS is a useful test case for SGLang-Omni because its quality comes from a heterogeneous generation path: large codec, multi-channel frames, local codebook feedback, and native streaming decode. These are exactly the cases where an inference system needs stage boundaries instead of a single-loop abstraction.
-
 If you are interested in TTS, omni models, streaming inference, CUDA Graphs, scheduling, communication, model onboarding, benchmarking, or production serving, contributions and discussions are welcome.
 
 ## Acknowledgments
