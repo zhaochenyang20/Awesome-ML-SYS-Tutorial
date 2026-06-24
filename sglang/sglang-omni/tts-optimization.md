@@ -1,18 +1,36 @@
 # Optimizing TTS Inference: Engineering Lessons from Profiling to Streaming in SGLang Omni
 
-A TTS (Text-to-Speech) model converts written text into natural-sounding spoken audio. It powers accessibility for the visually impaired, enables hands-free interaction with devices, brings life to virtual assistants and audiobooks, and makes technology usable for everyone, anywhere.
+A TTS (Text-to-Speech) model converts written text into natural-sounding spoken audio. Optimizing TTS inference looks a lot like LLM optimization, but the actual engineering bottlenecks are quite different. For example, TTS has unique multi-stage architecture, which fits well in our SGLang Omni engine structure. In this blog, we break down the mechanical sympathy required to make TTS pipeline fast, with examples of the bottlenecks we hit, the host-to-device pitfalls, and the architectural trade-offs we made. Hope this blog can be a reference material and inspire our future TTS model support, and help all community members understand more on TTS model support & optimization.
 
-Optimizing Text-to-Speech (TTS) inference looks a lot like LLM optimization on paper, but the actual engineering bottlenecks are entirely different. For example, TTS has unique multi-stage architecture, which fits well in our SGLang Omni engine structure. In this blog, instead of just listing our optimizations, we break down the mechanical sympathy required to make this pipeline fast—the bottlenecks we hit, the host-to-device pitfalls, and the architectural trade-offs we made along the way. We hope this blog can be a reference material and inspire our future TTS model support, and help all readers understand more on TTS model support & optimization.
+【TODO：For example, TTS has unique multi-stage architecture, which fits well in our SGLang Omni engine structure. 这句话其实我觉得讲的不太好，因为作为一个不了解 SGLang Omni 的读者，我其实是不知道 stage 这个定义的。一段话上来就给了一个我甚至不知道的定义来说这个 optimization 不同。我觉得这个地方你举个例子，比如说我们要对 TTS 的很多优化都会在 audio encoder，还有 audio vocoder 上面，可能读者会觉得更加具体一些，因为 stage 这个定义本身就比较模糊。】
 
-In this blog we are going to use two different TTS models with distinct architecture as examples. They are Higgs and MOSS developed by Boson AI and MOSI AI separately.
+In this blog we are going to use two different TTS models with distinct architecture as examples. They are [Higgs](https://huggingface.co/bosonai/higgs-audio-v3-tts-4b) and [MOSS](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) developed by Boson AI and MOSI AI separately.
+
+
 
 ## The TTS Pipeline Under the Hood
 
-![TTS Inference Pipeline Overview](images/tts-opt-pipeline-overview.png)
+<div align="center">
+  <img src="images/tts-opt-pipeline-overview.png" alt="TTS Inference Pipeline Overview" width="50%">
+</div>
+
+Unlike serving a chat LLM with a single autoregressive loop, we decompose TTS inference into four stages:
+
+1. **Preprocessing (CPU):** Text tokenization and load reference-audio. This stage is purely IO-bound and involves no GPU compute — it prepares the inputs that downstream stages consume.
+
+2. **Audio Encoder (GPU):** Raw waveform carries tens of thousands of samples per second, far too long for a Transformer to process directly. A neural audio codec compresses the reference clip into a low-rate sequence of discrete RVQ tokens (shape `[T, N]`, where T is time steps and N is the number of codebook layers). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. Detailed process of audio encoder is discussed p[here](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
+
+3. **TTS Engine (GPU):** The core autoregressive stage. Like an LLM decoding text tokens, an AR backbone (typically Qwen3-based) generates output speech as multi-codebook codec tokens step-by-step, conditioned on the target text and the encoded reference. This is where most GPU time is spent — and where optimizations such as delay-pattern scheduling, CUDA Graph, and async decode lands.
+
+4. **Vocoder (GPU):** The codec decoder inverts the generated tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by codec design.
+
+A simplified data flow is: **Text + Reference Audio → RVQ tokens → multi-codebook codes → audio waveform**. The sections below walk through how Higgs and MOSS instantiate each stage, and where their architectural choices diverge.
 
 ### Higgs Pipeline
 
-![Higgs Audio V3 Generation Architecture](images/tts-opt-higgs-pipeline.png)
+<div align="center">
+  <img src="images/tts-opt-higgs-pipeline.png" alt="Higgs Audio V3 Generation Architecture" width="50%">
+</div>
 
 To optimize the system, we first have to understand the computing process through four stages of the Higgs pipeline:
 
@@ -23,7 +41,9 @@ To optimize the system, we first have to understand the computing process throug
 
 ### MOSS Pipeline
 
-![MOSS Audio Tokenizer Architecture](images/tts-opt-moss-pipeline.png)
+<div align="center">
+  <img src="images/tts-opt-moss-pipeline.png" alt="MOSS Audio Tokenizer Architecture" width="50%">
+</div>
 
 MOSS-TTS-v1.5 (OpenMOSS) uses the `local transformer` architecture and shares the same four-stage pipeline structure — including the delay pattern — as Higgs. Below we describe each stage in the same format as Higgs, followed by a comparison of the two architectures.
 
@@ -32,9 +52,13 @@ MOSS-TTS-v1.5 (OpenMOSS) uses the `local transformer` architecture and shares th
 - **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per audio frame on a single vector (all 13 codebook embeddings summed), making it much cheaper per step than Higgs's backbone. After each backbone step, a 1-layer local transformer sequentially samples 12 codebook codes from the backbone's output (stop/continue decision, then code 0→11, each fed back to produce the next). The 12 code embeddings are summed back as the backbone's next-frame input. This keeps the backbone lightweight, but the local transformer's 12-step sequential loop is the latency bottleneck (see CUDA Graph section).
 - **Vocoder (GPU):** The same MOSS-Audio-Tokenizer-v2 codec, but used as a decoder. Unlike Higgs's DAC decoder, it is natively streamable — supporting frame-by-frame decode, with no need for windowed chunking, overlap, or crossfade.
 
+【TODO：这里其实交叉提到了 moss 和 moss Local 两个模型，但是我觉得你最好要 explicit 的给用户说，这其实是两个模型，虽然长得有点像。】
+
 ### Higgs and MOSS Architectural Differences & How They Drive Our Optimization Strategy
 
-![Higgs vs MOSS Architecture Comparison](images/tts-opt-arch-comparison.png)
+<div align="center">
+  <img src="images/tts-opt-arch-comparison.png" alt="Higgs vs MOSS Architecture Comparison" width="50%">
+</div>
 
 As shown in the picture, both models share a similarly sized Qwen3 backbone (~4B params), but differ significantly in codec weight. Higgs is a "heavy backbone, light codec" system: its DAC-based codec is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs the same-scale backbone with a much heavier codec (~1B-param MOSS-Audio-Tokenizer-v2), making it a "similar backbone, heavy codec" system — the unusually heavy codec brings extra optimization challenges on the codec side.
 
@@ -74,7 +98,9 @@ To balance this, Higgs uses a Delay Pattern where Codebook i is delayed by i tim
 - Step n-7: CB0 + CB1 hit EOC and stop; CB2 – CB7 remain active
 - ... until the generation finishes
 
-![Delay Pattern State Machine](images/tts-opt-delay-pattern.png)
+<div align="center">
+  <img src="images/tts-opt-delay-pattern.png" alt="Delay Pattern State Machine" width="50%">
+</div>
 
 This introduces a state machine with four phases: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when CB0 hits the End-of-Codes token), and Finished. And here is a graph to show it more in detail.
 
@@ -113,7 +139,9 @@ Before writing code, we profiled the naive pipeline and identified three core bo
 
 With those bottlenecks, we applied targeted optimization strategies. Here is a macro-level graph to show our strategies, and we will be discussing each strategy in the next section.
 
-![Optimization Strategies Overview](images/tts-opt-strategies.png)
+<div align="center">
+  <img src="images/tts-opt-strategies.png" alt="Optimization Strategies Overview" width="50%">
+</div>
 
 ## Layer-by-Layer Optimizations
 
@@ -123,7 +151,9 @@ With those bottlenecks, we applied targeted optimization strategies. Here is a m
 
 **Why:** The encoder converts a reference audio clip into delayed codec tokens. In production, users frequently reuse the same reference voice across many prompts (e.g., a fixed narrator voice for an audiobook). Each encoding pass costs 50–100ms of GPU time, but the output is deterministic for identical input audio. This makes it a textbook caching opportunity.
 
-![LRU Cache Flow](images/tts-opt-encoder-cache.png)
+<div align="center">
+  <img src="images/tts-opt-encoder-cache.png" alt="LRU Cache Flow" width="50%">
+</div>
 
 **How:** We introduced an LRU cache keyed by the audio waveform content. On a cache hit, the encoder stage is skipped entirely.
 
@@ -143,7 +173,9 @@ Since AR decode is our primary bottleneck, we need to put the majority of work i
 
 #### CUDA Graph Migration
 
-![Eager vs CUDA Graph Execution](images/tts-opt-cuda-graph.png)
+<div align="center">
+  <img src="images/tts-opt-cuda-graph.png" alt="Eager vs CUDA Graph Execution" width="50%">
+</div>
 
 **Why:** Because each AR step launches a sequence of tiny kernels, the CPU launch overhead was killing performance. Therefore we captured the entire decode loop inside a CUDA Graph to eliminate those numerous small launch overheads.
 
@@ -171,7 +203,9 @@ The overall timeline would be as shown in the picture:
 
 The event loop implements this as: each iteration launches the current step (enqueue GPU work + async D2H + record event), then resolves the previous step (check event, read host buffer, process results). When the batch size drops below 2, it falls back to synchronous execution, since the async fixed overhead will be larger than the performance gains from overlapping.
 
-![Async Decode Timeline](images/tts-opt-async-decode.png)
+<div align="center">
+  <img src="images/tts-opt-async-decode.png" alt="Async Decode Timeline" width="50%">
+</div>
 
 **GPU launch (step N):** Before replaying the CUDA Graph, the runner gathers each active request's current state (delay counter, last emitted codes, done flag, etc.) from a shared pool into the graph's fixed-address buffers. The graph then runs the forward pass and sampling, writes updated state back to the pool, and packs the step's outputs (all 8 codebook codes plus completion flags) into a single staging tensor. This staging tensor is copied to a pinned host buffer asynchronously — the GPU does not wait for the copy to finish. A CUDA event is recorded right after the copy is enqueued, serving as a "data is ready" signal for the CPU.
 
@@ -191,7 +225,9 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 
 #### Batched Decoding
 
-![Batched Decoding](images/tts-opt-batched-decoding.png)
+<div align="center">
+  <img src="images/tts-opt-batched-decoding.png" alt="Batched Decoding" width="50%">
+</div>
 
 **Why:** Under high concurrency, multiple AR decode loops finish at nearly the same time — they enter the pipeline together, generate similar-length utterances, and race to the vocoder stage simultaneously. With 16 concurrent requests each taking ~15ms to vocode, the last request in line waits 240ms just for its turn — turning a fast stage into a tail-latency killer.
 
@@ -199,7 +235,9 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 
 #### Vocoder CUDA Graph (MOSS Only)
 
-![Vocoder CUDA Graph: Higgs DAC vs MOSS Codec](images/tts-opt-vocoder-cuda-graph.png)
+<div align="center">
+  <img src="images/tts-opt-vocoder-cuda-graph.png" alt="Vocoder CUDA Graph: Higgs DAC vs MOSS Codec" width="50%">
+</div>
 
 **Why:** MOSS's vocoder uses the ~1B-parameter MOSS-Audio-Tokenizer-v2 codec, which launches far more kernels per decode call than Higgs's lightweight DAC decoder. Just as with AR decode, kernel launch overhead becomes the bottleneck. Higgs's DAC decoder is light enough that it does not need this optimization.
 
@@ -207,7 +245,9 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 
 #### Windowed Streaming (Higgs Only)
 
-![Vocoder Request Routing](images/tts-opt-vocoder-routing.png)
+<div align="center">
+  <img src="images/tts-opt-vocoder-routing.png" alt="Vocoder Request Routing" width="50%">
+</div>
 
 **Why:** Without streaming, the user hears nothing until the entire AR decode loop completes — hundreds of steps of silence. So we want to stream the process to minimize TTFB (time to first byte). But you can't just naively chop the code sequence into chunks and decode each independently like LLM: neural audio codecs produce audible clicks at every splice boundary because the codec's internal convolution state is disrupted. On top of that, the delay pattern means the trailing rows in any mid-stream snapshot have incomplete high-layer codebooks — decoding them injects noise.
 
@@ -219,7 +259,9 @@ Note: codecs which natively support streaming decode (such as MOSS's MOSS-Audio-
 - **Overlap (8 frames):** Looks back into the previous window to eliminate seam artifacts and clicks during audio stitching.
 - **Holdback (4 frames):** Retains trailing frames where high-layer codebooks are still incomplete, preventing noise injection during mid-stream decodes.
 
-![Windowed Streaming Detail](images/tts-opt-streaming.png)
+<div align="center">
+  <img src="images/tts-opt-streaming.png" alt="Windowed Streaming Detail" width="50%">
+</div>
 
 For streaming, we accumulate codes until a stride threshold (75 frames, ~1 second of audio) before triggering a decode — amortizing kernel launch overhead across a meaningful chunk. When decoding, we overlap by looking 8 frames back into the previously decoded region, re-decoding them jointly with new tokens so the codec sees continuous context across boundaries. We then extract only the delta (new samples past the overlap) and crossfade-blend it with the held-back tail of the previous chunk using a linear fade-in/fade-out envelope — smoothing any residual amplitude mismatch at the splice point.
 
