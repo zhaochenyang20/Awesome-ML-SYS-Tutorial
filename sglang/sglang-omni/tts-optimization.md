@@ -52,25 +52,43 @@ MOSS-TTS-v1.5 (OpenMOSS) uses the `local transformer` architecture and shares th
 - **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per audio frame on a single vector (all 13 codebook embeddings summed), making it much cheaper per step than Higgs's backbone. After each backbone step, a 1-layer local transformer sequentially samples 12 codebook codes from the backbone's output (stop/continue decision, then code 0→11, each fed back to produce the next). The 12 code embeddings are summed back as the backbone's next-frame input. This keeps the backbone lightweight, but the local transformer's 12-step sequential loop is the latency bottleneck (see CUDA Graph section).
 - **Vocoder (GPU):** The same MOSS-Audio-Tokenizer-v2 codec, but used as a decoder. Unlike Higgs's DAC decoder, it is natively streamable — supporting frame-by-frame decode, with no need for windowed chunking, overlap, or crossfade.
 
-【TODO：这里其实交叉提到了 moss 和 moss Local 两个模型，但是我觉得你最好要 explicit 的给用户说，这其实是两个模型，虽然长得有点像。】
+【TODO：这里其实交叉提到了 moss 和 moss Local 两个模型，但是我觉得你最好要 explicit 的给用户说，这其实是两个模型，虽然长得有点像。这个我其实建议你可以把 moss 相关的内容都删了，只写我们优化了 moss Local，这样的话你不用去解释那个 Local Transformer 有的有，有的没有。】
+
+【TODO：我觉得这个地方要单独强调 local transformer 其实并不合理，或者说你应该在 Higgs 那个方向也说一下，Higgs 是不是也有类似的，就是用一个小的模型去 decode 余下的 codec 的情况。我一个感觉是，这里的 local transformer 写的其实并不是很清楚。就是你可以看 FishAudio S2 Pro 里面，这个模型的逻辑是 Codex 的第 0 层是那个 slow AR 出，然后剩下的 9 层是 fast AR 出。我感觉 local transformer 的思路应该和 Fish 是比较一致的，但是反过来 Higgs 其实不存在这种类似于 speculative decoding 那种策略。如果是这样子的话，建议写的更清楚一点。】
 
 ### Higgs and MOSS Architectural Differences & How They Drive Our Optimization Strategy
+
+【作为一个标题，这个标题其实太长了，根本不应该有这么长的标题。】
 
 <div align="center">
   <img src="images/tts-opt-arch-comparison.png" alt="Higgs vs MOSS Architecture Comparison" width="50%">
 </div>
 
-As shown in the picture, both models share a similarly sized Qwen3 backbone (~4B params), but differ significantly in codec weight. Higgs is a "heavy backbone, light codec" system: its DAC-based codec is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs the same-scale backbone with a much heavier codec (~1B-param MOSS-Audio-Tokenizer-v2), making it a "similar backbone, heavy codec" system — the unusually heavy codec brings extra optimization challenges on the codec side.
+【这个图画的挺好的，然后我觉得这种黑白对比非常鲜明，但是我不太理解为什么 vs moss 要把 moss 换一行，因为 moss 其实明显放在同一行是更好看的。哦，嗯，我觉得可以具体去举一下这个 Higgs 和 moss 的 backbone 和 Codex 的大小，而且你也要提到下这个 Local Transformer 的大小，对吧？这挺关键的。然后我发觉这个，就是如果你在那个 codec instance 的 MoE 这边都写了 MoE 的占据大小，那么其实你在 Higgs 这边最好也写一下。】
+
+As shown in the picture, both models share a similarly sized Qwen3 backbone (~4B params), but differ significantly in codec weight. Higgs is a "heavy backbone, light codec" system: its DAC-based codec is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs the same-scale backbone with a much heavier codec (~1B-param MOSS-Audio-Tokenizer-v2), making it a "similar backbone, heavy codec" system. Later we will see, the unusually heavy codec brings extra optimization challenges on the codec side.
 
 They also differ in how codebook tokens are generated: Higgs's backbone directly emits all 8 audio codebook tokens per step via the delay pattern, while MOSS's backbone only produces a hidden state, leaving a local transformer to sequentially sample 12 codes per frame. Finally, their vocoders have opposite streaming properties — Higgs's DAC decoder is not natively streamable (requiring windowed chunking with crossfade), whereas MOSS's codec supports frame-by-frame streaming out of the box.
 
-This weight distribution directly shapes our optimization strategy:
+【emits 这个词在全文出现了很多次，然后图里面也有。我个人感觉这个词不是很专业，要不要直接改成 decode？当然，你图里面最好也换一下。这个图可以画成 SVG，本来这个图也不复杂。】
+
+【while MOSS's backbone only produces a hidden state, leaving a local transformer to sequentially sample 12 codes per frame. 这句话其实写的还算挺专业的，但是你那个图里面写 12 个 codec 加上一个 text，这个其实我觉得不是很合理，因为，怎么说呢，就是 backbone 生成的那一个 codec，其实它也不是 text token，它只是说里面包含 text embedding 信息，所以你最好不要在图里面直接写 12 codebooks 加 1 text，或者说是我理解错了。】
+
+【我这里还有一点读了之后不是特别明白，就是 MOSS 是支持 native streaming 的，但是我们发现 MOSS 的 streaming 要比 Higgs 难做很多，这我就不太懂了。如果一个模型是 native streaming 的，为什么它的 streaming 反而性能比起 non-streaming 差了很多？而且我觉得优化起来其实也很麻烦。当然，这一点我觉得你最好要在文中体现出来，我觉得是一个很关键的讨论点。】
+
+Those differences directly shapes our optimization strategy:
+
+【对比一下二者的这个架构差异，然后导出来不同的模型有不同的优化侧重，我觉得是很好的。但是最好在你说明不同模型有不同侧重之前，你可以先说一下我们有什么 general 的思路，就先把这些思路都列出来，然后再说可能二者会有些不同会好一些。现在你直接就列了二者的不同，就是读者直接读下来是不知道有哪些 general 的优化思路的。】
 
 - **Encoder caching is more critical for MOSS:** Each MOSS encode costs ~250ms per reference (vs 50–100ms for Higgs) due to the ~1B-param codec. This motivates a bigger cache for MOSS to amortize encoder time cost.
 - **Kernel launch overhead matters more for MOSS:** Because the MOSS backbone is lighter, per-step compute is shorter, making kernel launch overhead a proportionally larger fraction of step time. This is why CUDA Graph capture of the frame-decode micro-loop (1 + 12 micro-steps) is essential for MOSS.
 - **Batched encoding & AR stage optimization is more important for Higgs:** Since Higgs AR backbone is much heavier and takes most of the time, higher-concurrency batched processing can greatly increase throughput on Higgs.
 - **Vocoder optimization is more important for MOSS:** We find out that the vocoder in MOSS has much heavier workload than Higgs, so we implemented CUDA Graph optimization specifically for MOSS vocoder to reduce each-step launch overhead.
 - **Streaming strategy is fundamentally different:** While Higgs needs windowed chunking with stride/overlap/holdback to work around DAC's non-streamable decoder, MOSS's natively streamable codec eliminates this entirely, but introduces slot management complexity at high concurrency.
+
+【我觉得这里在前面要明确的说明一点，就是这个 Higgs 的 codec 是可以做 encoding 也可以做 decoding 的，或者说它能够把音频转成 codec，又能把 codec 转成音频。但是 MoSS 不行，就其实你前面隐含的说明了这一点，但是反正我读第一句话说这个，因为 MoSS 的 codec 是 1B 左右，所以比起 Higgs 更慢。这里其实你得解释有一个 encode 的 codec，还有一个 decode 的 codec，对吧？】
+
+【其实还有一个我觉得比较需要写出来一点，就是你要具体的把 moss 的 backbone 的大小也写出来，因为 Higgs 一看就是一个 Qwen3 嘛，就是 4B，但是 moss 我觉得读完前文是不太清楚的。】
 
 ### Know Before Dive In: the Codebook & RVQ
 
