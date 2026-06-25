@@ -100,7 +100,7 @@ This hierarchy is why generation order matters. If all layers sample independent
 
 **3. Global step vs. codec frame.** During Higgs generation, the backbone first fills a **layer×global-step grid**. At each global step, the backbone runs once; each active RVQ layer's output head computes logits over its ~4,096-entry codebook and samples one ID. One global step therefore writes at most 8 IDs, not an `[8, 4096]` block.
 
-Because the delay pattern shifts layer $i$ by $i$ steps, a vertical column in this grid is usually **not** one vocoder-ready frame. A vocoder-ready codec frame $k$ is the aligned tuple $[L_0[k], L_1[k], \ldots, L_7[k]]$. In the delayed grid, those IDs land on a diagonal: L0 at step $k$, L1 at step $k+1$, …, L7 at step $k+7$. After **undelay**, that diagonal becomes row $k$ of the aligned `[T, 8]` matrix. A 10-second clip at 25 fps has roughly 250 such aligned codec frames.
+Because the delay pattern shifts layer $i$ by $i$ steps, a vertical column in this grid is usually **not** one vocoder-ready frame. A vocoder-ready codec frame $k$ is the aligned tuple $[L_0[k], L_1[k], \ldots, L_7[k]]$. In the delayed grid, those IDs land on a diagonal: $[L_0[k], L_1[k+1], \ldots, L_7[k+7]]$. After **undelay**, that diagonal becomes row $k$ of the aligned `[T, 8]` matrix. A 10-second clip at 25 fps has roughly 250 such aligned codec frames.
 
 These concepts set up the question the delay pattern resolves: at each global step, should all $N$ layers sample real IDs immediately, or should each layer run through its own full $T$-frame pass? Higgs adopts a third option — staggered activation — detailed below.
 
@@ -112,9 +112,9 @@ Let's compare three scheduling strategies:
 
 | Strategy | What happens at global step $s$ | Quality / speed |
 |----------|--------------------------------|-----------------|
-| Parallel | All $N$ layers sample a real token from step 0 onward | Fast, but L$_i$ cannot see what L$_{i-1}$ just emitted → poor RVQ hierarchy |
-| Sequential | Finish the entire $T$-frame sequence for L0, then L1, then L2, ... | Preserves hierarchy, but latency scales ~$\times N$ |
-| Staggered (delay pattern) | All layers share one global-step axis; L$_i$ starts real sampling $i$ steps after L0 | Near-parallel speed with causal cross-layer conditioning |
+| Parallel | All $N$ layers sample a real token from step 0 onward | Fast, but $L_i$ cannot see what $L_{i-1}$ just emitted → poor RVQ hierarchy |
+| Sequential | Finish the entire $T$-frame sequence for $L_0$, then $L_1$, then $L_2$, ... | Preserves hierarchy, but latency scales ~$\times N$ |
+| Staggered (delay pattern) | All layers share one global-step axis; $L_i$ starts real sampling $i$ steps after $L_0$ | Near-parallel speed with causal cross-layer conditioning |
 
 The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward described in the Higgs pipeline above. At each step, every layer slot in the layer×step grid is written — but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token along row $i$ of the delayed grid. Undelay later regroups diagonals from this grid into rows of the aligned `[T, N]` matrix.
 
