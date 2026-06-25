@@ -18,9 +18,9 @@ Unlike serving a chat LLM with a single autoregressive loop, we decompose TTS in
 
 1. **Preprocessing (CPU):** Text tokenization and load reference-audio. This stage is purely IO-bound and involves no GPU compute — it prepares the inputs that downstream stages consume.
 
-2. **Audio Encoder (GPU):** Raw waveform carries tens of thousands of samples per second, far too long for a Transformer to process directly. A neural audio codec compresses the reference clip into a low-rate sequence of discrete RVQ tokens (shape `[T, N]`, where T is time steps and N is the number of codebook layers). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. Detailed process of audio encoder is discussed p[here](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
+2. **Audio Encoder (GPU):** Raw waveform carries tens of thousands of samples per second, far too long for a Transformer to process directly. A neural audio codec compresses the reference clip into a low-rate sequence of discrete RVQ tokens (shape `[T, N]`, where T is time steps and N is the number of codebook layers). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. Detailed process of audio encoder is discussed [here](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
 
-3. **TTS Engine (GPU):** The core autoregressive stage. Like an LLM decoding text tokens, an AR backbone (typically Qwen3-based) generates output speech as multi-codebook codec tokens step-by-step, conditioned on the target text and the encoded reference. This is where most GPU time is spent — and where optimizations such as delay-pattern scheduling, CUDA Graph, and async decode lands.
+3. **TTS Engine (GPU):** The core autoregressive stage. Like an LLM that emits one text token per decode step, the AR backbone emits **one audio frame** per step — but each frame is a **row** of $N$ codebook token IDs (shape `[T, N]`), not a single scalar token. This is where most GPU time is spent — and where optimizations such as delay-pattern scheduling, CUDA Graph, and async decode land.
 
 4. **Vocoder (GPU):** The codec decoder inverts the generated tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by codec design.
 
@@ -36,7 +36,7 @@ To optimize the system, we first have to understand the computing process throug
 
 - **Preprocessing (CPU):** Text tokenization and reference audio loading. This is purely IO-bound and handles no GPU compute.
 - **Audio Encoder (GPU):** Uses [HiggsAudioCodec](https://huggingface.co/bosonai/higgs-audio-v2-tokenizer), a neural audio codec based on the DAC (Descript Audio Codec) architecture with a semantic encoder branch. The encoder converts the reference audio waveform into discrete tokens via Residual Vector Quantization (RVQ), producing an output of shape `[T, 8]`, where T is the number of time steps and 8 represents parallel codebook tokens per step.
-- **TTS Engine (GPU Backbone):** The core autoregressive (AR) model based on a Qwen3 LLM architecture. It generates the multi-codebook tokens step-by-step.
+- **TTS Engine (GPU Backbone):** The core autoregressive model — a Qwen3-4B decoder. Generation advances **one audio frame per decode step**, the same cadence as an LLM emitting one text token per step. The difference is what each step produces: the previous frame's $N$ codebook IDs are embedded and summed into one input vector; the backbone runs **one** causal forward pass; then **$N$ codebook heads** each sample one ID from the shared hidden state, writing one row into the `[T, 8]` output matrix. *Which* layers produce real IDs at *which* steps is controlled by the delay pattern (below).
 - **Vocoder (GPU):** A DAC decoder that converts the generated tokens back into an audible waveform.
 
 ### MOSS Pipeline
@@ -90,46 +90,60 @@ Those differences directly shapes our optimization strategy:
 
 【其实还有一个我觉得比较需要写出来一点，就是你要具体的把 moss 的 backbone 的大小也写出来，因为 Higgs 一看就是一个 Qwen3 嘛，就是 4B，但是 moss 我觉得读完前文是不太清楚的。】
 
-### Know Before Dive In: the Codebook & RVQ
+### Prerequisites
 
-LLMs operate on text tokens — discrete symbols from a finite vocabulary. To apply the same autoregressive framework to audio, we need a way to turn a continuous waveform into a sequence of discrete tokens, and back. This is where neural audio codecs come in: models like SoundStream, EnCodec, and DAC learn to compress audio into compact token sequences that an LLM-style backbone can generate.
+The Higgs and MOSS pipelines above already reference `[T, N]` tensors, codebook heads, and frame-by-frame decoding. Before the delay pattern, we introduce four concepts in the order they appear during inference. For a deeper dive on codec encoding, see [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
 
-The core tokenization technique these codecs share is Residual Vector Quantization (RVQ) ([Zeghidour et al., 2021](https://arxiv.org/abs/2107.03312)). A single vector quantizer (one codebook) can only approximate the audio signal coarsely. RVQ improves on this by stacking multiple codebooks in series: the first codebook quantizes the signal, then the second codebook quantizes the residual error left by the first, the third quantizes what the second missed, and so on. Each layer captures progressively finer detail — CB0 encodes coarse structure (pitch, rhythm, energy), while deeper codebooks encode subtle textures and high-frequency harmonics. Decoding simply sums all codebook contributions to reconstruct the audio.
+**1. Codec token.** Text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a codec token is an integer ID that stands in for a slice of sound, the way a text token stands in for a word piece. Without this discretization, a standard autoregressive backbone cannot apply cross-entropy loss and sampling the way it does for text.
 
-This layered structure is fundamental to TTS inference optimization. Because the codebooks form a strict hierarchy — each one refining the previous — generating them matters: producing all codebooks independently in parallel degrades quality (higher codebooks can't adapt to what lower ones emitted), while generating them fully sequentially multiplies latency by the number of codebooks. Every multi-codebook TTS system must navigate this trade-off, and the delay pattern (discussed next) is the most widely adopted solution.
+**2. Codebook.** A codebook is a list of codec tokens, in other words, a lookup table. For example, Higgs's CB0 (codebook 0) might hold 4,096 entries (4096 codec tokens), each mapping to an embedding vector. Crucially, a codebook is **not** a time sequence; it is a vocabulary, analogous to an LLM's token table. When the TTS Engine "samples from CB$i$," it picks one integer from that layer's codebook.
 
-The number of RVQ codebooks/channels is a practical trade-off between quality and inference cost. MOSS-TTS-v1.5 uses 32 RVQ channels, while Higgs uses 8. More channels increase delay-pattern sampling cost (more AR steps for ramp-up/wind-down, more tokens per step), but may also improve audio fidelity by capturing finer residual detail.
+**3. Frame.** Audio is generated along a **time axis** divided into frames. One decode step advances **one frame** — the same cadence as an LLM advancing one text token per step (recall Stage 3 above). At frame $t$, the backbone runs once and writes **one codec token per active codebook**, forming row $t$ of an output matrix `[T, N]`: $T$ frames $\times$ $N$ codebook layers, where `[t, i]` is the ID sampled from CB$i$ at frame $t$. A 10-second clip at 25 fps needs ~250 decode steps and yields a `[250, N]` matrix — similar *step count* to a 250-token reply, but each step appends a full row rather than a single scalar.
 
-### Architectural Gotchas: The Delay Pattern (Higgs)
+**4. RVQ (Residual Vector Quantization).** A single codebook compresses audio coarsely. [RVQ](https://arxiv.org/abs/2107.03312) stacks $N$ codebooks in series: CB0 quantizes the signal, CB1 quantizes the residual CB0 missed, CB2 quantizes what CB1 still missed, and so on. Decoding sums all layers to reconstruct the waveform. CB0 tends to carry coarse structure (pitch, rhythm, energy); deeper layers add timbre and high-frequency detail. This hierarchy is why **generation order across layers matters** — and why Higgs uses 8 codebook layers while MOSS-TTS-Local uses 12: more layers can improve fidelity but increase per-frame sampling cost and delay-pattern overhead (ramp-up / wind-down).
 
-The delay pattern is a scheduling strategy for multi-codebook autoregressive generation, first introduced in Meta's [MusicGen (2023)](https://arxiv.org/abs/2306.05284). The core idea: instead of generating all codebooks in lockstep (which sacrifices quality) or sequentially (which sacrifices speed), stagger them so that each codebook starts in steps after CB0. This way, when CB_i samples at step t, it can condition on CB_{i-1}'s output from step t-1 — giving each layer causal access to its coarser neighbor without serializing the entire generation.
+These four concepts set up the question the delay pattern resolves: at each frame, should all $N$ layers sample real IDs at once, or should each layer run through its own full $T$-frame pass? Higgs and MOSS adopt a third option — staggered activation — detailed below.
 
-To balance this, Higgs uses a Delay Pattern where Codebook i is delayed by i time steps relative to Codebook 0.
+### Architectural Gotchas: The Delay Pattern
 
-- Step 0: CB0 activates
-- Step 1: CB0 + CB1 activate
-- Step 2: CB0 + CB1 + CB2 activate
-- ... and so on.
-- Step 7: CB0 + CB1 + … CB7 activate
-- … decode for more steps until complete, and start winding-down
-- Step n-8: CB0 hits EOC and stops; CB1 – CB7 remain active
-- Step n-7: CB0 + CB1 hit EOC and stop; CB2 – CB7 remain active
-- ... until the generation finishes
+The encoder gives us the *shape* of the output — `[T, N]` — and the Higgs TTS Engine fills it **frame by frame** with one backbone forward per frame. The remaining question is purely **scheduling**: at frame $t$, which codebook layers should sample a real token, and which should hold a placeholder? The **delay pattern**, first introduced in Meta's [MusicGen (2023)](https://arxiv.org/abs/2306.05284), answers this. Rather than activating every layer from frame 0 or running each layer through its own full $T$-frame pass, it **staggers** layer activation along the shared timeline — CB$_i$ starts real sampling $i$ frames after CB0, with its first $i$ slots filled by BOC placeholders.
+
+Three scheduling strategies compared:
+
+| Strategy | What happens at frame $t$ | Quality / speed |
+|----------|---------------------------|-----------------|
+| Parallel | All $N$ codebooks sample a real token at every frame | Fast, but $CB_i$ cannot see what $CB_{i-1}$ just emitted → poor RVQ hierarchy |
+| Sequential | Finish the entire $T$-frame sequence for $CB_0$, then $CB_1$, then $CB_2$, … | Preserves hierarchy, but latency scales ~$\times N$ |
+| Staggered (delay pattern) | All layers share one frame axis; $CB_i$ starts real sampling $i$ frames after $CB_0$ | Near-parallel speed with causal cross-layer conditioning |
+
+The core idea of staggering: all layers share the **same** frame axis and the **same** per-frame backbone forward described in the Higgs pipeline above. At each frame, every codebook slot is written — but inactive layers receive a **BOC (Beginning-of-Code) placeholder** instead of a real sample, while active layers draw from their codebook heads in parallel. Once CB$_i$ activates at frame $i$, each subsequent frame adds one more valid token to its column in the `[T, N]` matrix.
+
+Concretely, for Higgs ($N = 8$ codebooks), the per-frame activation schedule looks like this:
+
+```
+             frame:  0    1    2    3   ...   7   ...  n-8  n-7  ...
+CB0:               ✓    ✓    ✓    ✓   ...   ✓   ...  EOC  off
+CB1:              BOC   ✓    ✓    ✓   ...   ✓   ...   ✓   EOC
+CB2:              BOC  BOC   ✓    ✓   ...   ✓   ...   ✓    ✓
+...
+CB7:              BOC  BOC  BOC  BOC  ...   ✓   ...   ✓    ✓
+```
+
+✓ = valid sampled token; BOC = placeholder before activation; EOC = end-of-codes, layer stops; "off" = inactive during wind-down.
+
+**The key invariant:** when CB$_i$ produces its **first valid token** at step $i$, every preceding codebook CB$_j$ ($j < i$) has already produced its **first valid token** at step $j$. CB$_{i-1}$'s most recent output (from step $i-1$) is immediately available for conditioning. The backbone's KV cache, accumulated over steps $0 \ldots i-1$, already encodes the history of lower-layer valid tokens. This is exactly the causal hierarchy RVQ requires — without running $N$ fully separate AR passes.
+
+When CB$_i$ samples at step $t$ during the active phase, it conditions on CB$_{i-1}$'s output from step $t-1$, giving each layer causal access to its coarser neighbor without serializing the entire generation across codebooks. Wind-down mirrors ramp-up symmetrically: when CB0 emits EOC at step $n-8$, higher layers continue for another $N-1$ steps before stopping (CB1 at $n-7$, CB2 at $n-6$, …).
 
 <div align="center">
   <img src="images/tts-opt-delay-pattern.png" alt="Delay Pattern State Machine" width="50%">
 </div>
 
-This introduces a state machine with four phases: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when CB0 hits the End-of-Codes token), and Finished. And here is a graph to show it more in detail.
+This introduces a state machine with four phases: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when CB0 hits the End-of-Codes token), and Finished. The diagram above shows the full lifecycle.
 
-The trade-off of the delay pattern is it adds exactly N-1 extra AR steps to every generation (7 steps for 8 codebooks) — which is the ramp-up and wind-down, as shown in the graph. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality, and fully parallel generation.
+**How the delay is enforced in code.** Rather than Python `if/else` branches per codebook (which would break CUDA Graph capture), the scheduler tracks a per-request `delay_count` that increments once per step during ramp-up. At each step, a tensor mask `cb_idx > delay_count` identifies codebooks that have not yet activated; those slots are forced to emit BOC tokens via `torch.where`, while active slots run normal sampling. During wind-down, a symmetric `eoc_countdown` timer (set to $N-2$ when CB0 hits EOC) deactivates layers from CB0 upward. The last emitted multi-codebook row is stored in `last_codes` so each layer can read its coarser neighbor's previous-step output. The key function is `batched_step_direct()` in `sampler.py`, which also tracks `generation_done` (terminal flag). All state transitions are pure tensor operations — no runtime branching — which is what makes the entire delay-pattern state machine CUDA Graph-compatible (discussed further in the optimization section).
 
-Because we need CUDA Graph compatibility (discussed in the optimization section), the entire delay pattern state machine is implemented as pure tensor operations. The key function is `batched_step_direct()` in `sampler.py`, which manages four state variables per request: `delay_count` (tracks ramp-up progress), `eoc_countdown` (wind-down timer, initialized to -1), `generation_done` (terminal flag), and `last_codes` (last emitted multi-codebook row). Each step uses `torch.where` to compute:
-
-- a delay mask `cb_idx > delay_count` that forces not-yet-active codebooks to emit BOC tokens
-- state transitions — incrementing `delay_count` during ramp-up, setting `eoc_countdown = N-2` when CB0 emits EOC, decrementing it during wind-down, and setting `generation_done` when the countdown hits zero.
-
-All branching is expressed as tensor-level conditionals, making the function a single static compute graph that CUDA Graph can capture and replay.
+The trade-off of the delay pattern is it adds exactly $N-1$ extra AR steps to every generation (7 steps for 8 codebooks) — the ramp-up and wind-down visible in the diagram. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality than naive parallel sampling, at near-parallel speed compared to fully sequential codebook generation.
 
 So in summary, the delay pattern converts a naive 8-way parallel generation (fast but low quality) or 8-way sequential generation (high quality but 8× slower) into a staggered pipeline that is only N-1 steps longer than parallel, while preserving the causal codebook hierarchy that RVQ-based audio quality depends on.
 
