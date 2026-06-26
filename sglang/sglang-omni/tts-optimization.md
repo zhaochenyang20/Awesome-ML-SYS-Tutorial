@@ -27,19 +27,56 @@ A simplified data flow is: **Text + Reference Audio → RVQ tokens → multi-lay
 
 ### Codec Token, Codebook, and RVQ Layer
 
-**1. Codec token, codebook, and RVQ layer.** As we said, text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a **codec token** is an integer ID that represents a slice of sound. A **codebook** is the static vocabulary of one layer — in Higgs, each layer's codebook has roughly 4,096 possible IDs, each mapped to an embedding vector. An **RVQ layer** is the quantizer stage that owns one such codebook. Higgs has $N = 8$ RVQ layers, so each aligned audio position (frame) ultimately needs 8 sampled IDs, one from each layer. Importantly, 4,096 is the number of candidates per layer, but the length of the layer could be rather longer.
+The most fundamental concepts in TTS inference are shown in the following diagram:
+
+<div align="center">
+  <img src="images/tts-opt-delay-pattern.png" alt="Delay Pattern State Machine" width="50%">
+</div>
+
+
+**1. Codec token, codebook, and RVQ layer.** As we said, text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a **codec token** is an integer ID that represents a slice of sound. A **codebook** is the static vocabulary of one layer — in Higgs, each layer's codebook has roughly 4,096 possible IDs, each mapped to an embedding vector. An **RVQ layer** is the quantizer stage that owns one such codebook. Higgs has $N = 8$ RVQ layers, so each aligned audio position (frame) ultimately needs 8 sampled IDs, one from each layer. Importantly, 4,096 is the number of candidates per layer, but the length of the layer could be rather longer. In the diagram, codec token is each grid cell, and RVQ layer is a line of grid cells. Each line has one shared codebook.
 
 **2. RVQ (Residual Vector Quantization).** How to encoder audio waves into codec tokens is an art. The trending technique is [Residual Vector Quantization (Zeghidour et al., 2021)](https://arxiv.org/abs/2107.03312). For each frame of an audio, encode it into a single integer ID can only approximate the audio signal coarsely. RVQ stacks multiple quantizers in series: $L_0$ quantizes the framework/signal first, $L_1$ quantizes the residual error left by $L_0$, $L_2$ quantizes what $L_1$ still missed, and so on. Each layer captures progressively finer detail. We tend to assume that $L_0$ encode coarse structure (pitch, rhythm, energy), while deeper layers encode timbre and high-frequency texture. Decoding sums all layer contributions to reconstruct the audio.
 
-In this sense, one frame of audio could be encoded into a list of codec tokens, and the length of the list is the number of RVQ layers. We tends to put it vertically, so the shape of the codec tokens for one frame is `[N, 1]`. In the backward process, a list of `[N, 1]` codec tokens can be decoded back to a single frame of audio. Thus, the hierarchy residual mechanism makes the order of the codec tokens matters.
+In this sense, one frame of audio could be encoded into a list of codec tokens, and the length of the list is the number of RVQ layers. We tends to put it vertically, so the shape of the codec tokens for one frame is `[1, N]`. In the backward process, a list of `[1, N]` codec tokens can be decoded back to a single frame of audio. Thus, the hierarchy residual mechanism makes the order of the codec tokens matters.
 
-If all layers sample independently at the same time, `[N, 1]` tokens are generated at the same time with only one forward pass, which means higher layers cannot adapt to what lower layers just emitted. The residual mechanism is broken, no ponder it will degrade the audio quality. On the other side, if we generate the codec token for $L_0$ in the first forward pass, then the codec token for $L_1$ in the second forward pass, and so on, quality improves but latency grows roughly with the number of layers. Every multi-layer TTS system has to navigate this trade-off, and the delay pattern is the schedule Higgs uses to do so. We will discuss it in the next section. Meanwhile, FishAudio S2 Pro model uses the [dual-AR architecture](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#dual-ar-model-inference-fish-audio-s2-pro) to solve this problem.
+If all layers sample independently at the same time, `[1, N]` tokens are generated at the same time with only one forward pass, which means higher layers cannot adapt to what lower layers just emitted. The residual mechanism is broken, no ponder it will degrade the audio quality. On the other side, if we generate the codec token for $L_0$ in the first forward pass, then the codec token for $L_1$ in the second forward pass, and so on, quality improves but latency grows roughly with the number of layers. Every multi-layer TTS system has to navigate this trade-off, and the delay pattern is the schedule Higgs uses to do so. We will discuss it in the next section. Meanwhile, FishAudio S2 Pro model uses the [dual-AR architecture](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#dual-ar-model-inference-fish-audio-s2-pro) to solve this problem.
 
-**3. Global step and codec frame.** We use the word frame several times, and we can basically treat it as a unit of audio wave. Frame and step are roughly equivalent to each other in the context of TTS inference, each timestep ultimately produces one `[N, 1]` codec token, then get decoded back to a single frame of audio. Roughly speaking, in each global step for Higgs, the LM backbone forward once and get its logits, then each active RVQ layer's output head samples from the logits over its ~4,096-entry codebook and get one ID. One global step therefore writes at most 8 IDs. It's just the same as LLM use an LM head to sample one text token from the logits. But in Higgs, we have to use multiple heads to complete the whole frame, `[N, 1]` codec tokens.
+**3. Global step and codec frame.** We use the word frame several times, and we can basically treat it as a unit of audio wave. A 10-second audio wave at 25 fps has roughly 250 such aligned codec frames. Frame and step are roughly equivalent to each other in the context of TTS inference, each timestep ultimately produces one `[1, N]` codec token, then get decoded back to a single frame of audio. Roughly speaking, in each global step for Higgs, the LM backbone forward once and get its logits, then each active RVQ layer's output head samples from the logits over its ~4,096-entry codebook and get one ID. One global step therefore writes at most 8 IDs. It's just the same as LLM use an LM head to sample one text token from the logits. But in Higgs, we have to use multiple heads to complete the whole frame, `[1, N]` codec tokens. In the diagram, global step or the frame is roughly equivalent to a column in the grid.
 
-Because the delay pattern shifts layer $i$ by $i$ steps, a vertical column in this grid is usually **not** one vocoder-ready frame. A vocoder-ready codec frame $k$ is the aligned tuple $[L_0[k], L_1[k], \ldots, L_7[k]]$. In the delayed grid, those IDs land on a diagonal: $[L_0[k], L_1[k+1], \ldots, L_7[k+7]]$. After **undelay**, that diagonal becomes row $k$ of the aligned `[T, 8]` matrix. A 10-second clip at 25 fps has roughly 250 such aligned codec frames.
+As we will disclose later, because the delay pattern shifts layer $i$ by $i$ steps, a vertical column in the layer × global-step grid is usually **not** one vocoder-ready frame. A vocoder-ready codec frame $k$ is the aligned tuple $[L_0[k], L_1[k], \ldots, L_7[k]]$. In the delayed grid, those IDs land on a diagonal: $[L_0[k], L_1[k+1], \ldots, L_7[k+7]]$. After **undelay**, that diagonal becomes row $k$ of the aligned `[T, N]` matrix. 
 
-These concepts set up the question the delay pattern resolves: at each global step, should all $N$ layers sample real IDs immediately, or should each layer run through its own full $T$-frame pass? Higgs adopts a third option — staggered activation — detailed below.
+These concepts set up the question the delay pattern try to resolve: at each global step, should all $N$ layers sample real IDs immediately, or should each layer gets its own codec token in it's own forward pass? Higgs adopts a third option — staggered activation.
+
+### Architectural Gotchas: The Delay Pattern
+
+The delay pattern proposed an artistic solution to the trade-off under the residual mechanism. It staggers layer activation along the shared global-step axis: layer $i$ starts real sampling $i$ steps after layer 0, with its first $i$ slots filled by BOC placeholders. In other words, the frame under the delay pattern is either way vertical or horizontal, but diagonal. As we said, it's $[L_0[k], L_1[k+1], \ldots, L_7[k+7]]$ in the frame grid of Higgs.
+
+Let's compare three scheduling strategies:
+
+| Strategy | What happens at global step $s$ | Quality / speed |
+|----------|--------------------------------|-----------------|
+| Parallel | All $N$ layers sample a real token from step 0 onward | Fast, but $L_i$ cannot see what $L_{i-1}$ just emitted → poor RVQ hierarchy |
+| Sequential | Finish the entire $[N, 1]$ of one frame sequentially by $L_0$ to $L_{N-1}$ | Preserves hierarchy, but latency scales roughly $N$ times |
+| Staggered (delay pattern) | All layers share one global-step axis; $L_i$ starts real sampling $i$ steps after $L_0$ | Near-parallel speed with causal cross-layer conditioning |
+
+The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward described in the Higgs pipeline above. At each step, every layer slot in the layer × global-step grid is written, but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token along the first valid token of layer $i$. Undelay later regroups diagonals from this grid into rows of the aligned `[T, N]` matrix.
+
+<div align="center">
+  <img src="images/tts-opt-delay-pattern.png" alt="Delay Pattern State Machine" width="50%">
+</div>
+
+The diagram compresses the lifecycle into 19 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step to get one logits, 8 codebook heads samples from the logits, and write the sampled codec tokens to the grid. This process continues until $L_0$ emits EOC (end of codec) and wind-down finishes.
+
+Note that when layer $i$ produces its first valid token at global step $i$, every preceding layer $L_j$ ($j < i$) has already produced its first valid token at global step $j$. $L_{i-1}$'s token from step $i-1$ is available for conditioning. The backbone's KV cache, accumulated over steps $0 \ldots i-1$, already encodes the history of previous layers' valid tokens. This is exactly the causal hierarchy RVQ requires — without running $N$ fully separate AR passes. Wind-down mirrors ramp-up symmetrically: when $L_0$ emits EOC at step $T-8$, higher layers continue for another $N-1$ steps before stopping ($L_1$ at $T-7$, $L_2$ at $T-6$, ...).
+
+Another way to describe the same process is as a four-phase state machine: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when $L_0$ hits the End-of-Codes token), and Finished. I dislike these terminology, since we have already got the first principle of the delay pattern.
+
+The trade-off of the delay pattern is it adds exactly $N$ extra AR steps compared with naive parallel layer generation (8 steps for 8 RVQ layers), which is the ramp-up / wind-down overhead visible in the diagram. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality than naive parallel sampling, at near-parallel speed compared to fully sequential layer generation.
+
+So in summary, the delay pattern converts naive 8-layer parallel generation (fast but lower quality) or 8-layer sequential generation (higher quality but roughly 8× slower) into a staggered pipeline that is only $N$ steps longer than parallel, while preserving the causal RVQ-layer hierarchy that audio quality depends on.
+
+Also, the delay pattern is not unique to Higgs. It has been widely adopted in other multi-codebook audio generation models, including Moss TTS. Furthermore, other models supported by SGLang-Omni adopt different structures; as we mention before, FishAudio S2-Pro decouples the RVQ codebook into Slow AR (semantic) and Fast AR (acoustic codebooks decoded sequentially per codebook).
 
 ### Higgs Pipeline
 
@@ -104,37 +141,6 @@ Those differences directly shape our optimization strategy:
 【TODO：我觉得这里在前面要明确的说明一点，就是这个 Higgs 的 codec 是可以做 encoding 也可以做 decoding 的，或者说它能够把音频转成 codec，又能把 codec 转成音频。但是 MoSS 不行，就其实你前面隐含的说明了这一点，但是反正我读第一句话说这个，因为 MoSS 的 codec 是 1B 左右，所以比起 Higgs 更慢。这里其实你得解释有一个 encode 的 codec，还有一个 decode 的 codec，对吧？】
 
 【TODO：其实还有一个我觉得比较需要写出来一点，就是你要具体的把 moss 的 backbone 的大小也写出来，因为 Higgs 一看就是一个 Qwen3 嘛，就是 4B，但是 moss 我觉得读完前文是不太清楚的。】
-
-
-### Architectural Gotchas: The Delay Pattern
-
-The **delay pattern** is a scheduling strategy for multi-layer autoregressive audio generation. It staggers layer activation along the shared global-step axis: layer $i$ starts real sampling $i$ steps after layer 0, with its first $i$ slots filled by BOC placeholders.
-
-Let's compare three scheduling strategies:
-
-| Strategy | What happens at global step $s$ | Quality / speed |
-|----------|--------------------------------|-----------------|
-| Parallel | All $N$ layers sample a real token from step 0 onward | Fast, but $L_i$ cannot see what $L_{i-1}$ just emitted → poor RVQ hierarchy |
-| Sequential | Finish the entire $T$-frame sequence for $L_0$, then $L_1$, then $L_2$, ... | Preserves hierarchy, but latency scales roughly $N$ times |
-| Staggered (delay pattern) | All layers share one global-step axis; $L_i$ starts real sampling $i$ steps after $L_0$ | Near-parallel speed with causal cross-layer conditioning |
-
-The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward described in the Higgs pipeline above. At each step, every layer slot in the layer×step grid is written — but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token along row $i$ of the delayed grid. Undelay later regroups diagonals from this grid into rows of the aligned `[T, N]` matrix.
-
-<div align="center">
-  <img src="images/tts-opt-delay-pattern.png" alt="Delay Pattern State Machine" width="50%">
-</div>
-
-The diagram compresses the lifecycle into 19 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step, each step writing eight layer cells, until $L_0$ emits EOC and wind-down finishes. The generation is incremental; streaming does not wait for a full utterance. The vocoder accumulates delayed codes, undelays windows, and decodes once enough aligned rows exist — subject to stride, overlap, and holdback.
-
-Note that when layer $i$ produces its first valid token at global step $i$, every preceding layer $L_j$ ($j < i$) has already produced its first valid token at global step $j$. $L_{i-1}$'s token from step $i-1$ is available for conditioning. The backbone's KV cache, accumulated over steps $0 \ldots i-1$, already encodes the history of lower-layer valid tokens. This is exactly the causal hierarchy RVQ requires — without running $N$ fully separate AR passes. Wind-down mirrors ramp-up symmetrically: when $L_0$ emits EOC at step $n-8$, higher layers continue for another $N-1$ steps before stopping ($L_1$ at $n-7$, $L_2$ at $n-6$, ...).
-
-Another way to describe the same process is as a four-phase state machine: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when $L_0$ hits the End-of-Codes token), and Finished.
-
-The trade-off of the delay pattern is it adds exactly $N$ extra AR steps compared with naive parallel layer generation (8 steps for 8 RVQ layers), which is the ramp-up / wind-down overhead visible in the diagram. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality than naive parallel sampling, at near-parallel speed compared to fully sequential layer generation.
-
-So in summary, the delay pattern converts naive 8-layer parallel generation (fast but lower quality) or 8-layer sequential generation (higher quality but roughly 8× slower) into a staggered pipeline that is only $N$ steps longer than parallel, while preserving the causal RVQ-layer hierarchy that audio quality depends on.
-
-Also, the delay pattern is not unique to Higgs. It has been widely adopted in other multi-codebook audio generation models, including Parler-TTS. Furthermore, other models supported by SGLang-Omni adopt different structures; for example, FishAudio S2-Pro decouples the RVQ codebook into Slow AR (semantic) and Fast AR (acoustic codebooks decoded sequentially per codebook).
 
 ## Stage 0 Support: RadixCache and SGLang Scheduler Backend
 
