@@ -49,9 +49,11 @@ If all layers sample independently at the same time, `[1, N]` tokens are generat
 
 In this sense, when passed to the vocoder, a codec frame has to be formed into a column of `[1, N]` on the step x codebook grid, as we have shown in Figure 1. But on the original step x codebook grid, frames could layed be different. Without delay pattern, a vocoder-ready codec frame $k$ is exactly the vertical column $\{L_0[k], L_1[k], \ldots, L_N[k]\}$ of the original grid. But with delay pattern, layer $i$ is shifted by $i$ steps, so the same frame is no longer a column during generation; it lands on a diagonal: $\{L_0[k], L_1[k+1], \ldots, L_N[k+N]\}$. That is what we show in Figure 2. After **undelay**, this diagonal is shifted back and becomes row $k$ of the aligned `[T, N]` grid, which is the vocoder-ready representation.
 
-These concepts set up and even has answered the question the delay pattern resolves: at each global step, should all $N$ layers sample real IDs immediately, or should each layer gets its own codec token in it's own forward pass? The delay pattern adopts the third, a staggered activation strategy.
+These concepts set up the core question that both delay pattern and Dual AR try to resolve: at each global step, should all $N$ layers sample real IDs immediately, should each layer get its own full backbone forward pass, or should we separate coarse-layer generation from fine-layer generation? Delay pattern answers this with staggered activation, while Dual AR answers it with a large AR model for $L_0$ and a smaller AR/local module for the remaining codebooks.
 
-### Delay Pattern and Dual AR
+## The Delay Pattern and Dual AR
+
+We can finally explain indetail what 
 
 The delay pattern proposed an artistic solution to the trade-off under the residual mechanism. It staggers layer activation along the shared global-step axis: layer $i$ starts real sampling $i$ steps after layer $0$, with its first $i$ slots filled by BOC placeholders. In other words, the frame under the delay pattern is neither vertical nor horizontal, but diagonal or skewed. As we said, it's $\{L_0[k], L_1[k+1], \ldots, L_7[k+7]\}$ in the frame grid of Higgs.
 
@@ -64,8 +66,6 @@ Let's compare three scheduling strategies:
 | Staggered (delay pattern) | All layers sample their $s$-th codec token at the same time, but these tokens are used in different frames | Near-parallel speed with causal cross-layer conditioning |
 | Dual AR / local transformer | A large AR model samples $L_0$ once per frame, then a smaller AR/local model fills the remaining layers for the same frame | Keeps the frame as a vertical column, while moving fine-layer decoding to a cheaper model |
 
-Dual AR chooses a different decomposition from delay pattern. The outer, heavier AR backbone only predicts the coarse layer $L_0[k]$ for frame $k$; then a smaller AR module or local transformer sequentially fills $L_1[k] \ldots L_{N-1}[k]$ for the same frame. Therefore, the frame remains a vertical column in the step × codebook grid, and there is no need to undelay diagonals before vocoder decoding. The cost is that each frame still contains an inner loop over codebooks, but this loop is much cheaper than running the full backbone $N$ times.
-
 The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward. At each step, every layer slot in the step × codebook grid is written, but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token along its first valid token. Undelay later regroups diagonals from this grid into columns of the aligned `[T, N]` matrix.
 
 The delay-pattern diagram above compresses the lifecycle into 19 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step to get one logits, 8 codebook heads samples from the logits, and write the sampled codec tokens its grid. This process continues until $L_0$ emits EOC (end of codec) and wind-down finishes.
@@ -76,9 +76,13 @@ Another way to describe the same process is as a four-phase state machine: Delay
 
 The trade-off of the delay pattern is it adds exactly $N$ extra AR steps to get $T$ codec frames compared with naive parallel layer generation, which is the ramp-up / wind-down overhead visible in the diagram. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality than naive parallel sampling, at near-parallel speed compared to fully sequential layer generation.
 
-So in summary, the delay pattern converts naive $N$-layer parallel generation (fast but lower quality) or $N$-layer sequential generation (higher quality but roughly $N$ times slower) into a staggered pipeline that is only $N$ steps longer than parallel, while preserving the causal RVQ-layer hierarchy that audio quality depends on.
-
 Also, the delay pattern is not unique to Higgs and it's not the only solution. Delay pattern has been widely adopted in other multi-codebook audio generation models, including [MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5). But [MOSS-TTS-Local-Transformer-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) is a different checkpoint: like FishAudio S2-Pro, it follows a non-delayed dual-AR-style path where a slow AR backbone handles the coarse layer and a faster local module decodes the acoustic codebooks inside the same frame.
+
+Dual AR chooses a different decomposition. Instead of letting the same backbone produce all codebook layers with a delay schedule, it separates the problem into a slow AR path and a fast AR path. The outer, heavier AR backbone predicts the coarse layer $L_0[k]$ for frame $k$; then a smaller AR module or local transformer sequentially fills $L_1[k] \ldots L_{N-1}[k]$ for the same frame. This means a vocoder-ready frame remains a vertical column in the original step × codebook grid, so there is no need to undelay diagonals before vocoder decoding.
+
+The trade-off of Dual AR is that each frame still contains an inner loop over codebooks. However, that loop runs inside a much smaller module, rather than calling the full backbone once per RVQ layer. This is why Dual AR can preserve the residual hierarchy without paying the full $N$-times backbone cost. In practice, models such as FishAudio S2-Pro and MOSS-TTS-Local-Transformer-v1.5 follow this family: the slow AR path handles the coarse semantic/acoustic layer, and the fast AR or local transformer handles the remaining acoustic codebooks inside the same frame.
+
+So in summary, delay pattern and Dual AR are two different ways to avoid the same bad extremes: naive all-layer parallel sampling (fast but lower quality) and fully sequential heavy-backbone generation (higher quality but roughly $N$ times slower). Delay pattern keeps one shared backbone step and spreads a frame across a diagonal, then undelays it later. Dual AR keeps the frame as a vertical column, but moves fine-layer generation into a cheaper inner model.
 
 ## Model Architectures
 
