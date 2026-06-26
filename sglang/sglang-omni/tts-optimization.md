@@ -1,28 +1,45 @@
 # Optimizing TTS Inference: Engineering Lessons from Profiling to Streaming in SGLang Omni
 
-A TTS (Text-to-Speech) model converts written text into natural-sounding spoken audio. At first glance, optimizing TTS inference looks similar to optimizing LLM inference: both have autoregressive decoding, KV cache, CUDA Graph, and batching concerns. In practice, the bottlenecks are different because TTS serving is not just one text-token decode loop. A request may need reference-audio encoding, multi-layer codec-token generation, vocoder decoding, and streaming audio stitching. Many important wins therefore land outside the LLM backbone — for example, in encoder caching, delay-pattern scheduling, vocoder batching, and windowed streaming.
+A TTS (Text-to-Speech) model converts written text into natural-sounding spoken audio. State-of-the-art TTS models often have a LLM backboned architecture, and of cause, this LLM autoregressive decoding takes most of the computation. In this sense, optimizing TTS inference looks similar to optimizing LLM inference at first glance: both have autoregressive decoding, KV cache, CUDA Graph, and continuous batching. But pratically speaking, TTS serving is not just one text-token decode loop. A request may go over reference-audio encoding, multi-layer codec-token generation, vocoder decoding, and streaming audio stitching. Many important wins indeed land outside the LLM backbone.
 
-In this blog, we break down the mechanical sympathy required to make the TTS pipeline fast: the bottlenecks we hit, the host-to-device pitfalls, and the architectural trade-offs we made. We focus on two TTS models with distinct architectures: [Higgs](https://huggingface.co/bosonai/higgs-audio-v3-tts-4b) from Boson AI and [MOSS-TTS-Local-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) from MOSI AI.
+In this blog, we break down the mechanisms to make our TTS pipeline fast on [SGLang Omni](https://github.com/sgl-project/sglang-omni): the bottlenecks we hit, the host-to-device pitfalls, and the architectural trade-offs we made. We focus on two TTS models with distinct architectures: [Higgs](https://huggingface.co/bosonai/higgs-audio-v3-tts-4b) from Boson AI and [MOSS-TTS-Local-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) from MOSI AI.
 
-【TODO：For example, TTS has unique multi-stage architecture, which fits well in our SGLang Omni engine structure. 这句话其实我觉得讲的不太好，因为作为一个不了解 SGLang Omni 的读者，我其实是不知道 stage 这个定义的。一段话上来就给了一个我甚至不知道的定义来说这个 optimization 不同。我觉得这个地方你举个例子，比如说我们要对 TTS 的很多优化都会在 audio encoder，还有 audio vocoder 上面，可能读者会觉得更加具体一些，因为 stage 这个定义本身就比较模糊。】
 
-## The TTS Pipeline Under the Hood
+## TTS Pipeline and Prerequisites
 
 <div align="center">
-  <img src="images/tts-opt-pipeline-overview.png" alt="TTS Inference Pipeline Overview" width="50%">
+  <img src="images/tts-opt-pipeline-overview.svg" alt="TTS Inference Pipeline Overview" width="70%">
 </div>
 
-Unlike serving a chat LLM with a single autoregressive loop, we decompose TTS inference into four stages:
+Unlike serving a chat LLM with a single autoregressive loop, TTS inference could be decomposed into four stages:
 
-1. **Preprocessing (CPU):** Text tokenization and reference-audio loading. This stage is purely IO-bound and involves no GPU compute — it prepares the inputs that downstream stages consume.
+### TTS Decoding Stages
 
-2. **Audio Encoder (GPU):** Raw waveform carries tens of thousands of samples per second, far too long for a Transformer to process directly. A neural audio codec compresses the reference clip into a low-rate sequence of discrete RVQ tokens (shape `[T, N]`, where `T` is codec frames and `N` is RVQ layers). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. The codec encoding process is discussed in more detail in [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
+1. **Preprocessing (CPU):** Text tokenization and reference-audio loading, purely IO-bound and involves no GPU compute.
 
-3. **TTS Engine (GPU):** The core autoregressive stage. The engine generates output speech as codec-token IDs rather than text-token IDs. For models such as Higgs, generation first happens in a delayed layer×step grid; after undelay, diagonal groups become aligned `[T, N]` codec frames for the vocoder. This is where most GPU time is spent — and where optimizations such as delay-pattern scheduling, CUDA Graph, and async decode land.
+2. **Audio Encoder (GPU):** Autoregressive model can only process distinct tokens, not continuous values. All the audio waves are compressesed into a low-rate sequence of discrete RVQ tokens (shape `[T, N]`, where `T` is codec frames and `N` is RVQ layers, as discussed later) by the audio encoder. These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. You can found more details in [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
 
-4. **Vocoder (GPU):** The codec decoder inverts the generated tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by codec design.
+3. **TTS Engine (GPU):** The core autoregressive stage. The engine generates output speech as codec-token IDs rather than text-token IDs. For models such as Higgs, generation first happens in a delayed layer × global-step grid; after undelay, diagonal groups become aligned back to `[T, N]` codec frames for the vocoder to decode back to audio waves. This is where most GPU time is spent, and where optimizations such as delay-pattern scheduling, CUDA Graph, and async decode land.
 
-A simplified data flow is: **Text + Reference Audio → RVQ tokens → multi-layer codec codes → audio waveform**. The sections below walk through how Higgs and MOSS instantiate each stage, and where their architectural choices diverge.
+4. **Vocoder (GPU):** The codec decoder inverts the generated tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by vocoder's design.
+
+A simplified data flow is: **Text + Reference Audio → RVQ tokens → multi-layer codec codes → audio waveform**. To further understand the four stages, we need to introduce several essential concepts.
+
+### Codec Token, Codebook, and RVQ Layer
+
+**1. Codec token, codebook, and RVQ layer.** As we said, text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a **codec token** is an integer ID that represents a slice of sound. A **codebook** is the static vocabulary of one layer — in Higgs, each layer's codebook has roughly 4,096 possible IDs, each mapped to an embedding vector. An **RVQ layer** is the quantizer stage that owns one such codebook. Higgs has $N = 8$ RVQ layers, so each aligned audio position (frame) ultimately needs 8 sampled IDs, one from each layer. Importantly, 4,096 is the number of candidates per layer, but the length of the layer could be rather longer.
+
+**2. RVQ (Residual Vector Quantization).** How to encoder audio waves into codec tokens is an art. The trending technique is [Residual Vector Quantization (Zeghidour et al., 2021)](https://arxiv.org/abs/2107.03312). For each frame of an audio, encode it into a single integer ID can only approximate the audio signal coarsely. RVQ stacks multiple quantizers in series: $L_0$ quantizes the framework/signal first, $L_1$ quantizes the residual error left by $L_0$, $L_2$ quantizes what $L_1$ still missed, and so on. Each layer captures progressively finer detail. We tend to assume that $L_0$ encode coarse structure (pitch, rhythm, energy), while deeper layers encode timbre and high-frequency texture. Decoding sums all layer contributions to reconstruct the audio.
+
+In this sense, one frame of audio could be encoded into a list of codec tokens, and the length of the list is the number of RVQ layers. We tends to put it vertically, so the shape of the codec tokens for one frame is `[N, 1]`. In the backward process, a list of `[N, 1]` codec tokens can be decoded back to a single frame of audio. Thus, the hierarchy residual mechanism makes the order of the codec tokens matters.
+
+If all layers sample independently at the same time, `[N, 1]` tokens are generated at the same time with only one forward pass, which means higher layers cannot adapt to what lower layers just emitted. The residual mechanism is broken, no ponder it will degrade the audio quality. On the other side, if we generate the codec token for $L_0$ in the first forward pass, then the codec token for $L_1$ in the second forward pass, and so on, quality improves but latency grows roughly with the number of layers. Every multi-layer TTS system has to navigate this trade-off, and the delay pattern is the schedule Higgs uses to do so. We will discuss it in the next section. Meanwhile, FishAudio S2 Pro model uses the [dual-AR architecture](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#dual-ar-model-inference-fish-audio-s2-pro) to solve this problem.
+
+**3. Global step and codec frame.** We use the word frame several times, and we can basically treat it as a unit of audio wave. Frame and step are roughly equivalent to each other in the context of TTS inference, each timestep ultimately produces one `[N, 1]` codec token, then get decoded back to a single frame of audio. Roughly speaking, in each global step for Higgs, the LM backbone forward once and get its logits, then each active RVQ layer's output head samples from the logits over its ~4,096-entry codebook and get one ID. One global step therefore writes at most 8 IDs. It's just the same as LLM use an LM head to sample one text token from the logits. But in Higgs, we have to use multiple heads to complete the whole frame, `[N, 1]` codec tokens.
+
+Because the delay pattern shifts layer $i$ by $i$ steps, a vertical column in this grid is usually **not** one vocoder-ready frame. A vocoder-ready codec frame $k$ is the aligned tuple $[L_0[k], L_1[k], \ldots, L_7[k]]$. In the delayed grid, those IDs land on a diagonal: $[L_0[k], L_1[k+1], \ldots, L_7[k+7]]$. After **undelay**, that diagonal becomes row $k$ of the aligned `[T, 8]` matrix. A 10-second clip at 25 fps has roughly 250 such aligned codec frames.
+
+These concepts set up the question the delay pattern resolves: at each global step, should all $N$ layers sample real IDs immediately, or should each layer run through its own full $T$-frame pass? Higgs adopts a third option — staggered activation — detailed below.
 
 ### Higgs Pipeline
 
@@ -88,21 +105,6 @@ Those differences directly shape our optimization strategy:
 
 【TODO：其实还有一个我觉得比较需要写出来一点，就是你要具体的把 moss 的 backbone 的大小也写出来，因为 Higgs 一看就是一个 Qwen3 嘛，就是 4B，但是 moss 我觉得读完前文是不太清楚的。】
 
-### Prerequisites
-
-The sections above already use terms like `[T, N]`, RVQ layer, codebook head, and delayed generation. This section introduces them in the order a reader needs them. For a deeper dive on codec encoding, see [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
-
-**1. Codec token, codebook, and RVQ layer.** Text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a **codec token** is an integer ID that represents a slice of sound. A **codebook** is the static vocabulary for one layer — in Higgs, each layer's codebook has roughly 4,096 possible IDs, each mapped to an embedding vector. An **RVQ layer** is the quantizer stage that owns one such codebook. Higgs has $N = 8$ RVQ layers, so each aligned audio position ultimately needs 8 sampled IDs, one from each layer. Importantly, 4,096 is the number of candidates per layer, not a generated time dimension.
-
-**2. RVQ (Residual Vector Quantization).** The core tokenization technique these codecs share is [Residual Vector Quantization (Zeghidour et al., 2021)](https://arxiv.org/abs/2107.03312). A single vector quantizer can only approximate the audio signal coarsely. RVQ stacks multiple quantizers in series: L0 quantizes the signal, L1 quantizes the residual error left by L0, L2 quantizes what L1 still missed, and so on. Each layer captures progressively finer detail — L0 tends to encode coarse structure (pitch, rhythm, energy), while deeper layers encode timbre and high-frequency texture. Decoding sums all layer contributions to reconstruct the audio.
-
-This hierarchy is why generation order matters. If all layers sample independently at the same time, higher layers cannot adapt to what lower layers just emitted, which hurts quality. If we generate a full sequence for L0, then a full sequence for L1, and so on, quality improves but latency grows roughly with the number of layers. Every multi-layer TTS system has to navigate this trade-off, and the delay pattern is the schedule Higgs uses to do so.
-
-**3. Global step vs. codec frame.** During Higgs generation, the backbone first fills a **layer×global-step grid**. At each global step, the backbone runs once; each active RVQ layer's output head computes logits over its ~4,096-entry codebook and samples one ID. One global step therefore writes at most 8 IDs, not an `[8, 4096]` block.
-
-Because the delay pattern shifts layer $i$ by $i$ steps, a vertical column in this grid is usually **not** one vocoder-ready frame. A vocoder-ready codec frame $k$ is the aligned tuple $[L_0[k], L_1[k], \ldots, L_7[k]]$. In the delayed grid, those IDs land on a diagonal: $[L_0[k], L_1[k+1], \ldots, L_7[k+7]]$. After **undelay**, that diagonal becomes row $k$ of the aligned `[T, 8]` matrix. A 10-second clip at 25 fps has roughly 250 such aligned codec frames.
-
-These concepts set up the question the delay pattern resolves: at each global step, should all $N$ layers sample real IDs immediately, or should each layer run through its own full $T$-frame pass? Higgs adopts a third option — staggered activation — detailed below.
 
 ### Architectural Gotchas: The Delay Pattern
 
