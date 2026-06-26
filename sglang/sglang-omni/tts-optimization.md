@@ -9,6 +9,7 @@ In this blog, we break down the mechanisms to make our TTS pipeline fast on [SGL
 
 <div align="center">
   <img src="images/tts-opt-pipeline-overview.svg" alt="TTS Inference Pipeline Overview" width="70%">
+  <p><em>Figure 1. High-level TTS inference pipeline in SGLang-Omni, from preprocessing and codec encoding to autoregressive codebook generation and vocoder decoding.</em></p>
 </div>
 
 Unlike serving a chat LLM with a single autoregressive loop, TTS inference could be decomposed into four stages:
@@ -31,9 +32,9 @@ To discuss multi-codebook generation clearly, we first need a simple visual obje
 
 <div align="center">
   <img src="images/non-delay.svg" alt="Parallel non-delay step × codebook grid" width="90%">
-  <p><em>Figure 1. Non-delayed step × codebook grid. Green cells are active codec-token samples, red cells are EOC, and gray cells are finished slots. The highlighted purple column is one vocoder-ready frame: all codebooks describe the same audio time step.</em></p>
+  <p><em>Figure 2. Non-delayed step × codebook grid. Green cells are active codec-token samples, red cells are EOC, and gray cells are finished slots. The highlighted purple column is one vocoder-ready frame: all codebooks describe the same audio time step.</em></p>
   <img src="images/delay_pattern.svg" alt="Delay-pattern step × codebook grid" width="90%">
-  <p><em>Figure 2. Delay-pattern step × codebook grid. Blue cells are BOC padding, green cells are active samples, red cells are EOC, and gray cells are finished slots. The highlighted purple diagonal, rather than a vertical column, forms one vocoder-ready frame after undelay.</em></p>
+  <p><em>Figure 3. Delay-pattern step × codebook grid. Blue cells are BOC padding, green cells are active samples, red cells are EOC, and gray cells are finished slots. The highlighted purple diagonal, rather than a vertical column, forms one vocoder-ready frame after undelay.</em></p>
 </div>
 
 
@@ -47,7 +48,7 @@ If all layers sample independently at the same time, `[1, N]` tokens are generat
 
 **3. Global step and codec frame.** We use the word frame several times, and can basically treat it as a unit of audio wave. A 10-second audio wave at 25 fps has roughly 250 such aligned codec frames. Frame and step are roughly equivalent to each other in the context of TTS inference, each timestep ultimately produces a vertical list of `[1, N]` codec tokens ($\{L_0, L_1, \ldots, L_{N-1}\}$), then get decoded back to a single frame of audio. Roughly speaking, in each global step for Higgs, the LM backbone forward once and get its logits, then each active RVQ layer's output head samples from the logits over its ~4096-entry codebook and get one ID. One global step therefore writes at most 8 IDs. It's just the same as LLM use an LM head to sample one text token from the logits. But in Higgs, we have to use multiple heads to complete the whole frame, `[1, N]` codec tokens.
 
-In this sense, when passed to the vocoder, a codec frame has to be formed into a column of `[1, N]` on the step x codebook grid, as we have shown in Figure 1. But on the original step x codebook grid, frames could layed be different. Without delay pattern, a vocoder-ready codec frame $k$ is exactly the vertical column $\{L_0[k], L_1[k], \ldots, L_N[k]\}$ of the original grid. But with delay pattern, layer $i$ is shifted by $i$ steps, so the same frame is no longer a column during generation; it lands on a diagonal: $\{L_0[k], L_1[k+1], \ldots, L_N[k+N]\}$. That is what we show in Figure 2. After **undelay**, this diagonal is shifted back and becomes row $k$ of the aligned `[T, N]` grid, which is the vocoder-ready representation.
+In this sense, when passed to the vocoder, a codec frame has to be formed into a column of `[1, N]` on the step x codebook grid, as we have shown in Figure 2. But on the original step x codebook grid, frames could layed be different. Without delay pattern, a vocoder-ready codec frame $k$ is exactly the vertical column $\{L_0[k], L_1[k], \ldots, L_N[k]\}$ of the original grid. But with delay pattern, layer $i$ is shifted by $i$ steps, so the same frame is no longer a column during generation; it lands on a diagonal: $\{L_0[k], L_1[k+1], \ldots, L_N[k+N]\}$. That is what we show in Figure 3. After **undelay**, this diagonal is shifted back and becomes row $k$ of the aligned `[T, N]` grid, which is the vocoder-ready representation.
 
 These concepts set up the core question that both delay pattern and Dual AR try to resolve: at each global step, should all $N$ layers sample real IDs immediately, should each layer get its own full backbone forward pass, or should we separate coarse-layer generation from fine-layer generation? Delay pattern answers this with staggered activation, while Dual AR answers it with a large AR model for $L_0$ and a smaller AR/local module for the remaining codebooks.
 
@@ -70,7 +71,7 @@ The delay pattern proposed an artistic solution to the trade-off under the resid
 
 The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward. At each step, every layer slot in the step × codebook grid is written, but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token along its first valid token. Undelay later regroups diagonals from this grid into columns of the aligned `[T, N]` grid.
 
-The delay-pattern Figure 2 compresses the lifecycle into 29 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step to get one logits, 8 codebook heads samples from the logits, and write the sampled codec tokens its grid. This process continues until $L_0$ emits EOC (end of codec) and wind-down finishes.
+The delay-pattern Figure 3 compresses the lifecycle into 29 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step to get one logits, 8 codebook heads samples from the logits, and write the sampled codec tokens its grid. This process continues until $L_0$ emits EOC (end of codec) and wind-down finishes.
 
 Note that when layer $i$ produces its first valid token at global step $i$, every preceding layer $L_j$ ($j < i$) has already produced its first valid token at global step $j$. $L_{i-1}$'s token from step $i-1$ is available for conditioning on. The backbone's KV cache, accumulated over steps $0 \ldots i-1$, already encodes the history of previous layers' valid tokens. This is exactly the causal hierarchy RVQ requires — without running $N$ fully separate AR passes. Wind-down mirrors ramp-up symmetrically: when $L_0$ emits EOC at step $T-8$, higher layers continue for another $N-1$ steps before stopping ($L_1$ at $T-7$, $L_2$ at $T-6$, ...).
 
@@ -96,6 +97,7 @@ After all those preparations, we can finally get to the detailed model architect
 
 <div align="center">
   <img src="images/tts-opt-higgs-pipeline.png" alt="Higgs Audio V3 Generation Architecture" width="50%">
+  <p><em>Figure 4. Higgs TTS pipeline, where the Qwen3-scale backbone directly predicts multi-codebook audio tokens and a DAC decoder reconstructs waveform audio.</em></p>
 </div>
 
 - **Preprocessing (CPU):** Text tokenization and reference audio loading as usual.
@@ -107,6 +109,7 @@ After all those preparations, we can finally get to the detailed model architect
 
 <div align="center">
   <img src="images/tts-opt-moss-pipeline.png" alt="MOSS Audio Tokenizer Architecture" width="50%">
+  <p><em>Figure 5. MOSS-TTS-Local pipeline, where a backbone step is followed by a local-transformer loop over RVQ layers and a MOSS-Audio-Tokenizer-v2 decoder.</em></p>
 </div>
 
 MOSS-TTS-Local-v1.5 uses a local-transformer architecture and shares the same high-level four-stage pipeline structure as Higgs. The key difference is how the TTS engine fills each frame: Higgs samples one token per RVQ layer in parallel at each global step (with delay-pattern masking), while MOSS runs a frame-local sequential loop over its RVQ layers.
@@ -120,6 +123,7 @@ MOSS-TTS-Local-v1.5 uses a local-transformer architecture and shares the same hi
 
 <div align="center">
   <img src="images/tts-opt-arch-comparison.png" alt="Higgs vs MOSS Architecture Comparison" width="50%">
+  <p><em>Figure 6. Architecture comparison between Higgs and MOSS-TTS-Local, highlighting differences in backbone role, codec weight, layer-generation strategy, and streaming behavior.</em></p>
 </div>
 
 【TODO：这个图画的挺好的，然后我觉得这种黑白对比非常鲜明，但是我不太理解为什么 vs moss 要把 moss 换一行，因为 moss 其实明显放在同一行是更好看的。哦，嗯，我觉得可以具体去举一下这个 Higgs 和 moss 的 backbone 和 Codex 的大小，而且你也要提到下这个 Local Transformer 的大小，对吧？这挺关键的。然后我发觉这个，就是如果你在那个 codec instance 的 MoE 这边都写了 MoE 的占据大小，那么其实你在 Higgs 这边最好也写一下。】
@@ -172,6 +176,7 @@ With those bottlenecks, we applied targeted optimization strategies. Here is a m
 
 <div align="center">
   <img src="images/tts-opt-strategies.png" alt="Optimization Strategies Overview" width="50%">
+  <p><em>Figure 7. Optimization strategy overview, mapping the profiled bottlenecks to encoder caching, AR decode optimization, vocoder optimization, and streaming-specific work.</em></p>
 </div>
 
 ## Layer-by-Layer Optimizations
@@ -184,6 +189,7 @@ With those bottlenecks, we applied targeted optimization strategies. Here is a m
 
 <div align="center">
   <img src="images/tts-opt-encoder-cache.png" alt="LRU Cache Flow" width="50%">
+  <p><em>Figure 8. LRU cache flow for reference-audio encoding, bypassing repeated GPU encoder work when the same reference audio is reused.</em></p>
 </div>
 
 **How:** We introduced an LRU cache keyed by the audio waveform content. On a cache hit, the encoder stage is skipped entirely.
@@ -206,6 +212,7 @@ Since AR decode is our primary bottleneck, we need to put the majority of work i
 
 <div align="center">
   <img src="images/tts-opt-cuda-graph.png" alt="Eager vs CUDA Graph Execution" width="50%">
+  <p><em>Figure 9. Eager execution versus CUDA Graph replay, showing how fixed-address buffers and captured kernels reduce per-step launch overhead.</em></p>
 </div>
 
 **Why:** Because each AR step launches a sequence of tiny kernels, the CPU launch overhead was killing performance. Therefore we captured the entire decode loop inside a CUDA Graph to eliminate those numerous small launch overheads.
@@ -236,6 +243,7 @@ The event loop implements this as: each iteration launches the current step (enq
 
 <div align="center">
   <img src="images/tts-opt-async-decode.png" alt="Async Decode Timeline" width="50%">
+  <p><em>Figure 10. Asynchronous decode timeline, where GPU launch for step N overlaps with CPU resolve for step N-1 through ping-pong host buffers.</em></p>
 </div>
 
 **GPU launch (step N):** Before replaying the CUDA Graph, the runner gathers each active request's current state (delay counter, last emitted codes, done flag, etc.) from a shared pool into the graph's fixed-address buffers. The graph then runs the forward pass and sampling, writes updated state back to the pool, and packs the step's outputs (all 8 codebook codes plus completion flags) into a single staging tensor. This staging tensor is copied to a pinned host buffer asynchronously — the GPU does not wait for the copy to finish. A CUDA event is recorded right after the copy is enqueued, serving as a "data is ready" signal for the CPU.
@@ -258,6 +266,7 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 
 <div align="center">
   <img src="images/tts-opt-batched-decoding.png" alt="Batched Decoding" width="50%">
+  <p><em>Figure 11. Batched vocoder decoding, collecting nearby completed requests to avoid serial tail latency at the waveform reconstruction stage.</em></p>
 </div>
 
 **Why:** Under high concurrency, multiple AR decode loops finish at nearly the same time — they enter the pipeline together, generate similar-length utterances, and race to the vocoder stage simultaneously. With 16 concurrent requests each taking ~15ms to vocode, the last request in line waits 240ms just for its turn — turning a fast stage into a tail-latency killer.
@@ -268,6 +277,7 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 
 <div align="center">
   <img src="images/tts-opt-vocoder-cuda-graph.png" alt="Vocoder CUDA Graph: Higgs DAC vs MOSS Codec" width="50%">
+  <p><em>Figure 12. Vocoder CUDA Graph optimization for MOSS-TTS-Local, where the heavier codec decoder benefits from captured replay.</em></p>
 </div>
 
 **Why:** MOSS's vocoder uses the ~1B-parameter MOSS-Audio-Tokenizer-v2 codec, which launches far more kernels per decode call than Higgs's lightweight DAC decoder. Just as with AR decode, kernel launch overhead becomes the bottleneck. Higgs's DAC decoder is light enough that it does not need this optimization.
@@ -278,6 +288,7 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 
 <div align="center">
   <img src="images/tts-opt-vocoder-routing.png" alt="Vocoder Request Routing" width="50%">
+  <p><em>Figure 13. Vocoder request routing for streaming, deciding when generated code chunks should be decoded, overlapped, and emitted.</em></p>
 </div>
 
 **Why:** Without streaming, the user hears nothing until the entire AR decode loop completes — hundreds of steps of silence. So we want to stream the process to minimize TTFB (time to first byte). But you can't just naively chop the code sequence into chunks and decode each independently like LLM: neural audio codecs produce audible clicks at every splice boundary because the codec's internal convolution state is disrupted. On top of that, the delay pattern means the trailing rows in any mid-stream snapshot have incomplete high-layer codebooks — decoding them injects noise.
@@ -292,6 +303,7 @@ Note: codecs which natively support streaming decode (such as MOSS's MOSS-Audio-
 
 <div align="center">
   <img src="images/tts-opt-streaming.png" alt="Windowed Streaming Detail" width="50%">
+  <p><em>Figure 14. Windowed streaming details for Higgs, using stride, overlap, and holdback to reduce clicks and avoid decoding incomplete delayed rows.</em></p>
 </div>
 
 For streaming, we accumulate codes until a stride threshold (75 frames, ~1 second of audio) before triggering a decode — amortizing kernel launch overhead across a meaningful chunk. When decoding, we overlap by looking 8 frames back into the previously decoded region, re-decoding them jointly with new tokens so the codec sees continuous context across boundaries. We then extract only the delta (new samples past the overlap) and crossfade-blend it with the held-back tail of the previous chunk using a linear fade-in/fade-out envelope — smoothing any residual amplitude mismatch at the splice point.
