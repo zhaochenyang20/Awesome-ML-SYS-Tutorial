@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1048 864.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif">
+<rect width="1048" height="864.5" fill="#ffffff"/>
+<text x="40" y="118" font-size="86" font-weight="300" letter-spacing="-2" fill="#1e5fd6">Higgs <tspan font-style="italic" font-weight="300" fill="#5b8ae6">vs</tspan> MOSS</text>
+<rect x="40" y="190" width="470" height="634.5" rx="6" fill="#1e5fd6"/>
+<rect x="538" y="190" width="470" height="634.5" rx="6" fill="#ffffff" stroke="#9cc2f5" stroke-width="1.5"/>
+<text x="76" y="256" font-size="30" font-weight="400" fill="#f6faff">Higgs TTS</text>
+<text x="574" y="256" font-size="30" font-weight="400" fill="#1e5fd6">MOSS-TTS-Local</text>
+<line x1="76" y1="278" x2="474" y2="278" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="278" x2="972" y2="278" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="290" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">WEIGHT PROFILE</text>
+<text x="76" y="318" font-size="16.5" font-weight="400" fill="#f6faff">Heavy backbone · light codec</text>
+<text x="574" y="290" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">WEIGHT PROFILE</text>
+<text x="574" y="318" font-size="16.5" font-weight="400" fill="#1e5fd6">Heavy backbone · heavy codec</text>
+<line x1="76" y1="330" x2="474" y2="330" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="330" x2="972" y2="330" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="349.5" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">BACKBONE</text>
+<text x="76" y="377.5" font-size="16.5" font-weight="400" fill="#f6faff">Qwen3-4B autoregressive decoder</text>
+<text x="76" y="399.5" font-size="16.5" font-weight="400" fill="#f6faff">(~4B params)</text>
+<text x="574" y="349.5" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">BACKBONE</text>
+<text x="574" y="377.5" font-size="16.5" font-weight="400" fill="#1e5fd6">Qwen3-4B global transformer</text>
+<text x="574" y="399.5" font-size="16.5" font-weight="400" fill="#1e5fd6">(~4B params)</text>
+<line x1="76" y1="411.5" x2="474" y2="411.5" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="411.5" x2="972" y2="411.5" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="431.0" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">LOCAL TRANSFORMER</text>
+<text x="76" y="459.0" font-size="16.5" font-weight="400" fill="#f6faff">None — backbone heads emit</text>
+<text x="76" y="481.0" font-size="16.5" font-weight="400" fill="#f6faff">codes directly</text>
+<text x="574" y="431.0" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">LOCAL TRANSFORMER</text>
+<text x="574" y="459.0" font-size="16.5" font-weight="400" fill="#1e5fd6">1-layer depth transformer,</text>
+<text x="574" y="481.0" font-size="16.5" font-weight="400" fill="#1e5fd6">samples 12 codes per frame</text>
+<line x1="76" y1="493.0" x2="474" y2="493.0" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="493.0" x2="972" y2="493.0" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="512.5" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">RVQ CHANNELS</text>
+<text x="76" y="540.5" font-size="16.5" font-weight="400" fill="#f6faff">8 codebooks @ 25 fps</text>
+<text x="574" y="512.5" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">RVQ CHANNELS</text>
+<text x="574" y="540.5" font-size="16.5" font-weight="400" fill="#1e5fd6">12 codebooks + 1 text @ 12.5 Hz</text>
+<line x1="76" y1="552.5" x2="474" y2="552.5" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="552.5" x2="972" y2="552.5" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="572.0" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">AR STRATEGY</text>
+<text x="76" y="600.0" font-size="16.5" font-weight="400" fill="#f6faff">Backbone emits all 8 codes</text>
+<text x="76" y="622.0" font-size="16.5" font-weight="400" fill="#f6faff">in parallel via delay pattern</text>
+<text x="574" y="572.0" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">AR STRATEGY</text>
+<text x="574" y="600.0" font-size="16.5" font-weight="400" fill="#1e5fd6">Backbone + local transformer</text>
+<text x="574" y="622.0" font-size="16.5" font-weight="400" fill="#1e5fd6">sample 12 codes sequentially</text>
+<line x1="76" y1="634.0" x2="474" y2="634.0" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="634.0" x2="972" y2="634.0" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="653.5" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">CODEC / VOCODER</text>
+<text x="76" y="681.5" font-size="16.5" font-weight="400" fill="#f6faff">DAC-style decoder, fused head;</text>
+<text x="76" y="703.5" font-size="16.5" font-weight="400" fill="#f6faff">not streamable → windowed chunks</text>
+<text x="574" y="653.5" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">CODEC / VOCODER</text>
+<text x="574" y="681.5" font-size="16.5" font-weight="400" fill="#1e5fd6">MOSS-Audio-Tokenizer-v2 (~2B,</text>
+<text x="574" y="703.5" font-size="16.5" font-weight="400" fill="#1e5fd6">enc+dec); natively streamable</text>
+<line x1="76" y1="715.5" x2="474" y2="715.5" stroke="#4f86e8" stroke-width="1"/>
+<line x1="574" y1="715.5" x2="972" y2="715.5" stroke="#d3e4fb" stroke-width="1"/>
+<text x="76" y="735.0" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#bcd2f5">CODEC INSTANCE</text>
+<text x="76" y="763.0" font-size="16.5" font-weight="400" fill="#f6faff">1 shared instance</text>
+<text x="76" y="785.0" font-size="16.5" font-weight="400" fill="#f6faff">(~9.3 GB total weights)</text>
+<text x="574" y="735.0" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="11.5" letter-spacing="1.5" fill="#5f86c4">CODEC INSTANCE</text>
+<text x="574" y="763.0" font-size="16.5" font-weight="400" fill="#1e5fd6">2 separate enc/dec instances</text>
+<text x="574" y="785.0" font-size="16.5" font-weight="400" fill="#1e5fd6">(~8.6 GB)</text>
+</svg>

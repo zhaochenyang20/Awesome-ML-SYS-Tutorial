@@ -112,21 +112,19 @@ After all those preparations, we can finally get to the detailed model architect
   <p><em>Figure 5. MOSS-TTS-Local pipeline, where a backbone step is followed by a local-transformer loop over RVQ layers and a MOSS-Audio-Tokenizer-v2 decoder.</em></p>
 </div>
 
-MOSS-TTS-Local-v1.5 uses a local-transformer architecture and shares the same high-level four-stage pipeline structure as Higgs. The key difference is how the TTS engine fills each frame: Higgs samples one token per RVQ layer in parallel at each global step (with delay-pattern masking), while MOSS runs a frame-local sequential loop over its RVQ layers.
+MOSS-TTS-Local-v1.5 uses a local-transformer architecture to fill the higher level RVQ layers and shares the same high-level four-stage pipeline structure as Higgs.
 
-- **Preprocessing (CPU):** Text tokenization and reference audio loading, same as Higgs. Purely IO-bound.
+- **Preprocessing (CPU):** Text tokenization and reference audio loading, typical TTS. Purely IO-bound.
 - **Audio Encoder (GPU):** Uses MOSS-Audio-Tokenizer-v2, a ~1B-parameter neural audio codec. The encoder converts reference audio into discrete RVQ tokens. MOSS-TTS-Local uses 12 RVQ layers plus one text/control channel, so the full grid layout is `[T, 13]`.
-- **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per step to get one logits and sample the $L_0$ codec token. After each backbone step, a 1-layer local transformer sequentially samples 12 RVQ-layer tokens from the backbone's output. The 13 sampled embeddings are then summed back as the backbone's next-step input. This keeps the backbone lightweight, and the local transformer's 12-step sequential loop could be the latency bottleneck (see CUDA Graph section).
+- **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per step to get one logits and sample the $L_0$ codec token. After each backbone step, a 1-layer local transformer sequentially samples remaining 12 RVQ-layer codec tokens from the backbone's output. The 13 sampled embeddings are then summed back as the backbone's next-step input. This keeps the backbone lightweight, and the local transformer's 12-step sequential loop could be the latency bottleneck (see CUDA Graph section).
 - **Vocoder (GPU):** The same MOSS-Audio-Tokenizer-v2 codec, but used as a decoder. Unlike Higgs's DAC decoder, it is natively streamable — supporting frame-by-frame decode, with no need for windowed chunking, overlap, or crossfade. However, Moss Vocoder is rather heavy than Higgs, introduce a significant overhead if not properly optimized.
 
 ### Optimization Implications
 
 <div align="center">
-  <img src="images/tts-opt-arch-comparison.png" alt="Higgs vs MOSS Architecture Comparison" width="50%">
+  <img src="images/higgs_vs_moss.svg" alt="Higgs vs MOSS Architecture Comparison" width="70%">
   <p><em>Figure 6. Architecture comparison between Higgs and MOSS-TTS-Local, highlighting differences in backbone role, codec weight, layer-generation strategy, and streaming behavior.</em></p>
 </div>
-
-【TODO：这个图画的挺好的，然后我觉得这种黑白对比非常鲜明，但是我不太理解为什么 vs moss 要把 moss 换一行，因为 moss 其实明显放在同一行是更好看的。哦，嗯，我觉得可以具体去举一下这个 Higgs 和 moss 的 backbone 和 Codex 的大小，而且你也要提到下这个 Local Transformer 的大小，对吧？这挺关键的。然后我发觉这个，就是如果你在那个 codec instance 的 MoE 这边都写了 MoE 的占据大小，那么其实你在 Higgs 这边最好也写一下。】
 
 As shown in the picture, both models use a Qwen3-scale backbone (~4B parameters), but differ significantly in codec weight and layer-generation strategy. Higgs is a "heavy backbone, light codec" system: its DAC-based codec is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs a similar-scale backbone with a much heavier codec (~1B-parameter MOSS-Audio-Tokenizer-v2), making codec-side optimization much more important.
 
