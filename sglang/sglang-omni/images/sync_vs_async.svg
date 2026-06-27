@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 660" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif">
+<rect width="1320" height="660" fill="#f8fafe"/>
+<text x="40" y="44" font-size="22" font-weight="700" fill="#10254f">Synchronous</text>
+<text x="228" y="44" font-size="16" fill="#6b7a93">CPU and GPU block each other every step</text>
+<text x="40" y="102.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1" fill="#5f86c4">GPU</text>
+<text x="40" y="158.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1" fill="#5f86c4">CPU</text>
+<rect x="92.0" y="84.0" width="261.4" height="36" rx="5" fill="#1e5fd6"/>
+<text x="222.7" y="102.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#fff">Forward + Sample</text>
+<rect x="353.4" y="84.0" width="134.6" height="36" rx="4" fill="#d4dceb"/>
+<rect x="92.0" y="140.0" width="261.4" height="36" rx="4" fill="#d4dceb"/>
+<text x="222.7" y="158.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="400" fill="#8a97ac">idle</text>
+<rect x="353.4" y="140.0" width="107.7" height="36" rx="4" fill="#eef3fd" stroke="#bcd0ef" stroke-width="1.4"/>
+<text x="407.2" y="158.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.5" font-weight="600" fill="#10254f">D2H</text>
+<text x="222.7" y="198.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N</text>
+<rect x="488.0" y="84.0" width="261.4" height="36" rx="5" fill="#1e5fd6"/>
+<text x="618.7" y="102.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#fff">Forward + Sample</text>
+<rect x="749.4" y="84.0" width="134.6" height="36" rx="4" fill="#d4dceb"/>
+<rect x="488.0" y="140.0" width="261.4" height="36" rx="4" fill="#d4dceb"/>
+<text x="618.7" y="158.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="400" fill="#8a97ac">idle</text>
+<rect x="749.4" y="140.0" width="107.7" height="36" rx="4" fill="#eef3fd" stroke="#bcd0ef" stroke-width="1.4"/>
+<text x="803.2" y="158.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.5" font-weight="600" fill="#10254f">D2H</text>
+<text x="618.7" y="198.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N+1</text>
+<rect x="884.0" y="84.0" width="261.4" height="36" rx="5" fill="#1e5fd6"/>
+<text x="1014.7" y="102.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#fff">Forward + Sample</text>
+<rect x="1145.4" y="84.0" width="134.6" height="36" rx="4" fill="#d4dceb"/>
+<rect x="884.0" y="140.0" width="261.4" height="36" rx="4" fill="#d4dceb"/>
+<text x="1014.7" y="158.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="400" fill="#8a97ac">idle</text>
+<rect x="1145.4" y="140.0" width="107.7" height="36" rx="4" fill="#eef3fd" stroke="#bcd0ef" stroke-width="1.4"/>
+<text x="1199.2" y="158.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.5" font-weight="600" fill="#10254f">D2H</text>
+<text x="1014.7" y="198.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N+2</text>
+<line x1="40" y1="242" x2="1280" y2="242" stroke="#b9d0f0" stroke-width="1.4" stroke-dasharray="7,6"/>
+<text x="40" y="300" font-size="22" font-weight="700" fill="#1e5fd6">Asynchronous</text>
+<text x="232" y="300" font-size="16" fill="#6b7a93">GPU launch and CPU resolve overlap by one step</text>
+<text x="40" y="354.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1" fill="#5f86c4">GPU</text>
+<text x="40" y="414.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1" fill="#5f86c4">CPU</text>
+<rect x="92.0" y="336.0" width="294.0" height="36" rx="5" fill="#1e5fd6"/>
+<text x="239.0" y="354.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#fff">Step N: Forward + D2H→A</text>
+<rect x="389.0" y="336.0" width="294.0" height="36" rx="5" fill="#1e5fd6"/>
+<text x="536.0" y="354.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#fff">Step N+1: Forward + D2H→B</text>
+<rect x="686.0" y="336.0" width="294.0" height="36" rx="5" fill="#1e5fd6"/>
+<text x="833.0" y="354.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#fff">Step N+2: Forward + D2H→A</text>
+<rect x="983.0" y="336.0" width="294.0" height="36" rx="5" fill="#1e5fd6"/>
+<text x="1130.0" y="354.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#fff">Step N+3: Forward + D2H→B</text>
+<rect x="92.0" y="396.0" width="294.0" height="36" rx="5" fill="#d4dceb"/>
+<rect x="389.0" y="396.0" width="294.0" height="36" rx="5" fill="#243a63"/>
+<text x="536.0" y="414.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#eaf1ff">Resolve N (buf A)</text>
+<rect x="686.0" y="396.0" width="294.0" height="36" rx="5" fill="#243a63"/>
+<text x="833.0" y="414.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#eaf1ff">Resolve N+1 (buf B)</text>
+<rect x="983.0" y="396.0" width="294.0" height="36" rx="5" fill="#243a63"/>
+<text x="1130.0" y="414.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#eaf1ff">Resolve N+2 (buf A)</text>
+<line x1="387.5" y1="333" x2="387.5" y2="435" stroke="#9cc2f5" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+<line x1="684.5" y1="333" x2="684.5" y2="435" stroke="#9cc2f5" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+<line x1="981.5" y1="333" x2="981.5" y2="435" stroke="#9cc2f5" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+<text x="686.0" y="462.0" text-anchor="middle" font-size="15" font-weight="700" fill="#1e5fd6">Ping-pong: GPU writes buf A while CPU reads buf B, then swap</text>
+<text x="240.5" y="490.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N</text>
+<text x="537.5" y="490.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N+1</text>
+<text x="834.5" y="490.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N+2</text>
+<text x="1131.5" y="490.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13" fill="#6b7a93">Step N+3</text>
+<rect x="182.0" y="582.0" width="1008.0" height="46" rx="8" fill="#e9f0fd" stroke="#cdddf6" stroke-width="1.4"/>
+<text x="686.0" y="605.0" text-anchor="middle" dominant-baseline="central" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="16" font-weight="600" fill="#10254f">GPU never waits for CPU — CPU never waits for GPU (in the common case)</text>
+</svg>

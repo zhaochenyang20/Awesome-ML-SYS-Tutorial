@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 240" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif">
+<rect width="1260" height="240" fill="#f8fafe"/>
+<rect x="40" y="70" width="180" height="84" rx="9" fill="#eef3fd" stroke="#cdddf6" stroke-width="1.6"/>
+<text x="130.0" y="102.0" text-anchor="middle" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="12" letter-spacing="2" fill="#8fb0e8">INPUT</text>
+<text x="130.0" y="128.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="700" fill="#10254f">Reference Audio</text>
+<rect x="300" y="70" width="180" height="84" rx="9" fill="#eef3fd" stroke="#cdddf6" stroke-width="1.6"/>
+<text x="390.0" y="102.0" text-anchor="middle" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="12" letter-spacing="2" fill="#8fb0e8">HASH</text>
+<text x="390.0" y="128.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="700" fill="#10254f">xxh3_64</text>
+<rect x="560" y="70" width="180" height="84" rx="9" fill="#1e5fd6" stroke="#16357e" stroke-width="1.6"/>
+<text x="650.0" y="102.0" text-anchor="middle" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="12" letter-spacing="2" fill="#9cb6e0">LOOKUP</text>
+<text x="650.0" y="128.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="700" fill="#f3f7ff">LRU Cache</text>
+<rect x="960" y="40" width="270" height="72" rx="9" fill="#e6f1ea" stroke="#b6d6c4" stroke-width="1.6"/>
+<text x="1095.0" y="66.0" text-anchor="middle" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="12" letter-spacing="2" fill="#2f7d54"></text>
+<text x="1095.0" y="92.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="700" fill="#2f7d54">Skip encoder entirely</text>
+<rect x="960" y="120" width="270" height="72" rx="9" fill="#eef1f6" stroke="#d6dde8" stroke-width="1.6"/>
+<text x="1095.0" y="146.0" text-anchor="middle" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="12" letter-spacing="2" fill="#7a869a"></text>
+<text x="1095.0" y="172.0" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="700" fill="#10254f">Encode → store result</text>
+<path d="M220 112.0 L300 112.0" stroke="#5f86c4" stroke-width="2.2" fill="none" marker-end="url(#ah_5f86c4)"/>
+<path d="M480 112.0 L560 112.0" stroke="#5f86c4" stroke-width="2.2" fill="none" marker-end="url(#ah_5f86c4)"/>
+<path d="M740 98.0 L960 76.0" stroke="#2f7d54" stroke-width="2.4" fill="none" marker-end="url(#ah_2f7d54)"/>
+<text x="764" y="64.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="14" font-weight="700" fill="#2f7d54">HIT</text>
+<path d="M740 126.0 L960 156.0" stroke="#5f86c4" stroke-width="2.4" fill="none" marker-end="url(#ah_5f86c4)"/>
+<text x="760" y="144.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="14" font-weight="700" fill="#10254f">MISS</text>
+<defs>
+<marker id="ah_5f86c4" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 z" fill="#5f86c4"/></marker>
+<marker id="ah_2f7d54" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 z" fill="#2f7d54"/></marker>
+</defs>
+</svg>

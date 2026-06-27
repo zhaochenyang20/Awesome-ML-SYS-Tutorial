@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 564" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif">
+<rect width="1300" height="564" fill="#f8fafe"/>
+<text x="650.0" y="52" text-anchor="middle" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="20" letter-spacing="6" fill="#5f86c4">OPTIMIZATION STRATEGIES BY PIPELINE STAGE</text>
+<line x1="48" y1="74" x2="1252" y2="74" stroke="#cdddf6" stroke-width="1.5"/>
+<text x="48" y="147.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="2" font-weight="500" fill="#5f86c4">FOUNDATION</text>
+<rect x="232.0" y="104.0" width="502.0" height="86.0" rx="7" fill="#e9f0fd" stroke="#c7d9f7" stroke-width="1.4"/>
+<text x="252.0" y="134.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#10254f">RadixCache + OmniScheduler</text>
+<text x="252.0" y="156.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#5570a0">Paged KV cache, continuous batching baseline</text>
+<rect x="750.0" y="104.0" width="502.0" height="86.0" rx="7" fill="#e9f0fd" stroke="#c7d9f7" stroke-width="1.4"/>
+<text x="770.0" y="134.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#10254f">Profiling-Driven</text>
+<text x="770.0" y="156.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#5570a0">Nsight traces reveal bottlenecks first</text>
+<line x1="48" y1="203.0" x2="1252" y2="203.0" stroke="#b9d0f0" stroke-width="1.4" stroke-dasharray="7,6"/>
+<text x="48" y="259.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="2" font-weight="500" fill="#1e5fd6">ENCODER</text>
+<rect x="232.0" y="216.0" width="1020.0" height="86.0" rx="7" fill="#dbe8fb" stroke="#1e5fd6" stroke-width="2"/>
+<text x="252.0" y="246.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#1e5fd6">LRU Caching + Single-Flight Dedup</text>
+<text x="252.0" y="268.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#3f5f96">Skip redundant encodes; critical for MOSS (~1B encoder)</text>
+<line x1="48" y1="315.0" x2="1252" y2="315.0" stroke="#b9d0f0" stroke-width="1.4" stroke-dasharray="7,6"/>
+<text x="48" y="371.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="2" font-weight="500" fill="#1e5fd6">AR DECODE</text>
+<rect x="232.0" y="328.0" width="329.3" height="86.0" rx="7" fill="#16357e" stroke="#16357e" stroke-width="1.4"/>
+<text x="252.0" y="358.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#eaf1ff">CUDA Graph</text>
+<text x="252.0" y="380.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#a9c2f0">Capture decode loop as graph</text>
+<text x="252.0" y="399.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#a9c2f0">Eliminate kernel launch overhead</text>
+<rect x="577.3" y="328.0" width="329.3" height="86.0" rx="7" fill="#16357e" stroke="#16357e" stroke-width="1.4"/>
+<text x="597.3" y="358.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#eaf1ff">Merged D2H Sync</text>
+<text x="597.3" y="380.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#a9c2f0">3 D2H transfers → 1</text>
+<text x="597.3" y="399.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#a9c2f0">Single staging tensor</text>
+<rect x="922.7" y="328.0" width="329.3" height="86.0" rx="7" fill="#16357e" stroke="#16357e" stroke-width="1.4"/>
+<text x="942.7" y="358.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#eaf1ff">Async Decode + Lookahead</text>
+<text x="942.7" y="380.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#a9c2f0">Ping-pong double buffering</text>
+<text x="942.7" y="399.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#a9c2f0">GPU/CPU overlap by one step</text>
+<line x1="48" y1="427.0" x2="1252" y2="427.0" stroke="#b9d0f0" stroke-width="1.4" stroke-dasharray="7,6"/>
+<text x="48" y="483.0" dominant-baseline="central" font-family="'SF Mono','Roboto Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="2" font-weight="500" fill="#5f86c4">VOCODER</text>
+<rect x="232.0" y="440.0" width="329.3" height="86.0" rx="7" fill="#1e5fd6" stroke="#1e5fd6" stroke-width="1.4"/>
+<text x="252.0" y="470.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#eaf1ff">Batched Decoding</text>
+<text x="252.0" y="492.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#cfe0fb">Bucket by sequence length</text>
+<text x="252.0" y="511.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#cfe0fb">No padding waste</text>
+<rect x="577.3" y="440.0" width="329.3" height="86.0" rx="7" fill="#1e5fd6" stroke="#1e5fd6" stroke-width="1.4"/>
+<text x="597.3" y="470.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#eaf1ff">Windowed Streaming</text>
+<text x="597.3" y="492.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#cfe0fb">Stride + overlap + holdback</text>
+<text x="597.3" y="511.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#cfe0fb">Sub-second TTFA (Higgs DAC)</text>
+<rect x="922.7" y="440.0" width="329.3" height="86.0" rx="7" fill="#1e5fd6" stroke="#9cc2f5" stroke-width="2" stroke-dasharray="6,4"/>
+<text x="942.7" y="470.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="#eaf1ff">Vocoder CUDA Graph</text>
+<text x="942.7" y="492.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#cfe0fb">MOSS ~1B vocoder graph capture</text>
+<text x="942.7" y="511.0" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#cfe0fb">In development (#798)</text>
+<line x1="48" y1="560.0" x2="1252" y2="560.0" stroke="#cdddf6" stroke-width="1.5"/>
+</svg>
