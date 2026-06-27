@@ -9,7 +9,7 @@ In this blog, we break down the mechanisms to make our TTS pipeline fast on [SGL
 
 <div align="center">
   <img src="images/tts-opt-pipeline-overview.svg" alt="TTS Inference Pipeline Overview" width="70%">
-  <p><em>Figure 1. High-level TTS inference pipeline in SGLang-Omni, from preprocessing and codec encoding to autoregressive codebook generation and vocoder decoding.</em></p>
+  <p><em>Figure 1. High-level TTS inference pipeline in SGLang-Omni, from preprocessing and audio encoding to autoregressive codebook generation and vocoder decoding.</em></p>
 </div>
 
 Unlike serving a chat LLM with a single autoregressive loop, TTS inference could be decomposed into four stages:
@@ -18,13 +18,13 @@ Unlike serving a chat LLM with a single autoregressive loop, TTS inference could
 
 1. **Preprocessing (CPU):** Text tokenization and reference-audio loading, purely IO-bound and involves no GPU compute.
 
-2. **Audio Encoder (GPU):** Autoregressive model can only process distinct tokens, not continuous values. All the audio waves are compressesed into a low-rate sequence of discrete RVQ token grids (shape `[T, N]`, where `T` is codec frames and `N` is RVQ layers, as discuss later) by the audio encoder. These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. You can found more details in [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
+2. **Audio Encoder (GPU):** Autoregressive model can only process distinct tokens, not continuous values. The audio encoder compresses audio waves into a low-rate sequence of discrete RVQ token grids (shape `[T, N]`, where `T` is codec frames and `N` is RVQ layers, as discuss later). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. You can found more details in [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
 
 3. **TTS Engine (GPU):** The core autoregressive stage. The engine generates output speech as codec-token IDs rather than text-token IDs. Different models fill the multi-layer codec grid differently. Delay-pattern models such as Higgs and MOSS-TTS-v1.5 first generate in a delayed step × codebook grid; after undelay, diagonal groups become aligned back to `[T, N]` codec frames for the vocoder. Non-delayed dual-AR-style models such as FishAudio S2 Pro and MOSS-TTS-Local-v1.5 instead construct each frame more directly: a large AR backbone decodes the layer-0 token, and a smaller AR/local module fills the remaining RVQ layers. This codec-token generation stage takes most GPU time, and it is where model-specific scheduling, CUDA Graph, and async decode land.
 
-4. **Vocoder (GPU):** The codec decoder inverts the generated codec tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by vocoder's design.
+4. **Vocoder (GPU):** The vocoder runs the reverse direction: it maps generated codec tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by vocoder's design.
 
-A simplified data flow is: **Text + Reference Audio → RVQ encoding → multi-layer codec tokens generation → audio waveform**. To further understand these stages, we need to introduce several essential concepts.
+A simplified data flow is: **Text + Reference Audio → RVQ encoding → multi-layer codec tokens generation → audio waveform**. In many TTS systems, audio encoding and vocoder decoding are two directions of the same audio tokenizer model: audio-to-codec-token for the encoder, and codec-token-to-audio for the vocoder. They are still separate logical roles in the serving pipeline, and, as we will see in MOSS, they may even be deployed as separate model instances. To further understand these stages, we need to introduce several essential concepts.
 
 ### Codec Token, Codebook, and RVQ Layer
 
@@ -97,66 +97,63 @@ After all those preparations, we can finally get to the detailed model architect
 
 <div align="center">
   <img src="images/tts-opt-higgs-pipeline.png" alt="Higgs Audio V3 Generation Architecture" width="50%">
-  <p><em>Figure 4. Higgs TTS pipeline, where the Qwen3-scale backbone directly predicts multi-codebook audio tokens and a DAC decoder reconstructs waveform audio.</em></p>
+  <p><em>Figure 4. Higgs TTS pipeline, where the Qwen3-scale backbone directly predicts multi-codebook audio tokens and the DAC vocoder reconstructs waveform audio.</em></p>
 </div>
 
 - **Preprocessing (CPU):** Text tokenization and reference audio loading as usual.
-- **Audio Encoder (GPU):** Uses [HiggsAudioCodec](https://huggingface.co/bosonai/higgs-audio-v2-tokenizer), a neural audio codec based on the DAC (Descript Audio Codec) architecture with a semantic encoder branch.
+- **Audio Encoder (GPU):** Uses [HiggsAudioCodec](https://huggingface.co/bosonai/higgs-audio-v2-tokenizer), a DAC-based audio tokenizer with a semantic encoder branch. This tokenizer provides both directions: encoding reference audio into RVQ tokens and decoding generated tokens back to waveform.
 - **TTS Engine (GPU Backbone):** The core autoregressive model — a Qwen3-4B decoder. Each global decode step embeds and sums the previous step's multi-layer token IDs into one input vector, runs one causal backbone forward pass, then uses 8 codebook heads to sample one candidate ID per RVQ layer.
-- **Vocoder (GPU):** A DAC decoder that converts the generated tokens back into an audible waveform.
+- **Vocoder (GPU):** Uses the decode direction of the DAC tokenizer to convert generated tokens back into an audible waveform. For Higgs, this does not require deploying another large standalone model instance.
 
 ### MOSS Pipeline
 
 <div align="center">
   <img src="images/tts-opt-moss-pipeline.png" alt="MOSS Audio Tokenizer Architecture" width="50%">
-  <p><em>Figure 5. MOSS-TTS-Local pipeline, where a backbone step is followed by a local-transformer loop over RVQ layers and a MOSS-Audio-Tokenizer-v2 decoder.</em></p>
+  <p><em>Figure 5. MOSS-TTS-Local pipeline, where a backbone step is followed by a local-transformer loop over RVQ layers and a MOSS-Audio-Tokenizer-v2 vocoder.</em></p>
 </div>
 
 MOSS-TTS-Local-v1.5 uses a local-transformer architecture to fill the higher level RVQ layers and shares the same high-level four-stage pipeline structure as Higgs.
 
 - **Preprocessing (CPU):** Text tokenization and reference audio loading, typical TTS. Purely IO-bound.
-- **Audio Encoder (GPU):** Uses MOSS-Audio-Tokenizer-v2, a ~1B-parameter neural audio codec. The encoder converts reference audio into discrete RVQ tokens. MOSS-TTS-Local uses 12 RVQ layers plus one text/control channel, so the full grid layout is `[T, 13]`.
+- **Audio Encoder (GPU):** Uses MOSS-Audio-Tokenizer-v2, a ~1B-parameter audio tokenizer model. Its encoder direction converts reference audio into discrete RVQ tokens. MOSS-TTS-Local uses 12 RVQ layers plus one text/control channel, so the full grid layout is `[T, 13]`.
 - **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per step to get one logits and sample the $L_0$ codec token. After each backbone step, a 1-layer local transformer sequentially samples remaining 12 RVQ-layer codec tokens from the backbone's output. The 13 sampled embeddings are then summed back as the backbone's next-step input. This keeps the backbone lightweight, and the local transformer's 12-step sequential loop could be the latency bottleneck (see CUDA Graph section).
-- **Vocoder (GPU):** The same MOSS-Audio-Tokenizer-v2 codec, but used as a decoder. Unlike Higgs's DAC decoder, it is natively streamable — supporting frame-by-frame decode, with no need for windowed chunking, overlap, or crossfade. However, Moss Vocoder is rather heavy than Higgs, introduce a significant overhead if not properly optimized.
+- **Vocoder (GPU):** Uses the decode direction of MOSS-Audio-Tokenizer-v2. Logically this is the reverse of the audio encoder, but in serving we deploy a separate MOSS-Audio-Tokenizer-v2 instance for vocoder decoding, rather than reusing the encoder instance. Unlike Higgs's DAC vocoder, it is natively streamable — supporting frame-by-frame decode, with no need for windowed chunking, overlap, or crossfade. However, this extra ~1B-parameter vocoder instance is much heavier than Higgs's DAC vocoder and introduces significant overhead if not properly optimized.
 
 ### Optimization Implications
 
 <div align="center">
   <img src="images/higgs_vs_moss.svg" alt="Higgs vs MOSS Architecture Comparison" width="70%">
-  <p><em>Figure 6. Architecture comparison between Higgs and MOSS-TTS-Local, highlighting differences in backbone role, codec weight, layer-generation strategy, and streaming behavior.</em></p>
+  <p><em>Figure 6. Architecture comparison between Higgs and MOSS-TTS-Local, highlighting differences in backbone role, encoder/vocoder weight, layer-generation strategy, and streaming behavior.</em></p>
 </div>
 
-As shown in the picture, both models use a Qwen3-scale backbone (~4B parameters), but differ significantly in codec weight and layer-generation strategy. Higgs is a "heavy backbone, light codec" system: its DAC-based codec is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs a similar-scale backbone with a much heavier codec (~1B-parameter MOSS-Audio-Tokenizer-v2), making codec-side optimization much more important.
+As shown in the picture, both models use a Qwen3-scale backbone (~4B parameters), but differ significantly in encoder/vocoder weight and layer-generation strategy. Higgs is a "heavy backbone, light encoder and vocoder" system: its DAC-based audio tokenizer is small and bundled inside the checkpoint, so the backbone dominates total model size. MOSS pairs a similar-scale backbone with MOSS-Audio-Tokenizer-v2, a much heavier ~1B-parameter audio tokenizer. More importantly, MOSS deploys a separate MOSS-Audio-Tokenizer-v2 instance for vocoder decoding, so vocoder-side optimization becomes much more important. Also, their vocoders have opposite streaming properties — Higgs's DAC vocoder is not natively streamable (requiring windowed chunking with crossfade), whereas MOSS's vocoder supports frame-by-frame streaming out of the box.
 
-They also differ in how RVQ-layer tokens are generated: Higgs's backbone directly samples one token per layer at each global step, with the delay pattern deciding which slots are real, while MOSS's backbone only produces a hidden state, leaving a local transformer to sequentially sample 12 layer tokens per frame. Finally, their vocoders have opposite streaming properties — Higgs's DAC decoder is not natively streamable (requiring windowed chunking with crossfade), whereas MOSS's codec supports frame-by-frame streaming out of the box.
-
-【TODO：emits 这个词在全文出现了很多次，然后图里面也有。我个人感觉这个词不是很专业，要不要直接改成 decode？当然，你图里面最好也换一下。这个图可以画成 SVG，本来这个图也不复杂。】
-
-【TODO：while MOSS's backbone only produces a hidden state, leaving a local transformer to sequentially sample 12 codes per frame. 这句话其实写的还算挺专业的，但是你那个图里面写 12 个 codec 加上一个 text，这个其实我觉得不是很合理，因为，怎么说呢，就是 backbone 生成的那一个 codec，其实它也不是 text token，它只是说里面包含 text embedding 信息，所以你最好不要在图里面直接写 12 codebooks 加 1 text，或者说是我理解错了。】
-
-【TODO：我这里还有一点读了之后不是特别明白，就是 MOSS 是支持 native streaming 的，但是我们发现 MOSS 的 streaming 要比 Higgs 难做很多，这我就不太懂了。如果一个模型是 native streaming 的，为什么它的 streaming 反而性能比起 non-streaming 差了很多？而且我觉得优化起来其实也很麻烦。当然，这一点我觉得你最好要在文中体现出来，我觉得是一个很关键的讨论点。】
+【TODO：我这里还有一点读了之后不是特别明白，就是 MOSS 是支持 native streaming 的，但是我们发现 MOSS 的 streaming 要比 Higgs 难做很多。或者说，Moss 的 streaming 性能比起 non-streaming 掉了很多，但是反而 Higgs 不是 native streaming，却不会掉性能。这一点我觉得你最好要在文中解释出来，我觉得是一个很关键的讨论点。】
 
 Those differences directly shape our optimization strategy:
 
 【TODO：对比一下二者的这个架构差异，然后导出来不同的模型有不同的优化侧重，我觉得是很好的。但是最好在你说明不同模型有不同侧重之前，你可以先说一下我们有什么 general 的思路，就先把这些思路都列出来，然后再说可能二者会有些不同会好一些。现在你直接就列了二者的不同，就是读者直接读下来是不知道有哪些 general 的优化思路的。】
 
-- **Encoder caching is more critical for MOSS:** Each MOSS encode costs ~250ms per reference (vs 50–100ms for Higgs) due to the ~1B-param codec. This motivates a bigger cache for MOSS to amortize encoder time cost.
+- **Encoder caching is more critical for MOSS:** Each MOSS encode costs ~250ms per reference (vs 50–100ms for Higgs) due to the ~1B-parameter audio tokenizer. This motivates a bigger cache for MOSS to amortize encoder time cost.
 - **Kernel launch overhead matters more for MOSS:** Because the MOSS backbone is lighter, per-step compute is shorter, making kernel launch overhead a proportionally larger fraction of step time. This is why CUDA Graph capture of the frame-decode micro-loop (1 + 12 micro-steps) is essential for MOSS.
 - **Batched encoding & AR stage optimization is more important for Higgs:** Since Higgs AR backbone is much heavier and takes most of the time, higher-concurrency batched processing can greatly increase throughput on Higgs.
-- **Vocoder optimization is more important for MOSS:** We find out that the vocoder in MOSS has much heavier workload than Higgs, so we implemented CUDA Graph optimization specifically for MOSS vocoder to reduce each-step launch overhead.
-- **Streaming strategy is fundamentally different:** While Higgs needs windowed chunking with stride/overlap/holdback to work around DAC's non-streamable decoder, MOSS's natively streamable codec eliminates this entirely, but introduces slot management complexity at high concurrency.
+- **Vocoder optimization is more important for MOSS:** MOSS serves vocoder decoding with a separate ~1B-parameter MOSS-Audio-Tokenizer-v2 instance, so the vocoder has a much heavier workload than Higgs. We therefore implemented CUDA Graph optimization specifically for MOSS vocoder to reduce each-step launch overhead.
+- **Streaming strategy is fundamentally different:** While Higgs needs windowed chunking with stride/overlap/holdback to work around DAC's non-streamable vocoder, MOSS's natively streamable vocoder eliminates this entirely, but introduces slot management complexity at high concurrency.
 
-【TODO：我觉得这里在前面要明确的说明一点，就是这个 Higgs 的 codec 是可以做 encoding 也可以做 decoding 的，或者说它能够把音频转成 codec，又能把 codec 转成音频。但是 MoSS 不行，就其实你前面隐含的说明了这一点，但是反正我读第一句话说这个，因为 MoSS 的 codec 是 1B 左右，所以比起 Higgs 更慢。这里其实你得解释有一个 encode 的 codec，还有一个 decode 的 codec，对吧？】
+【TODO：我觉得这里要明确解释一点，为什么 Moss 的 vocoder 需要被单独再次部署一份。对于 Higgs，
+encoder 和 vocoder 其实都用的是 DAC block，不过是两个方向不同，但是没有为了 vocoder 再重复部署一份 
+DAC。但是在 Moss 里面，其实 encoder 和 vocoder 用的是同一个MOSS-Audio-Tokenizer-v2，但是为了 
+vocoder 却需要单独再部署一个一模一样的，这引入了额外的一份 1B 左右的参数。这是个必须要解释清楚的点。】
 
-【TODO：其实还有一个我觉得比较需要写出来一点，就是你要具体的把 moss 的 backbone 的大小也写出来，因为 Higgs 一看就是一个 Qwen3 嘛，就是 4B，但是 moss 我觉得读完前文是不太清楚的。】
+## Starting: RadixCache and SGLang Scheduler Backend
 
-## Stage 0 Support: RadixCache and SGLang Scheduler Backend
+Before any of the optimizations discussed below, we first needed a working TTS serving baseline built on SGLang's infrastructure. The foundational work landed in commit `60c6e75` (2026-02-27), which introduced RadixCache support and `torch.compile` integration for the FishAudio Dual AR architecture — the first TTS model served through the SGLang-Omni pipeline. The full SGLang scheduler integration (paged KV cache, RadixAttention, batch planning) followed in commit `92dbd45` (2026-03-09) for S2-Pro. Higgs TTS support was added later in PR #428 (commit `4d6be58`, 2026-05-17), bringing the Higgs Audio v3 model onto the same SGLang scheduler backend with a custom HiggsScheduler and model runner. This baseline — SGLang's continuous batching scheduler with RadixCache for KV reuse — is the starting point from which all subsequent optimizations in this blog are measured.
 
-Before any of the optimizations discussed below, we first needed a working TTS serving baseline built on SGLang's infrastructure. The foundational work landed in commit `60c6e75` (2026-02-27), which introduced RadixCache support and `torch.compile` integration for the FishAudio DualAR architecture — the first TTS model served through the SGLang-Omni pipeline. The full SGLang scheduler integration (paged KV cache, RadixAttention, batch planning) followed in commit `92dbd45` (2026-03-09) for S2-Pro. Higgs TTS support was added later in PR #428 (commit `4d6be58`, 2026-05-17), bringing the Higgs Audio v3 model onto the same SGLang scheduler backend with a custom HiggsScheduler and model runner. This baseline — SGLang's continuous batching scheduler with RadixCache for KV reuse — is the starting point from which all subsequent optimizations in this blog are measured.
+【TODO：这一段写的有点怪怪的，大概是说在我们优化之前，我们已经默认有了 xxx 的基础对吧，得写的上下文更衔接一些。】
 
 ## Profiling: Where is the Time Actually Spent?
 
-Before writing code, we profiled the naive pipeline and identified three core bottlenecks:
+We profiled the naive pipeline of Moss and　Higgs to identify the bottlenecks:
 
 **Higgs:**
 
@@ -274,11 +271,11 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
 #### Vocoder CUDA Graph (MOSS Only)
 
 <div align="center">
-  <img src="images/tts-opt-vocoder-cuda-graph.png" alt="Vocoder CUDA Graph: Higgs DAC vs MOSS Codec" width="50%">
-  <p><em>Figure 12. Vocoder CUDA Graph optimization for MOSS-TTS-Local, where the heavier codec decoder benefits from captured replay.</em></p>
+  <img src="images/tts-opt-vocoder-cuda-graph.png" alt="Vocoder CUDA Graph: Higgs DAC vs MOSS vocoder" width="50%">
+  <p><em>Figure 12. Vocoder CUDA Graph optimization for MOSS-TTS-Local, where the heavier MOSS-Audio-Tokenizer-v2 vocoder benefits from captured replay.</em></p>
 </div>
 
-**Why:** MOSS's vocoder uses the ~1B-parameter MOSS-Audio-Tokenizer-v2 codec, which launches far more kernels per decode call than Higgs's lightweight DAC decoder. Just as with AR decode, kernel launch overhead becomes the bottleneck. Higgs's DAC decoder is light enough that it does not need this optimization.
+**Why:** MOSS's vocoder uses a separate ~1B-parameter MOSS-Audio-Tokenizer-v2 instance, which launches far more kernels per decode call than Higgs's lightweight DAC vocoder. Just as with AR decode, kernel launch overhead becomes the bottleneck. Higgs's DAC vocoder is light enough that it does not need this optimization.
 
 **How:** Capture the vocoder's decode forward pass as a CUDA Graph, using the same techniques as the AR CUDA Graph — pre-allocated fixed-address buffers, bucketed batch sizes, and graph replay. We won't repeat it here for conciseness.
 
@@ -289,9 +286,9 @@ We also evaluated `torch.compile` as a potential optimization shortcut. However,
   <p><em>Figure 13. Vocoder request routing for streaming, deciding when generated code chunks should be decoded, overlapped, and emitted.</em></p>
 </div>
 
-**Why:** Without streaming, the user hears nothing until the entire AR decode loop completes — hundreds of steps of silence. So we want to stream the process to minimize TTFB (time to first byte). But you can't just naively chop the code sequence into chunks and decode each independently like LLM: neural audio codecs produce audible clicks at every splice boundary because the codec's internal convolution state is disrupted. On top of that, the delay pattern means the trailing rows in any mid-stream snapshot have incomplete high-layer codebooks — decoding them injects noise.
+**Why:** Without streaming, the user hears nothing until the entire AR decode loop completes — hundreds of steps of silence. So we want to stream the process to minimize TTFB (time to first byte). But you can't just naively chop the code sequence into chunks and decode each independently like LLM: neural audio tokenizers can produce audible clicks at every splice boundary because the vocoder's internal convolution state is disrupted. On top of that, the delay pattern means the trailing rows in any mid-stream snapshot have incomplete high-layer codebooks — decoding them injects noise.
 
-Note: codecs which natively support streaming decode (such as MOSS's MOSS-Audio-Tokenizer-v2) maintain continuous decoder state across the frame, so there are no splice boundary artifacts — the following section only applies to non-streamable codecs (e.g. Higgs's DAC decoder).
+Note: vocoders which natively support streaming decode (such as MOSS's MOSS-Audio-Tokenizer-v2 vocoder) maintain continuous decoder state across the frame, so there are no splice boundary artifacts — the following section only applies to non-streamable vocoders (e.g. Higgs's DAC vocoder).
 
 **How:** To manage this irreducible latency boundary smoothly, we tuned three parameters for our streaming window:
 
