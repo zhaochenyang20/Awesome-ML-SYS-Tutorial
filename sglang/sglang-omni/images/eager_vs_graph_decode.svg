@@ -1,0 +1,43 @@
+<svg viewBox="0 0 1290 290" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>.mono { font-family: 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace; }</style>
+  </defs>
+
+  <rect x="0" y="0" width="1290" height="290" fill="#fafbfd"/>
+
+  <!-- top divider -->
+  <line x1="30" y1="12" x2="1270" y2="12" stroke="#d3dcef" stroke-width="1"/>
+
+  <!-- two codec boxes -->
+  <rect x="32" y="42" width="572" height="86" rx="10" fill="#ffffff" stroke="#cdd9ee"/>
+  <text x="318" y="83" text-anchor="middle" font-size="19" font-weight="700" fill="#111111">Higgs DAC — lightweight, few kernels</text>
+  <text x="318" y="112" text-anchor="middle" font-size="15" fill="#111111">Fast enough without graph capture</text>
+
+  <rect x="662" y="42" width="572" height="86" rx="10" fill="#d8e6fb"/>
+  <text x="948" y="83" text-anchor="middle" font-size="19" font-weight="700" fill="#111111">MOSS Codec — ~1B params, many kernels</text>
+  <text x="948" y="112" text-anchor="middle" font-size="15" fill="#111111">~22ms/frame, kernel-launch-bound</text>
+
+  <!-- dashed divider -->
+  <line x1="30" y1="168" x2="1270" y2="168" stroke="#b9c6e6" stroke-width="1.4" stroke-dasharray="6 6"/>
+
+  <!-- Eager section -->
+  <text x="32" y="212" font-size="18" font-weight="700" fill="#111111">Eager</text>
+  <text x="32" y="254" class="mono" font-size="13" fill="#111111">GPU</text>
+  <g fill="#b8d0f4">
+    <rect x="112" y="234" width="44" height="30" rx="3"/>
+    <rect x="168" y="234" width="44" height="30" rx="3"/>
+    <rect x="224" y="234" width="44" height="30" rx="3"/>
+    <rect x="280" y="234" width="44" height="30" rx="3"/>
+    <rect x="336" y="234" width="44" height="30" rx="3"/>
+    <rect x="392" y="234" width="44" height="30" rx="3"/>
+    <rect x="448" y="234" width="44" height="30" rx="3"/>
+    <rect x="504" y="234" width="44" height="30" rx="3"/>
+  </g>
+  <text x="568" y="254" font-size="16" fill="#111111">… gaps dominate</text>
+
+  <!-- Graph section -->
+  <text x="728" y="212" font-size="18" font-weight="700" fill="#111111">Graph</text>
+  <text x="728" y="254" class="mono" font-size="13" fill="#111111">GPU</text>
+  <rect x="788" y="234" width="420" height="30" rx="3" fill="#b8d0f4"/>
+  <text x="998" y="254" text-anchor="middle" font-size="14" fill="#111111">Graph Replay: Vocoder Decode</text>
+</svg>

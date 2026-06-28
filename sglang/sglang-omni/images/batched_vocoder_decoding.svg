@@ -1,0 +1,66 @@
+<svg viewBox="0 0 1192 600" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>.mono { font-family: 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace; }</style>
+  </defs>
+
+  <rect x="0" y="0" width="1192" height="600" fill="#fafbfd"/>
+
+  <!-- title -->
+  <text x="596" y="42" text-anchor="middle" class="mono" font-size="24" letter-spacing="4" fill="#111111">BATCHED VOCODER DECODING</text>
+  <line x1="68" y1="70" x2="1124" y2="70" stroke="#d3dcef" stroke-width="1"/>
+
+  <!-- column headers -->
+  <text x="32" y="124" class="mono" font-size="18" letter-spacing="2" fill="#111111">INCOMING REQUESTS</text>
+  <text x="420" y="124" class="mono" font-size="18" letter-spacing="2" fill="#111111">BUCKETED BY LENGTH</text>
+
+  <!-- incoming request boxes -->
+  <g>
+    <rect x="52" y="154" width="152" height="40" rx="6" fill="#ffffff" stroke="#cdd9ee"/>
+    <text x="128" y="180" text-anchor="middle" font-size="17" fill="#111111">R1 · 250f</text>
+    <rect x="52" y="207" width="152" height="40" rx="6" fill="#ffffff" stroke="#cdd9ee"/>
+    <text x="128" y="233" text-anchor="middle" font-size="17" fill="#111111">R2 · 250f</text>
+    <rect x="52" y="260" width="152" height="40" rx="6" fill="#ffffff" stroke="#cdd9ee"/>
+    <text x="128" y="286" text-anchor="middle" font-size="17" fill="#111111">R3 · 248f</text>
+    <rect x="52" y="313" width="152" height="40" rx="6" fill="#ffffff" stroke="#cdd9ee"/>
+    <text x="128" y="339" text-anchor="middle" font-size="17" fill="#111111">R4 · 250f</text>
+    <rect x="52" y="366" width="152" height="40" rx="6" fill="#ffffff" stroke="#cdd9ee"/>
+    <text x="128" y="392" text-anchor="middle" font-size="17" fill="#111111">R5 · 252f</text>
+  </g>
+  <text x="128" y="444" text-anchor="middle" font-size="14" fill="#111111">collected in 2ms window</text>
+
+  <!-- bucket arrow -->
+  <text x="287" y="255" text-anchor="middle" font-size="15" fill="#111111">bucket</text>
+  <g stroke="#7a97d4" stroke-width="1.8" fill="#7a97d4">
+    <line x1="222" y1="278" x2="352" y2="278"/>
+    <path d="M352 278 L343 272 L343 284 Z"/>
+  </g>
+
+  <!-- buckets -->
+  <rect x="368" y="152" width="330" height="106" rx="8" fill="#d8e6fb"/>
+  <text x="533" y="198" text-anchor="middle" font-size="22" font-weight="700" fill="#111111">len = 250</text>
+  <text x="533" y="230" text-anchor="middle" font-size="16" fill="#111111">R1, R2, R4 → 1 GPU call</text>
+
+  <rect x="368" y="278" width="330" height="68" rx="8" fill="#ffffff" stroke="#cdd9ee"/>
+  <text x="533" y="310" text-anchor="middle" font-size="20" font-weight="700" fill="#111111">len = 248</text>
+  <text x="533" y="336" text-anchor="middle" font-size="15" fill="#111111">R3 → 1 GPU call</text>
+
+  <rect x="368" y="368" width="330" height="68" rx="8" fill="#ffffff" stroke="#cdd9ee"/>
+  <text x="533" y="400" text-anchor="middle" font-size="20" font-weight="700" fill="#111111">len = 252</text>
+  <text x="533" y="426" text-anchor="middle" font-size="15" fill="#111111">R5 → 1 GPU call</text>
+
+  <!-- decode arrow -->
+  <text x="782" y="255" text-anchor="middle" font-size="15" fill="#111111">decode</text>
+  <g stroke="#7a97d4" stroke-width="1.8" fill="#7a97d4">
+    <line x1="725" y1="278" x2="852" y2="278"/>
+    <path d="M852 278 L843 272 L843 284 Z"/>
+  </g>
+
+  <!-- output box -->
+  <rect x="860" y="205" width="306" height="150" rx="8" fill="#d8e6fb"/>
+  <text x="1013" y="265" text-anchor="middle" font-size="24" font-weight="700" fill="#111111">Audio Waveforms</text>
+  <text x="1013" y="300" text-anchor="middle" font-size="17" fill="#111111">3 GPU calls instead of 5</text>
+
+  <!-- summary pill -->
+  <rect x="248" y="540" width="696" height="48" rx="6" fill="#e8f0fc"/>
+  <text x="596" y="570" text-anchor="middle" font-size="18" font-weight="700" fill="#111111">Same-length sequences batch into a single GPU call — no padding waste</text>
+</svg>

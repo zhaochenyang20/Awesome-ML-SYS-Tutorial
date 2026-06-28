@@ -1,0 +1,51 @@
+<svg viewBox="0 0 1268 580" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>.mono { font-family: 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace; }</style>
+  </defs>
+
+  <rect x="0" y="0" width="1268" height="580" fill="#fafbfd"/>
+
+  <!-- title -->
+  <text x="634" y="40" text-anchor="middle" class="mono" font-size="24" letter-spacing="4" fill="#111111">WINDOWED STREAMING DECODE</text>
+  <line x1="36" y1="66" x2="1232" y2="66" stroke="#d3dcef" stroke-width="1"/>
+
+  <!-- frame timeline header -->
+  <text x="36" y="138" class="mono" font-size="18" letter-spacing="2" fill="#111111">FRAME TIMELINE</text>
+  <line x1="36" y1="164" x2="1232" y2="164" stroke="#d3dcef" stroke-width="1"/>
+
+  <!-- WINDOW 1 -->
+  <rect x="33" y="186" width="564" height="72" rx="6" fill="none" stroke="#b9c6e6" stroke-width="1.4" stroke-dasharray="6 5"/>
+  <text x="49" y="210" class="mono" font-size="13" fill="#111111">WINDOW 1</text>
+  <rect x="37" y="222" width="452" height="34" rx="3" fill="#b8d0f4"/>
+  <text x="263" y="244" text-anchor="middle" font-size="15" fill="#111111">Stride: 75 frames</text>
+  <rect x="489" y="222" width="106" height="34" rx="3" fill="#e8eef9" stroke="#cdd9ee"/>
+  <text x="542" y="244" text-anchor="middle" font-size="14" fill="#111111">Holdback 4f</text>
+
+  <!-- WINDOW 2 -->
+  <rect x="438" y="298" width="575" height="72" rx="6" fill="none" stroke="#b9c6e6" stroke-width="1.4" stroke-dasharray="6 5"/>
+  <text x="454" y="322" class="mono" font-size="13" fill="#111111">WINDOW 2</text>
+  <rect x="440" y="334" width="46" height="34" rx="3" fill="#ffffff" stroke="#1f2a8f" stroke-width="2"/>
+  <text x="463" y="356" text-anchor="middle" font-size="13" font-weight="700" fill="#111111">OL</text>
+  <rect x="488" y="334" width="400" height="34" rx="3" fill="#b8d0f4"/>
+  <text x="688" y="356" text-anchor="middle" font-size="15" fill="#111111">Stride: 75 frames</text>
+  <rect x="890" y="334" width="120" height="34" rx="3" fill="#e8eef9" stroke="#cdd9ee"/>
+  <text x="950" y="356" text-anchor="middle" font-size="14" fill="#111111">Holdback 4f</text>
+
+  <!-- WINDOW 3 -->
+  <rect x="838" y="410" width="404" height="72" rx="6" fill="none" stroke="#b9c6e6" stroke-width="1.4" stroke-dasharray="6 5"/>
+  <text x="854" y="434" class="mono" font-size="13" fill="#111111">WINDOW 3</text>
+  <rect x="840" y="446" width="46" height="34" rx="3" fill="#ffffff" stroke="#1f2a8f" stroke-width="2"/>
+  <text x="863" y="468" text-anchor="middle" font-size="13" font-weight="700" fill="#111111">OL</text>
+  <rect x="888" y="446" width="350" height="34" rx="3" fill="#b8d0f4"/>
+  <text x="1063" y="468" text-anchor="middle" font-size="15" fill="#111111">Stride (final flush)</text>
+
+  <!-- legend -->
+  <rect x="36" y="518" width="26" height="26" rx="3" fill="#b8d0f4"/>
+  <text x="72" y="537" font-size="16" fill="#111111">Stride (75 frames)</text>
+
+  <rect x="306" y="518" width="26" height="26" rx="3" fill="#ffffff" stroke="#1f2a8f" stroke-width="2"/>
+  <text x="342" y="537" font-size="16" fill="#111111">Overlap (8 frames, crossfade)</text>
+
+  <rect x="672" y="518" width="26" height="26" rx="3" fill="#e8eef9" stroke="#cdd9ee"/>
+  <text x="708" y="537" font-size="16" fill="#111111">Holdback (4 frames, incomplete CBs)</text>
+</svg>
