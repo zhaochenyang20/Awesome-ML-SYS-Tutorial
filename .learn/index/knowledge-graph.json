@@ -851,7 +851,9 @@
         "rlhf/sys-design/readme-1.md",
         "rlhf/sys-design/readme-2.md"
       ],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/sglang-omni/tts-optimization.md"
+      ],
       "series": null,
       "series_order": null,
       "prerequisites": [
@@ -920,7 +922,9 @@
         "sglang/kvcache-code-walk-through/mem-fraction-static.md",
         "sglang/diffusion-llm/readme.md"
       ],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/sglang-omni/tts-optimization.md"
+      ],
       "series": null,
       "series_order": null,
       "prerequisites": [
@@ -1085,7 +1089,8 @@
         "torch/cuda-graph/readme.md"
       ],
       "referenced_by": [
-        "sglang/sglang-omni/why-sglang-omni.md"
+        "sglang/sglang-omni/why-sglang-omni.md",
+        "sglang/sglang-omni/tts-optimization.md"
       ],
       "series": "cuda-graph",
       "series_order": 2,
@@ -1211,6 +1216,48 @@
       "series_order": null,
       "prerequisites": [],
       "external_links": {}
+    },
+    {
+      "id": "tts-optimization",
+      "path": "sglang/sglang-omni/tts-optimization.md",
+      "title": "Optimizing TTS Inference: Engineering Lessons from Profiling to Streaming in SGLang Omni",
+      "topics": [
+        "SGLang",
+        "SGLang-Omni",
+        "TTS",
+        "Higgs",
+        "MOSS-TTS-Local",
+        "codec",
+        "RVQ",
+        "delay-pattern",
+        "backbone-inner-module",
+        "CUDA-Graph",
+        "async-decode",
+        "vocoder",
+        "streaming",
+        "encoder-cache",
+        "optimization"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "transformers/omni/readme.md",
+        "sglang/scheduler/readme.md",
+        "torch/cuda-graph/readme-2.md",
+        "sglang/sglang-omni/why-sglang-omni.md",
+        "sglang/sglang-omni/moss-tts-local-batch-encoder-skew.md"
+      ],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "transformers/omni/readme.md",
+        "torch/cuda-graph/readme-2.md"
+      ],
+      "external_links": {
+        "github_cn": "sglang/sglang-omni/tts-optimization-zh.md"
+      }
     }
   ],
   "series": {

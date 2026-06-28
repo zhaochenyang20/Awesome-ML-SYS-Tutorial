@@ -1,8 +1,15 @@
 # Optimizing TTS Inference: Engineering Lessons from Profiling to Streaming in SGLang Omni
 
-A TTS (Text-to-Speech) model converts written text into natural-sounding spoken audio. State-of-the-art TTS models often have a LLM backboned architecture, and of cause, this LLM autoregressive decoding takes most of the computation. In this sense, optimizing TTS inference looks similar to optimizing LLM inference at first glance: both have autoregressive decoding, KV cache, CUDA Graph, and continuous batching. But pratically speaking, TTS serving is not just one text-token decode loop. A request may go over reference-audio encoding, multi-layer codec-token generation, vocoder decoding, and streaming audio stitching. Many important wins indeed land outside the LLM backbone.
+A TTS (Text-to-Speech) model converts written text into natural-sounding spoken audio. State-of-the-art TTS models often have an LLM-backbone architecture, and of course this LLM autoregressive decoding takes most of the computation. In this sense, optimizing TTS inference looks similar to optimizing LLM inference at first glance: both have autoregressive decoding, KV cache, CUDA Graph, and continuous batching. But practically speaking, TTS serving is not just one text-token decode loop. A single request may pass through reference-audio encoding, multi-layer codec-token generation, vocoder decoding, and streaming audio stitching — and many of the biggest wins land outside the LLM backbone.
 
-In this blog, we break down the mechanisms to make our TTS pipeline fast on [SGLang Omni](https://github.com/sgl-project/sglang-omni): the bottlenecks we hit, the host-to-device pitfalls, and the architectural trade-offs we made. We focus on two TTS models with distinct architectures: [Higgs](https://huggingface.co/bosonai/higgs-audio-v3-tts-4b) from Boson AI and [MOSS-TTS-Local-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) from MOSI AI.
+
+| Model | Mode | Speedup (perf vs vanilla) |
+|---|---|---|
+| Higgs | streaming / non-streaming | ~1.9–2.5× |
+| MOSS-TTS-Local-v1.5 | non-streaming | ~2.3–3.4× |
+| MOSS-TTS-Local-v1.5 | streaming | ~2.6–3.4× (plateaus at high concurrency) |
+
+In this blog, we break down the mechanisms that make our TTS pipeline fast: the bottlenecks we hit, the host-to-device pitfalls, and the architectural trade-offs we made. We focus on two TTS models with distinct architectures: [Higgs](https://huggingface.co/bosonai/higgs-audio-v3-tts-4b) from Boson AI and [MOSS-TTS-Local-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) from MOSI AI.
 
 
 ## TTS Pipeline and Prerequisites
@@ -18,13 +25,15 @@ Unlike serving a chat LLM with a single autoregressive loop, TTS inference could
 
 1. **Preprocessing (CPU):** Text tokenization and reference-audio loading, purely IO-bound and involves no GPU compute.
 
-2. **Audio Encoder (GPU):** Autoregressive model can only process distinct tokens, not continuous values. The audio encoder compresses audio waves into a low-rate sequence of discrete RVQ token grids (shape `[T, N]`, where `T` is codec frames and `N` is RVQ layers, as discuss later). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. You can found more details in [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
+2. **Audio Encoder (GPU):** An autoregressive model can only process discrete tokens, not continuous values. The audio encoder compresses audio waves into a low-rate sequence of discrete RVQ token grids (shape `[T, N]`, where `T` is codec frames and `N` is RVQ layers, as discussed later). These tokens capture the timbre and prosody of the reference voice — the "how to sound" conditioning signal that the TTS engine will follow. You can find more details in [Codec Audio Encoding](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#codec-audio-encoding).
 
 3. **TTS Engine (GPU):** The core autoregressive stage. The engine generates output speech as codec-token IDs rather than text-token IDs. Different models fill the multi-layer codec grid differently. Delay-pattern models such as Higgs and MOSS-TTS-v1.5 first generate in a delayed step × codebook grid; after undelay, diagonal groups become aligned back to `[T, N]` codec frames for the vocoder. Non-delayed models such as FishAudio S2 Pro and MOSS-TTS-Local-v1.5 instead construct each frame more directly: a large backbone provides temporal context per frame, and a smaller inner module fills the codebook layers within each frame. This codec-token generation stage takes most GPU time, and it is where model-specific scheduling, CUDA Graph, and async decode land.
 
 4. **Vocoder (GPU):** The vocoder runs the reverse direction: it maps generated codec tokens back into a continuous audio waveform. Per-call compute is usually lightweight, but under high concurrency multiple AR loops can finish simultaneously and queue at the vocoder; streaming behavior also varies by vocoder's design.
 
-A simplified data flow is: **Text + Reference Audio → RVQ encoding → multi-layer codec tokens generation → audio waveform**. In many TTS systems, audio encoding and vocoder decoding are two directions of the same audio tokenizer model: audio-to-codec-token for the encoder, and codec-token-to-audio for the vocoder. They are still separate logical roles in the serving pipeline, and, as we will see in MOSS, they may even be deployed as separate model instances. To further understand these stages, we need to introduce several essential concepts.
+A simplified data flow is: **Text + Reference Audio → RVQ encoding → multi-layer codec tokens generation → audio waveform**. In many TTS systems, audio encoding and vocoder decoding are two directions of the same audio tokenizer model: audio-to-codec-token for the encoder, and codec-token-to-audio for the vocoder. But for other models, audio encoder and vocoder may be completely different models.
+
+To better understand these stages, we need to introduce several essential concepts.
 
 ### Codec Token, Codebook, and RVQ Layer
 
@@ -38,17 +47,17 @@ To discuss multi-codebook generation clearly, we first need a simple visual obje
 </div>
 
 
-**1. Codec token, codebook, and RVQ layer.** As we said, text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a **codec token** is an integer ID that represents a slice of sound. A **codebook** is the static vocabulary of one layer — in Higgs, each layer's codebook has roughly 4,096 possible IDs, each mapped to an embedding vector. An **RVQ layer** is the quantizer stage that owns one such codebook. Higgs has $N = 8$ RVQ layers, so each aligned audio unit (frame) ultimately needs 8 sampled IDs, one from each layer. Importantly, 4,096 is the number of candidates per layer, but the length of the layer could be rather longer. In the diagram, codec token is each grid cell, and RVQ layer is a line of grid cells. Each line has one shared codebook.
+**1. Codec token, codebook, and RVQ layer.** As we said, text LLMs consume discrete token IDs from a finite vocabulary. TTS needs the same interface for audio: a **codec token** is an integer ID that represents a slice of sound. A **codebook** is the static vocabulary of one layer — in Higgs, each layer's codebook has roughly 4,096 possible IDs, each mapped to an embedding vector. An **RVQ layer** is the quantizer stage that owns one such codebook. Higgs has $N = 8$ RVQ layers, so each aligned audio unit (frame) ultimately needs 8 sampled IDs, one from each layer. Importantly, 4,096 is the size of one layer's codebook (its number of candidate IDs), not the length of the generated sequence — a layer emits one ID per frame, so over a full utterance it produces hundreds of codec tokens drawn from those 4,096 candidates. In the diagram, each codec token is one grid cell, and each RVQ layer is a row of grid cells. Each row has one shared codebook.
 
-**2. RVQ (Residual Vector Quantization).** How to encoder audio waves into codec tokens is an art. The trending technique is [Residual Vector Quantization (Zeghidour et al., 2021)](https://arxiv.org/abs/2107.03312). For each frame of an audio, encode it into a single integer ID can only approximate the audio signal coarsely. RVQ stacks multiple quantizers in series: $L_0$ quantizes the framework/signal first, $L_1$ quantizes the residual error left by $L_0$, $L_2$ quantizes what $L_1$ still missed, and so on. Each layer captures progressively finer detail. We tend to assume that $L_0$ encode coarse structure (pitch, rhythm, energy), while deeper layers encode timbre and high-frequency texture. Decoding sums all layer contributions to reconstruct the audio.
+**2. RVQ (Residual Vector Quantization).** How to encode audio waves into codec tokens is an art. The trending technique is [Residual Vector Quantization (Zeghidour et al., 2021)](https://arxiv.org/abs/2107.03312). For one frame of audio, encoding it into a single integer ID can only approximate the audio signal coarsely. RVQ stacks multiple quantizers in series: $L_0$ quantizes the coarse signal first, $L_1$ quantizes the residual error left by $L_0$, $L_2$ quantizes what $L_1$ still missed, and so on. Each layer captures progressively finer detail. We tend to assume that $L_0$ encodes coarse structure (pitch, rhythm, energy), while deeper layers encode timbre and high-frequency texture. Decoding sums all layer contributions to reconstruct the audio.
 
-In this sense, one frame of audio could be encoded into a list of codec tokens, and the length of the list is the number of RVQ layers. We tends to put it vertically, so the shape of the codec tokens for one frame is `[1, N]`. In a non-delayed grid, this frame is exactly one vertical column: all codebooks at step $k$ carry tokens for the same audio time $t=k$. In the backward process, a list of `[1, N]` codec tokens can be decoded back to a single frame of audio. Thus, the hierarchy residual mechanism makes the order of the generated codec tokens matters.
+In this sense, one frame of audio can be encoded into a list of codec tokens, and the length of the list is the number of RVQ layers. We tend to lay it out vertically, so the shape of the codec tokens for one frame is `[1, N]`. In a non-delayed grid, this frame is exactly one vertical column: all codebooks at step $k$ carry tokens for the same audio time $t=k$. In the backward process, a list of `[1, N]` codec tokens can be decoded back to a single frame of audio. Thus, the hierarchical residual mechanism makes the order of the generated codec tokens matter.
 
-If all layers sample independently at the same time, `[1, N]` tokens are generated at the same time with only one forward pass, which means higher layers cannot adapt to what lower layers just emitted. The residual mechanism is broken, no ponder it will degrade the audio quality. On the other side, if we generate the codec token for $L_0$ in the first forward pass, then the codec token for $L_1$ in the second forward pass, and so on, quality improves but latency grows roughly with the number of layers. Every multi-layer TTS system has to navigate this trade-off, and the delay pattern is the codec token generation policy Higgs uses to do so. We will discuss it in the next section. Meanwhile, FishAudio S2 Pro and MOSS-TTS-Local-v1.5 solve this problem without delay by separating the backbone from a lighter inner module: the backbone provides temporal context per frame, and the inner module fills the codebook layers. The exact division of labor differs — S2 Pro's backbone samples $L_0$ itself ([Dual AR](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#dual-ar-model-inference-fish-audio-s2-pro)), while MOSS-TTS-Local's backbone only produces hidden states and delegates all codebook sampling to its local transformer.
+If all layers sample independently at the same time, `[1, N]` tokens are generated together with only one forward pass, which means higher layers cannot adapt to what lower layers just emitted. The residual mechanism is broken, so no wonder it degrades the audio quality. On the other side, if we generate the codec token for $L_0$ in the first forward pass, then the codec token for $L_1$ in the second forward pass, and so on, quality improves but latency grows roughly with the number of layers. Every multi-layer TTS system has to navigate this trade-off, and the delay pattern is the codec token generation policy Higgs uses to do so. We will discuss it in the next section. Meanwhile, FishAudio S2 Pro and MOSS-TTS-Local-v1.5 solve this problem without delay by separating the backbone from a lighter inner module: the backbone provides temporal context per frame, and the inner module fills the codebook layers. The exact division of labor differs — S2 Pro's backbone samples $L_0$ itself ([Dual AR](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/transformers/omni/readme-en.md#dual-ar-model-inference-fish-audio-s2-pro)), while MOSS-TTS-Local's backbone only produces hidden states and delegates all codebook sampling to its local transformer.
 
-**3. Global step and codec frame.** We use the word frame several times, and can basically treat it as a unit of audio wave. A 10-second audio wave at 25 fps has roughly 250 such aligned codec frames. Frame and step are roughly equivalent to each other in the context of TTS inference, each timestep ultimately produces a vertical list of `[1, N]` codec tokens ($\{L_0, L_1, \ldots, L_{N-1}\}$), then get decoded back to a single frame of audio. Roughly speaking, in each global step for Higgs, the LM backbone forward once and get its logits, then each active RVQ layer's output head samples from the logits over its ~4096-entry codebook and get one ID. One global step therefore writes at most 8 IDs. It's just the same as LLM use an LM head to sample one text token from the logits. But in Higgs, we have to use multiple heads to complete the whole frame, `[1, N]` codec tokens.
+**3. Global step and codec frame.** We use the word frame several times, and can basically treat it as a unit of audio wave. A 10-second audio wave at 25 fps has roughly 250 such aligned codec frames. Frame and step are roughly equivalent in the context of TTS inference: each timestep ultimately produces a vertical list of `[1, N]` codec tokens ($\{L_0, L_1, \ldots, L_{N-1}\}$), which then gets decoded back to a single frame of audio. Roughly speaking, in each global step for Higgs the LM backbone forwards once and produces its logits, then each active RVQ layer's output head samples one ID from those logits over its ~4,096-entry codebook. One global step therefore writes at most 8 IDs. It is just like an LLM using an LM head to sample one text token from the logits — except that in Higgs we have to use multiple heads to complete the whole frame, the `[1, N]` codec tokens.
 
-In this sense, when passed to the vocoder, a codec frame has to be formed into a column of `[1, N]` on the step x codebook grid, as we have shown in Figure 2. But on the original step x codebook grid, frames could layed be different. Without delay pattern, a vocoder-ready codec frame $k$ is exactly the vertical column $\{L_0[k], L_1[k], \ldots, L_N[k]\}$ of the original grid. But with delay pattern, layer $i$ is shifted by $i$ steps, so the same frame is no longer a column during generation; it lands on a diagonal: $\{L_0[k], L_1[k+1], \ldots, L_N[k+N]\}$. That is what we show in Figure 3. After **undelay**, this diagonal is shifted back and becomes row $k$ of the aligned `[T, N]` grid, which is the vocoder-ready representation.
+In this sense, when passed to the vocoder, a codec frame has to be formed into a column of `[1, N]` on the step × codebook grid, as shown in Figure 2. But on the original step × codebook grid, frames can be laid out differently. Without the delay pattern, a vocoder-ready codec frame $k$ is exactly the vertical column $\{L_0[k], L_1[k], \ldots, L_N[k]\}$ of the original grid. But with the delay pattern, layer $i$ is shifted by $i$ steps, so the same frame is no longer a column during generation; it lands on a diagonal: $\{L_0[k], L_1[k+1], \ldots, L_N[k+N]\}$. That is what we show in Figure 3. After **undelay**, this diagonal is shifted back and becomes row $k$ of the aligned `[T, N]` grid, which is the vocoder-ready representation.
 
 These concepts set up the core question that both delay pattern and backbone + inner module try to resolve: at each global step, should all $N$ layers sample real IDs immediately, should each layer get its own full backbone forward pass, or should we separate temporal context from per-frame codebook generation? Delay pattern answers this with staggered activation, while the backbone + inner module approach answers it by moving the codebook loop into a cheaper inner model.
 
@@ -67,17 +76,17 @@ Let's put four scheduling strategies together:
 
 ### Delay Pattern
 
-The delay pattern proposed an artistic solution to the trade-off under the residual mechanism. It staggers layer activation along the shared global-step axis: layer $i$ starts real sampling $i$ steps after layer $0$, with its first $i$ slots filled by BOC placeholders. In other words, the frame under the delay pattern is neither vertical nor horizontal, but diagonal or skewed. As we said, it's $\{L_0[k], L_1[k+1], \ldots, L_7[k+7]\}$ in the frame grid of Higgs.
+The delay pattern is an elegant solution to the trade-off under the residual mechanism. It staggers layer activation along the shared global-step axis: layer $i$ starts real sampling $i$ steps after layer $0$, with its first $i$ slots filled by BOC placeholders. In other words, the frame under the delay pattern is neither vertical nor horizontal, but diagonal or skewed. As we said, it is $\{L_0[k], L_1[k+1], \ldots, L_7[k+7]\}$ in the frame grid of Higgs.
 
-The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward. At each step, every layer slot in the step × codebook grid is written, but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token along its first valid token. Undelay later regroups diagonals from this grid into columns of the aligned `[T, N]` grid.
+The core idea of staggering: all layers share the same global step axis and the same per-step backbone forward. At each step, every layer slot in the step × codebook grid is written, but inactive layers receive a BOC (Beginning-of-Code) placeholder instead of a real sample, while active layers each draw one ID from their own codebook in parallel. Once layer $i$ activates at global step $i$, each subsequent step adds one more valid token after its first. Undelay later regroups diagonals from this grid into columns of the aligned `[T, N]` grid.
 
-The delay-pattern Figure 3 compresses the lifecycle into 29 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step to get one logits, 8 codebook heads samples from the logits, and write the sampled codec tokens its grid. This process continues until $L_0$ emits EOC (end of codec) and wind-down finishes.
+The delay-pattern Figure 3 compresses the lifecycle into 29 global steps for illustration. In production, the grid simply extends horizontally: one backbone forward per step to produce one set of logits, 8 codebook heads sample from those logits, and the sampled codec tokens are written into the grid. This process continues until $L_0$ emits EOC (end of codec) and wind-down finishes.
 
 Note that when layer $i$ produces its first valid token at global step $i$, every preceding layer $L_j$ ($j < i$) has already produced its first valid token at global step $j$. $L_{i-1}$'s token from step $i-1$ is available for conditioning on. The backbone's KV cache, accumulated over steps $0 \ldots i-1$, already encodes the history of previous layers' valid tokens. This is exactly the causal hierarchy RVQ requires — without running $N$ fully separate AR passes. Wind-down mirrors ramp-up symmetrically: when $L_0$ emits EOC at step $T-8$, higher layers continue for another $N-1$ steps before stopping ($L_1$ at $T-7$, $L_2$ at $T-6$, ...).
 
-Another way to describe the same process is as a four-phase state machine: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when $L_0$ hits the End-of-Codes token), and Finished. I dislike these terminology, since we have already got the principles of the delay pattern clearly.
+Another way to describe the same process is as a four-phase state machine: Delay Stage (staggered activation), Active Stage (normal sampling), Wind Down (triggered when $L_0$ hits the End-of-Codes token), and Finished. I personally dislike this terminology, since we have already grasped the principles of the delay pattern clearly enough without it.
 
-The trade-off of the delay pattern is it adds exactly $N$ extra AR steps to get $T$ codec frames compared with naive parallel layer generation, which is the ramp-up / wind-down overhead visible in the diagram. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality than naive parallel sampling, at near-parallel speed compared to fully sequential layer generation.
+The trade-off of the delay pattern is that it adds exactly $N$ extra AR steps to get $T$ codec frames compared with naive parallel layer generation — this is the ramp-up / wind-down overhead visible in the diagram. For a typical 250-step generation, this is a ~3% overhead. The exchange is better audio quality than naive parallel sampling, at near-parallel speed compared to fully sequential layer generation.
 
 Also, the delay pattern is not unique to Higgs and it's not the only solution. Delay pattern has been widely adopted in other multi-codebook audio generation models, including [MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5). But [MOSS-TTS-Local-Transformer-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5) is a different checkpoint: like FishAudio S2-Pro, it uses a non-delayed architecture where a backbone and a lighter inner module work together to fill each frame as a vertical column — no delay/undelay needed.
 
@@ -128,7 +137,7 @@ MOSS-TTS-Local-v1.5 uses a local-transformer architecture to fill the higher lev
 
 - **Preprocessing (CPU):** Text tokenization and reference audio loading, typical TTS. Purely IO-bound.
 - **Audio Encoder (GPU):** Uses MOSS-Audio-Tokenizer-v2, a ~1B-parameter audio tokenizer model. Its encoder direction converts reference audio into discrete RVQ tokens. MOSS-TTS-Local uses 12 RVQ layers plus one text/control channel, so the full grid layout is `[T, 13]`.
-- **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per step to get one logits and sample the $L_0$ codec token. After each backbone step, a 1-layer local transformer sequentially samples remaining 12 RVQ-layer codec tokens from the backbone's output. The 13 sampled embeddings are then summed back as the backbone's next-step input. This keeps the backbone lightweight, and the local transformer's 12-step sequential loop could be the latency bottleneck (see CUDA Graph section).
+- **TTS Engine (GPU Backbone + Local Transformer):** The Qwen3 backbone runs once per frame and produces a hidden state — it does not sample any codec token itself. That hidden state is fed into a 1-layer local transformer, which sequentially samples all 13 channels of the frame (one text/control channel plus the 12 RVQ-layer codec tokens, **including $L_0$**), feeding each sampled code back before sampling the next. The 13 sampled embeddings are then summed back as the backbone's next-step input. This keeps the backbone lightweight, while the local transformer's per-frame loop (1 backbone step + 12 local micro-steps, 13 seeded sampling passes) can become the latency bottleneck (see CUDA Graph section).
 - **Vocoder (GPU):** Uses the decode direction of MOSS-Audio-Tokenizer-v2. Logically this is the reverse of the audio encoder, but in serving we deploy a separate MOSS-Audio-Tokenizer-v2 instance for vocoder decoding, rather than reusing the encoder instance. Unlike Higgs's DAC vocoder, it is natively streamable — supporting frame-by-frame decode, with no need for windowed chunking, overlap, or crossfade. However, this extra ~1B-parameter vocoder instance is much heavier than Higgs's DAC vocoder and introduces significant overhead if not properly optimized.
 
 ### Optimization Implications
@@ -142,14 +151,14 @@ As shown in the picture, both models use a Qwen3-scale backbone (~4B parameters)
 
 > *One notable observation from our benchmarks (1× H100 80GB, Seed-TTS-Eval EN full set): MOSS streaming does not scale as well as Higgs under higher concurrency. Here, concurrency (`c`) is the number of simultaneous in-flight requests, and `qps` (queries per second) measures end-to-end throughput. At c=16, MOSS streaming reaches only 6.5 qps compared to 10.9 qps in non-streaming mode. The exact root cause is still under investigation, and narrowing this gap is an active area of work.*
 
-Those differences directly shape our optimization strategy. At a high level, both models share the same four optimization directions: (1) encoder caching to skip redundant reference-audio encoding, (2) CUDA Graph capture to eliminate per-step kernel launch overhead in AR decode, (3) async CPU–GPU decode to overlap D2H (Device-to-Host, i.e. copying tensors from GPU memory back to CPU memory) synchronization with GPU compute, and (4) vocoder batching and streaming to reduce tail latency and time-to-first-audio. During AR decoding, each step requires a D2H copy to read the generated token, which blocks the GPU; async decode overlaps this transfer with the next step's GPU computation to hide the latency. While both models benefit from all four directions, their architectural differences shift where the biggest wins land:
+Those differences directly shape our optimization strategy. At a high level, both models share the same four optimization directions: (1) encoder caching to skip redundant reference-audio encoding, (2) CUDA Graph capture to eliminate per-step kernel launch overhead in AR decode, (3) async CPU–GPU decode to overlap D2H (Device-to-Host, i.e. copying tensors from GPU memory back to CPU memory) synchronization with GPU compute, and (4) vocoder batching and streaming to reduce tail latency and time-to-first-audio. During AR decoding, each step requires a D2H copy to read the generated token, which blocks the GPU; async decode overlaps this transfer with the next step's GPU computation to hide the latency. While both models benefit from all four directions, their architectural differences shift where the biggest wins land. The bullets below explain *why* each direction matters more for one model than the other from an architecture standpoint; the measured per-stage costs that confirm these predictions are deferred to the profiling section ([Where is the Time Actually Spent?](#where-is-the-time-actually-spent)).
 
 > **Note on D2H:** D2H (Device-to-Host) means copying data from GPU memory back to CPU memory. During AR decoding, each step must D2H-copy the sampled token ID so the CPU can check for end-of-sequence and prepare the next input. This synchronization blocks the GPU pipeline until the transfer completes.
 
-- **Encoder caching is more critical for MOSS:** Each MOSS encode costs ~250ms per reference (vs 50–100ms for Higgs) due to the ~1B-parameter audio tokenizer. This means MOSS benefits more from encoder caching, since every cache hit saves significantly more compute time.
-- **AR decode takes a larger share of inference time in Higgs:** Although both models share a Qwen3-4B backbone, MOSS has larger codec, and plus it generates roughly half the number of capture frames compared to Higgs (12.5 frames per second comparing to 25 frames per second), so the AR decode stage takes a smaller proportion of total MOSS latency. In Higgs, AR decode dominates total inference time, so optimizations targeting the AR stage (such as CUDA Graph capture of the backbone forward pass) yield bigger relative wins.
+- **Encoder caching is more critical for MOSS:** MOSS's ~1B-parameter audio tokenizer makes each reference encode far more expensive than Higgs's small DAC-based tokenizer, so every cache hit saves much more compute.
+- **AR decode takes a larger share of inference time in Higgs:** Although both models share a Qwen3-4B backbone, MOSS runs a heavier codec and generates frames at roughly half the rate of Higgs (12.5 vs 25 fps), so the AR decode stage is a smaller fraction of MOSS's total latency. In Higgs, AR decode dominates, so AR-stage optimizations (such as CUDA Graph capture of the backbone forward pass) yield the biggest relative wins.
 - **Kernel launch overhead matters more for MOSS:** MOSS fills codebook layers sequentially — one backbone step followed by 12 local-transformer micro-steps — rather than decoding multiple codebooks in parallel like Higgs's delay pattern. This sequential design produces many more small kernel launches per frame, so kernel launch overhead accumulates and CUDA Graph capture of the full micro-loop (1 + 12 micro-steps) becomes essential.
-- **Vocoder optimization is more important for MOSS:** MOSS serves vocoder decoding with a separate ~1B-parameter model instance, so the vocoder has a much heavier workload than Higgs. We therefore implemented CUDA Graph optimization specifically for MOSS vocoder to reduce each-step launch overhead.
+- **Vocoder optimization is more important for MOSS:** MOSS serves vocoder decoding with a separate ~1B-parameter model instance — a far heavier workload than Higgs's lightweight DAC vocoder — so we apply CUDA Graph capture specifically to the MOSS vocoder to cut its per-step launch overhead.
 - **MOSS encoder and vocoder are distinct models:** Unlike Higgs's DAC tokenizer (CNN-based), [MOSS-Audio-Tokenizer-v2](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-v2) is a CNN-free, pure causal-transformer architecture. It uses patchify layers to change frame rates instead of CNN blocks, and all layers use sliding-window attention, which guarantees strict streaming support. The encoder (~1B) and decoder (~1B) are architecturally separate models with different weights, packaged together as a ~2B checkpoint for release but not shared. The full MOSS-TTS-Local-v1.5 weight breakdown is ~1B audio encoder + ~4B Qwen3 backbone + ~1B vocoder. A practical serving advantage of the pure-transformer design is that it preserves sequence length throughout computation, making it straightforward to pack sequences for batched inference — reducing overhead under high concurrency or long-tail sequence lengths. CNN-based tokenizers pad inputs and change sequence lengths at each convolutional block, making sequence packing much harder as the number of CNN blocks grows.
 - **Streaming strategy is fundamentally different:** While Higgs needs windowed chunking with stride/overlap/holdback to work around DAC's non-streamable vocoder, MOSS's natively streamable vocoder eliminates this entirely, but introduces slot management complexity at high concurrency.
 
@@ -161,7 +170,7 @@ All optimizations in this blog are measured on top of a baseline that already in
 
 ### Where is the Time Actually Spent?
 
-We profiled the naive pipeline of Moss and Higgs after barely support them before further optimizations:
+We profiled the naive pipelines of MOSS and Higgs right after getting them barely working, before any further optimization. These are the measured per-stage costs behind the architectural predictions above:
 
 **Higgs:**
 
@@ -194,20 +203,44 @@ The encoder converts a reference audio clip into delayed codec tokens. In produc
 
 In this sense, we introduce an LRU cache keyed by the audio waveform content. On a cache hit, the encoder stage is skipped entirely. For text, SGLang's RadixCache enables prefix sharing — two prompts that start with the same tokens can reuse partial KV cache. However, audio caching is fundamentally different: there is no meaningful prefix relationship in the time-frequency domain, so we use strictly exact-match lookup. The cache key is a content hash of the input audio: `xxh3_64` for raw bytes/base64 input. Two audio clips that produce the same hash are a hit; everything else is a miss.
 
+The cache itself is a small `OrderedDict`-backed LRU keyed by that content hash ([`stage_cache.py`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/scheduling/stage_cache.py#L41-L116)):
+
+```python
+class StageOutputCache:
+    """Small in-memory LRU cache for non-AR stage outputs."""
+
+    def get(self, key: str | None) -> Any | None:
+        if key is None:
+            return None
+        entry = self._cache.get(str(key))
+        if entry is None:
+            return None
+        self._cache.move_to_end(key)   # mark most-recently-used
+        return entry.data
+
+    def _evict_over_budget(self) -> None:
+        while self.max_size is not None and len(self._cache) > self.max_size:
+            _, entry = self._cache.popitem(last=False)   # drop least-recently-used
+            self.current_bytes -= entry.size_bytes
+            self.eviction_count += 1
+```
+
+Two design choices matter here. First, `get` calls `move_to_end` on every hit, so the ordering tracks recency, not insertion — eviction with `popitem(last=False)` always drops the coldest reference voice. Second, the cache is budgeted by both entry count (`max_size`) and total bytes (`max_bytes`), because a cached encode is a tensor, not a token list; a content-hash key with a byte budget keeps a long-tail of distinct narrator voices from blowing up GPU/host memory. This is also exactly why the "encoder batching" experiment below was so tempting and so dangerous — it changes the cached value for the *same* key.
+
 ### Encoder Batching
 
 On Higgs, we experimented with online batched encoding by bucketing incoming audio by length. While it improved raw throughput on paper, it created a new problem in production: GPU utilization shifted from smooth patterns to intermittent spikes, causing severe resource contention with the concurrent AR decode loops. We ultimately moved batched encoding offline (used strictly for offline inference scenarios) and kept online encoding isolated.
 
 On MOSS, the heavier ~1B encoder makes batching more attractive in theory — the larger per-encode cost means batching amortization should outweigh collection delay. However, when we pursued deeper batching optimizations, we discovered two issues.
 
-First, the throughput gain was illusory. An initial 23% improvement we found on Moss turned out to be confounded with a cache capacity increase (256 → 1024 entries) in the same commit. After properly controlling variables, batching alone actually hurt throughput by 0.8–4.4%. The reason: to batch audio of different lengths, we must bucket references into length groups and wait for enough samples to fill each bucket. In practice, concurrent requests rarely land in the same bucket, so most "batches" are size 1 or 2 with all the scheduling overhead and none of the throughput benefit.
+First, the throughput gain was illusory. An initial 23% improvement we found on MOSS turned out to be confounded with a cache capacity increase (256 → 1024 entries) in the same commit. After properly controlling variables, batching alone actually hurt throughput by 0.8–4.4%. The reason: to batch audio of different lengths, we must bucket references into length groups and wait for enough samples to fill each bucket. In practice, concurrent requests rarely land in the same bucket, so most "batches" are size 1 or 2 with all the scheduling overhead and none of the throughput benefit.
 
 Second, batched encoding produces different discrete tokens than single-item encoding. Concretely, `encode(audio_A)` and `encode([audio_A, audio_B])[0]` return different codec tokens for the same audio — about 5.8% of tokens flip. Logically this should not happen, but the root cause is that changing the batch size changes the M dimension of the underlying BF16 GEMM, which causes cuBLAS to select a different kernel with a different floating-point accumulation order. The resulting sub-ULP drift is normally invisible, but RVQ's hard quantization immediately follows the encoder: for frames near a codebook boundary, a one-bit perturbation is enough to snap to a different codeword, flipping the discrete token. This makes batched encoder caching unsafe and introduces a new source of train-serving skew unique to neural (as opposed to symbolic) tokenizers. For a detailed analysis, see [The Root Cause of RL Training-Serving Skew is Pervasive Across Inference Systems](moss-tts-local-batch-encoder-skew.md).
 
 
 ### CUDA Graph
 
-Since AR decode is our primary bottleneck, we need to put the majority of work into optimizing this step. In our implementation, we focused on eliminating kernel launch overhead and synchronization stalls using CUDA Graph and CPU-GPU async decode, respectively.
+Since AR decode is our primary bottleneck, we need to put the majority of work into optimizing this step. In our implementation, we focused on eliminating kernel launch overhead and synchronization stalls using CUDA Graph and CPU-GPU async decode, respectively. We assume basic familiarity with CUDA Graph here; for the mechanics of capture/replay, multi-graph reuse, and the persistent-buffer tricks behind capturing a Dual-AR TTS model, see our earlier deep dive [Revisiting CUDA Graph: Core Mechanisms, Multi-Graph Memory Sharing, and Unified Coverage for Dual AR Models](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/torch/cuda-graph/readme-2-en.md).
 
 
 <div align="center">
@@ -227,15 +260,32 @@ TTS models consist of many tiny modules — sampling, codebook lookup, state upd
 - **After CUDA Graph (gather/scatter):** The graph replays the entire batched forward pass and sampling on GPU with zero D2H during execution. Before replay, the runner *gathers* active requests' state from their scheduler slots into fixed shadow buffers; after replay, it *scatters* updated state back. Because the graph runs at full `max_batch` dimension, inactive slots are masked out. After replay, three batched `.cpu()` calls read back the results — one for sampled tokens, one for EOC flags, one for done status — reducing the sync count from $O(B)$ to a constant 3 per step regardless of batch size.
 - **After D2H merging:** We further pack all three outputs into a single contiguous staging buffer (`_cg_collect_staging`, shaped `[max_batch, num_codebooks + 2]`) on the GPU. One `.cpu()` call transfers the entire buffer; the CPU then slices locally to extract tokens, EOC, and done — pure host-side indexing with no further GPU synchronization. This reduces the per-step sync count from 3 to 1, which is also a prerequisite for the async overlap scheduling described next.
 
+The shadow buffers and the merged staging tensor are allocated once at server start, sized to the graph's max batch ([`higgs_tts/model.py`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/models/higgs_tts/model.py#L187-L193)); the `+ 2` columns are the two completion flags packed alongside the `num_codebooks` codes:
+
+```python
+# higgs_tts/model.py — packs codes_BN | was_done | active_generation_done into one buffer
+self._cg_codes_BN = torch.zeros(pool_size, num_codebooks, dtype=torch.long, device=cg_device)
+self._cg_collect_staging = torch.zeros(pool_size, num_codebooks + 2, dtype=torch.long, device=cg_device)
+```
+
+The scatter-then-pack step is a single GPU→GPU function — it writes the per-request sampler state back into the pool, then lays the three result tensors side by side in that one staging buffer ([`higgs_tts/model_runner.py`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/models/higgs_tts/model_runner.py#L244-L263)):
+
+```python
+# _decode_pack_gpu: all GPU→GPU; returns the device staging buffer
+staging = model._cg_collect_staging
+staging[:n_real, :num_codebooks]     = model._cg_codes_BN[:n_real]
+staging[:n_real, num_codebooks]      = model._cg_was_done[:n_real]
+staging[:n_real, num_codebooks + 1]  = model._cg_active_generation_done[:n_real]
+return staging
+```
+
+In the synchronous path the runner then does exactly one blocking `staging[:n_real].cpu()` ([`model_runner.py#L234-L235`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/models/higgs_tts/model_runner.py#L234-L235)); the async path replaces that with a non-blocking copy into a pinned host buffer, which is what makes the next section possible.
+
 ### Asynchronous Decode + Lookahead
 
-The vanilla pattern of CPU–GPU synchronization is as shown in the picture below. GPU and CPU process in the same flow and will stop and wait for each other. We discovered this pattern is inefficient since the D2H sync time can stack up to very high during AR decoding. To hide the remaining D2H synchronization time, we want to discover a pattern to let GPU and CPU work simultaneously and not wait for each other.
+In the vanilla pattern of CPU–GPU synchronization, GPU and CPU process in the same flow and stop to wait for each other. We found this inefficient: the D2H sync time stacks up across hundreds of AR decode steps. To hide the remaining D2H synchronization time, we want a pattern that lets the GPU and CPU work simultaneously instead of waiting for each other.
 
-The async decode splits each step into two halves — a GPU-side **launch** and a CPU-side **resolve** — that run one step apart:
-
-This idea is inspired by SGLang's [overlap scheduler](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler/readme-en.md#overlap-scheduler-hiding-scheduling-overhead-behind-operators), which hides CPU scheduling overhead behind GPU operators in LLM serving (see also the [SGLang v0.4 blog](https://lmsys.org/blog/2024-12-04-sglang-v0-4/)). We apply the same principle to TTS AR decoding: overlap the CPU-side result processing of the previous step with the GPU-side computation of the current step.
-
-The overall timeline would be as shown in the picture:
+The async decode splits each step into two halves — a GPU-side **launch** and a CPU-side **resolve** — that run one step apart. This idea is inspired by SGLang's [overlap scheduler](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler/readme-en.md#overlap-scheduler-hiding-scheduling-overhead-behind-operators), which hides CPU scheduling overhead behind GPU operators in LLM serving (see also the [SGLang v0.4 blog](https://lmsys.org/blog/2024-12-04-sglang-v0-4/)). We apply the same principle to TTS AR decoding: overlap the CPU-side result processing of the previous step with the GPU-side computation of the current step. The resulting timeline is Figure 10 below.
 
 The event loop implements this as: each iteration launches the current step (enqueue GPU work + async D2H + record event), then resolves the previous step (check event, read host buffer, process results). When the batch size drops below 2, it falls back to synchronous execution, since the async fixed overhead will be larger than the performance gains from overlapping.
 
@@ -249,6 +299,26 @@ The event loop implements this as: each iteration launches the current step (enq
 **CPU resolve (step N-1):** While step N runs on the GPU, the CPU processes step N-1's results. It checks the CUDA event (non-blocking) to see if the D2H copy has landed. In the common case it has — the CPU reads the host buffer and runs per-request bookkeeping: appending codes to each request's output, detecting end-of-generation, emitting streaming audio chunks, and removing finished requests. If the copy hasn't landed yet (rare), the CPU blocks briefly until it does.
 
 **The ping-pong buffer:** Since the GPU is writing step N's results to a host buffer while the CPU is simultaneously reading step N-1's results, they cannot share the same buffer. We allocate two pinned host buffers and alternate between them each step. At step N the GPU writes to buffer A while the CPU reads from buffer B; at step N+1 the roles flip. This avoids a data race that CUDA stream ordering alone cannot prevent — stream ordering governs GPU-side operations, but the CPU's read of pinned memory is not synchronized by the stream.
+
+The whole ping-pong is just two pinned buffers and an alternating index ([`model_runner/base.py`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/model_runner/base.py#L105-L129)):
+
+```python
+def _next_host_staging(self, device_staging: torch.Tensor) -> torch.Tensor:
+    """Return a pinned host staging buffer, ping-ponging between two buffers.
+    Two are required: resolve(N) reads one while launch(N+1)'s async host copy
+    writes the other — an overlap single-stream ordering does not protect."""
+    if not self._host_staging_buffers:
+        self._host_staging_buffers = [
+            torch.empty(device_staging.shape, dtype=device_staging.dtype,
+                        device="cpu", pin_memory=True)
+            for _ in range(2)
+        ]
+    buf = self._host_staging_buffers[self._staging_slot]
+    self._staging_slot ^= 1   # flip A/B every call
+    return buf
+```
+
+The launch/resolve split lives in the base runner as `execute_launch` (enqueue forward + on-GPU sample, then `event.record()` — never waits on the GPU) and `execute_resolve` (`event.query()` first, only `event.synchronize()` on a miss, then the per-request collect loop) ([`base.py#L164-L256`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/model_runner/base.py#L164-L256)). The caller — not `self` — owns the in-flight `_PendingStep` handle, precisely because launch-first scheduling keeps two steps momentarily alive: the just-launched step N and the not-yet-resolved step N-1.
 
 **Lookahead guard:** Because launch runs before resolve, a request that finished at step N-1 (via EOC) is still present in step N's batch — the CPU hasn't had a chance to remove it yet. The runner detects this by checking the request's done flag in the pool before launching, and routes finished requests to a dummy padding row. The graph still runs over these slots (CUDA Graph requires a fixed batch shape), but their outputs are discarded during the next resolve. This prevents double-counting finished requests.
 
@@ -276,7 +346,7 @@ Once codec tokens are ready, the vocoder scheduler routes each request to one of
 
 Under high concurrency, multiple AR decode loops finish at nearly the same time — they enter the pipeline together, generate similar-length utterances, and race to the vocoder stage simultaneously. With 16 concurrent requests each taking ~15ms to vocode, the last request in line waits 240ms just for its turn — turning a fast stage into a tail-latency killer.
 
-We batch vocoder calls using a short collection window (2ms / up to 4 requests). Before decoding, each request's delayed codes are un-delayed (reversing the delay pattern) and special tokens (BOC/EOC) are clamped to valid codec range. To avoid wasting compute on padding, we use bucketed batching — grouping sequences by length so that each batch contains only same-length items. Sequences that share a length are stacked and decoded in a single GPU call; sequences with unique lengths decode individually. This eliminates the tail-latency problem: instead of 16 serial vocoder calls, we issue a handful of batched calls.
+We batch vocoder calls using a short collection window (`max_batch_wait_ms=2` / `max_batch_size=4`, [`vocoder_scheduler.py#L43-L48`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/models/higgs_tts/vocoder_scheduler.py#L43-L48)). Before decoding, each request's delayed codes are un-delayed (reversing the delay pattern) and special tokens (BOC/EOC) are clamped to valid codec range. To avoid wasting compute on padding, we use bucketed batching — grouping sequences by length so that each batch contains only same-length items. Sequences that share a length are stacked and decoded in a single GPU call; sequences with unique lengths decode individually. This eliminates the tail-latency problem: instead of 16 serial vocoder calls, we issue a handful of batched calls.
 
 **Vocoder CUDA Graph (MOSS Only)**
 
@@ -296,11 +366,11 @@ We capture the vocoder's decode forward pass as a CUDA Graph, using the same tec
   <p><em>Figure 14. Windowed streaming decode for Higgs, accumulating delayed codec tokens into stride windows before vocoder reconstruction.</em></p>
 </div>
 
-**Why:** Without streaming, the user hears nothing until the entire AR decode loop completes — hundreds of steps of silence. So we want to stream the process to minimize TTFB (time to first byte). But you can't just naively chop the code sequence into chunks and decode each independently like LLM: neural audio tokenizers can produce audible clicks at every splice boundary because the vocoder's internal convolution state is disrupted. On top of that, the delay pattern means the trailing rows in any mid-stream snapshot have incomplete high-layer codebooks — decoding them injects noise.
+**Why:** Without streaming, the user hears nothing until the entire AR decode loop completes — hundreds of steps of silence. So we want to stream the process to minimize TTFB (time to first byte). But you can't just naively chop the code sequence into chunks and decode each independently like an LLM: neural audio tokenizers can produce audible clicks at every splice boundary because the vocoder's internal convolution state is disrupted. On top of that, the delay pattern means the trailing rows in any mid-stream snapshot have incomplete high-layer codebooks — decoding them injects noise.
 
 Note that vocoders which natively support streaming decode (such as MOSS's MOSS-Audio-Tokenizer-v2 vocoder) maintain continuous decoder state across the frame, so there are no splice boundary artifacts — the following section only applies to non-streamable vocoders (e.g. Higgs's DAC vocoder).
 
-To manage this irreducible latency boundary smoothly, we tuned three parameters for our streaming window:
+To manage this irreducible latency boundary smoothly, we tuned three parameters for our streaming window (their defaults live on the Higgs streaming scheduler, [`vocoder_scheduler.py#L43-L61`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/models/higgs_tts/vocoder_scheduler.py#L43-L61)):
 
 - **Stride (75 frames):** Accumulates roughly 3 seconds of delayed codes before triggering a vocoder decode step.
 - **Overlap (8 frames):** Looks back into the previous window to eliminate seam artifacts and clicks during audio stitching.
@@ -308,12 +378,9 @@ To manage this irreducible latency boundary smoothly, we tuned three parameters 
 
 > **Note:** These parameters do not fully eliminate boundary artifacts, but reduce them to a barely perceptible level: overlap + crossfade suppresses clicks, and holdback avoids decoding incomplete frames.
 
-<div align="center">
-  <img src="images/windowed_streaming_decode.svg" alt="Windowed Streaming Detail" width="70%">
-  <p><em>Figure 15. Windowed streaming details for Higgs, using stride, overlap, and holdback to reduce clicks and avoid decoding incomplete delayed rows.</em></p>
-</div>
+All three meet in `_decode_delta` ([`vocoder_scheduler.py#L324-L390`](https://github.com/sgl-project/sglang-omni/blob/1e268dd112baea8ae7d64df410e41143211846ea/sglang_omni/models/higgs_tts/vocoder_scheduler.py#L324-L390)): for a non-final chunk it emits only up to `raw_total - holdback`, then starts the next decode window at `emitted_raw_frames - overlap` — so the held-back tail and the overlap look-back are computed from the same running `emitted_raw_frames` cursor rather than tracked separately.
 
-For streaming, we accumulate codes until a stride threshold (75 frames, ~1 second of audio) before triggering a decode — amortizing kernel launch overhead across a meaningful chunk. When decoding, we overlap by looking 8 frames back into the previously decoded region, re-decoding them jointly with new tokens so the codec sees continuous context across boundaries. We then extract only the delta (new samples past the overlap) and crossfade-blend it with the held-back tail of the previous chunk using a linear fade-in/fade-out envelope — smoothing any residual amplitude mismatch at the splice point.
+For streaming, we accumulate codes until a stride threshold (75 frames, ~3 seconds of audio) before triggering a decode — amortizing kernel launch overhead across a meaningful chunk. When decoding, we overlap by looking 8 frames back into the previously decoded region, re-decoding them jointly with new tokens so the codec sees continuous context across boundaries. We then extract only the delta (new samples past the overlap) and crossfade-blend it with the held-back tail of the previous chunk using a linear fade-in/fade-out envelope — smoothing any residual amplitude mismatch at the splice point.
 
 Finally, a holdback of 4 frames retains the trailing rows where high-layer codebooks are still filling in due to the delay pattern. These incomplete rows are only released on the final flush when the full sequence is available.
 
@@ -435,8 +502,8 @@ Results are in `<output-dir>/speed_results.json` under `summary`: `throughput_qp
 ### Summary
 
 - **Higgs (stream & non-stream):** Stable **~1.9–2.5×** speedup in both modes. Stream ≈ non-stream throughput — the cleanest win across all four quadrants.
-- **MOSS non-streaming:** **~3× at low concurrency**, narrowing to ~1.3× at high concurrency.
-- **MOSS streaming:** **~2.8× at low concurrency**, with throughput plateauing at higher concurrency. Improving streaming scalability is on the roadmap.
+- **MOSS non-streaming:** **~2.7–3.4×** across most of the sweep, narrowing to ~2.3× at the highest concurrency (c=16).
+- **MOSS streaming:** **~3.4× at low concurrency**, settling to ~2.6× as concurrency rises. Improving streaming scalability is on the roadmap.
 
 ## Conclusion
 
@@ -464,4 +531,4 @@ SGLang-Omni is an open community project, and it is still growing fast. Cross-no
 - **Documentation:** [SGLang-Omni docs](https://sgl-project.github.io/sglang-omni/) · [Higgs TTS cookbook](https://sgl-project.github.io/sglang-omni/cookbook/higgs_tts.html)
 - **Higgs optimization roadmap:** [#478](https://github.com/sgl-project/sglang-omni/issues/478)
 - **MOSS optimization roadmap:** [#637](https://github.com/sgl-project/sglang-omni/issues/637)
-- **Design background:** *SGLang-Omni: Redesigning the Inference Framework for Multi-Stage Generative Models*
+- **Design background:** [SGLang-Omni: Redesigning the Inference Framework for Multi-Stage Generative Models](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/sglang-omni/why-sglang-omni-en.md)
