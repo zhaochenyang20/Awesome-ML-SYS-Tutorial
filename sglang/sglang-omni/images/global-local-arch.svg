@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 420" font-family="Helvetica, Arial, sans-serif">
+  <rect width="520" height="420" fill="#F9F9F7"/>
+  <line x1="0" y1="4" x2="520" y2="4" stroke="#E4E4E2" stroke-width="1"/>
+  <line x1="0" y1="416" x2="520" y2="416" stroke="#E4E4E2" stroke-width="1"/>
+
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <path d="M0,0 L10,3.5 L0,7 Z" fill="#AAA"/>
+    </marker>
+  </defs>
+
+  <!-- ===== Global Transformer (large) ===== -->
+  <rect x="40" y="20" width="440" height="108" rx="10" fill="#fff" stroke="#2A2A2A" stroke-width="2"/>
+  <text x="260" y="48" text-anchor="middle" font-size="17" font-weight="700" fill="#1A1A1A">Global Transformer</text>
+  <text x="260" y="70" text-anchor="middle" font-size="12" fill="#999">Qwen3-4B · 36 transformer layers</text>
+  <text x="260" y="88" text-anchor="middle" font-size="11" fill="#BBB">KV cache persists across frames</text>
+  <text x="260" y="112" text-anchor="middle" font-size="13" font-weight="600" fill="#B08030">hidden states only — no token sampling</text>
+
+  <!-- Arrow -->
+  <line x1="260" y1="128" x2="260" y2="200" stroke="#AAA" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="278" y="170" font-size="11" fill="#999">hidden state</text>
+
+  <!-- ===== Local Transformer — stacked cards ===== -->
+  <rect x="150" y="232" width="220" height="80" rx="6" fill="#EAEAE6" stroke="#CDCDCA" stroke-width="1"/>
+  <rect x="147" y="229" width="220" height="80" rx="6" fill="#EDEDEA" stroke="#C4C4C0" stroke-width="1"/>
+  <rect x="144" y="226" width="220" height="80" rx="6" fill="#F0F0ED" stroke="#BBBBB8" stroke-width="1"/>
+  <rect x="141" y="223" width="220" height="80" rx="6" fill="#F3F3F0" stroke="#B2B2AF" stroke-width="1"/>
+  <rect x="138" y="220" width="220" height="80" rx="6" fill="#F6F6F4" stroke="#A8A8A5" stroke-width="1"/>
+  <rect x="135" y="217" width="220" height="80" rx="6" fill="#F9F9F7" stroke="#9E9E9B" stroke-width="1"/>
+  <rect x="132" y="214" width="220" height="80" rx="6" fill="#FCFCFB" stroke="#949491" stroke-width="1"/>
+
+  <!-- Front card -->
+  <rect x="129" y="211" width="220" height="80" rx="6" fill="#fff" stroke="#2A2A2A" stroke-width="1.5"/>
+  <text x="239" y="238" text-anchor="middle" font-size="15" font-weight="700" fill="#1A1A1A">Local Transformer</text>
+  <text x="239" y="258" text-anchor="middle" font-size="12" fill="#999">1 transformer layer</text>
+  <text x="239" y="276" text-anchor="middle" font-size="11" fill="#BBB">ctx window = 13 positions</text>
+
+  <!-- "× 12" annotation -->
+  <text x="385" y="244" font-size="26" font-weight="700" fill="#B08030">× 12</text>
+  <text x="385" y="264" font-size="11" fill="#B08030">sequential</text>
+  <text x="385" y="278" font-size="11" fill="#B08030">codebook steps</text>
+
+  <!-- Bottom sequence -->
+  <text x="260" y="355" text-anchor="middle" font-size="12" fill="#999">L₀ → L₁ → L₂ → … → L₁₁</text>
+  <text x="260" y="375" text-anchor="middle" font-size="11" fill="#BBB">each step samples one codebook, feeds it back to the next</text>
+</svg>
