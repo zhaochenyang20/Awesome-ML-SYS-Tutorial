@@ -323,23 +323,23 @@ Optimizations deliver a stable **~2.1–2.5×** throughput gain across all concu
 | 8  | 4.426 | 10.077 | **2.28×** | 0.423 / 0.191 | 1.771 / 0.793 |
 | 16 | 8.156 | 15.174 | **1.86×** | 0.464 / 0.245 | 1.937 / 1.028 |
 
-### MOSS-TTS-Local-v1.5 — Streaming (perf, upstream main)
+### MOSS-TTS-Local-v1.5 — Streaming (vanilla vs perf)
 
-| Concurrency | qps perf | RTF perf | Latency mean (s) perf | TTFP (ms) perf |
-|---:|---:|---:|---:|---:|
-| 2  | 2.782 | 0.165 | 0.719 | 67  |
-| 4  | 3.933 | 0.233 | 1.016 | 90  |
-| 8  | 5.421 | 0.338 | 1.472 | 146 |
-| 16 | 6.535 | 0.566 | 2.437 | 1311 |
+| Concurrency | qps vanilla | qps perf | **Speedup** | RTF van / perf | Latency mean (s) van / perf | TTFP (ms) van / perf |
+|---:|---:|---:|:---:|---:|---:|---:|
+| 2  | 0.817 | 2.782  | **3.40×** | 0.561 / 0.165 | 2.448 / 0.719 | 257 / 67   |
+| 4  | 1.444 | 3.933  | **2.72×** | 0.635 / 0.233 | 2.768 / 1.016 | 280 / 90   |
+| 8  | 2.089 | 5.421  | **2.60×** | 0.887 / 0.338 | 3.848 / 1.472 | 626 / 146  |
+| 16 | 2.516 | 6.535  | **2.60×** | 1.495 / 0.566 | 6.337 / 2.437 | 3452 / 1311 |
 
-### MOSS-TTS-Local-v1.5 — Non-streaming (perf, upstream main)
+### MOSS-TTS-Local-v1.5 — Non-streaming (vanilla vs perf)
 
-| Concurrency | qps perf | RTF perf | Latency mean (s) perf |
-|---:|---:|---:|---:|
-| 2  | 2.606 | 0.178 | 0.767 |
-| 4  | 6.247 | 0.148 | 0.640 |
-| 8  | 9.651 | 0.192 | 0.827 |
-| 16 | 10.883 | 0.347 | 1.465 |
+| Concurrency | qps vanilla | qps perf | **Speedup** | RTF van / perf | Latency mean (s) van / perf |
+|---:|---:|---:|:---:|---:|---:|
+| 2  | 0.968 | 2.606  | **2.69×** | 0.475 / 0.178 | 2.069 / 0.767 |
+| 4  | 1.816 | 6.247  | **3.44×** | 0.504 / 0.148 | 2.200 / 0.640 |
+| 8  | 3.017 | 9.651  | **3.20×** | 0.606 / 0.192 | 2.645 / 0.827 |
+| 16 | 4.668 | 10.883 | **2.33×** | 0.781 / 0.347 | 3.406 / 1.465 |
 
 ### Reproducing the Benchmarks
 
