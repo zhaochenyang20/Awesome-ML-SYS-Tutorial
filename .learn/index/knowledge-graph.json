@@ -1245,8 +1245,7 @@
         "transformers/omni/readme.md",
         "sglang/scheduler/readme.md",
         "torch/cuda-graph/readme-2.md",
-        "sglang/sglang-omni/why-sglang-omni.md",
-        "sglang/sglang-omni/moss-tts-local-batch-encoder-skew.md"
+        "sglang/sglang-omni/why-sglang-omni.md"
       ],
       "referenced_by": [],
       "series": null,
