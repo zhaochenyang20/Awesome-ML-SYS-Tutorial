@@ -123,6 +123,7 @@ $$
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md)：介绍 SGLang 中 `online_update_weights` 接口的实现，区别于从磁盘读取权重的 `update_weights`，该接口从训练 engine 中直接通过 nccl 广播新的权重。
 - [Pending Review] [SGLang Verl Engine 优化解析](./sglang/sglang-verl-engine/readme.md)：解析 SGLang 中 verl engine 的优化，包括 `update_weights_from_tensor` 等接口的实现。
 - [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
+- [FlashOffload: 7x Cheaper Prefills with Offloading](https://blog.doubleword.ai/flashoffload)：扩展了 SGLang 的 offloading 引擎，通过双缓冲（double-buffered）CPU offloading 将权重传输延迟隐藏在 GPU 计算之后，为 Grace Hopper 上 compute-bound 的 workload 带来更廉价的 prefill。
 
 ### 使用与实践
 
