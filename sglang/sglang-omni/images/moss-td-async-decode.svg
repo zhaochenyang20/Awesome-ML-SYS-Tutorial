@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <rect width="640" height="360" rx="4" fill="#F5F5F5"/>
+  <text x="320" y="28" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333">Synchronous vs Asynchronous Decode</text>
+
+  <!-- Sync section -->
+  <text x="30" y="60" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#333">Synchronous (naive)</text>
+  <text x="30" y="79" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">GPU and CPU wait for each other every step</text>
+
+  <!-- Sync timeline -->
+  <text x="18" y="105" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#555">GPU</text>
+  <text x="18" y="137" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#555">CPU</text>
+
+  <!-- Step N -->
+  <rect x="60" y="88" width="150" height="24" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
+  <text x="135" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">GPU forward N</text>
+
+  <rect x="210" y="88" width="42" height="24" rx="4" fill="#FFCDD2" stroke="#E57373" stroke-width="1"/>
+  <text x="231" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#C62828">D2H</text>
+
+  <rect x="60" y="120" width="192" height="24" rx="4" fill="#EEE" stroke="#CCC" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="156" y="137" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#AAA">idle (waiting)</text>
+
+  <rect x="252" y="120" width="90" height="24" rx="4" fill="#F0C8B0" stroke="#B88868" stroke-width="1"/>
+  <text x="297" y="137" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">resolve N</text>
+
+  <!-- Step N+1 -->
+  <rect x="342" y="88" width="150" height="24" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
+  <text x="417" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">GPU forward N+1</text>
+
+  <rect x="492" y="88" width="42" height="24" rx="4" fill="#FFCDD2" stroke="#E57373" stroke-width="1"/>
+  <text x="513" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#C62828">D2H</text>
+
+  <rect x="342" y="120" width="192" height="24" rx="4" fill="#EEE" stroke="#CCC" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="438" y="137" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#AAA">idle (waiting)</text>
+
+  <rect x="534" y="120" width="100" height="24" rx="4" fill="#F0C8B0" stroke="#B88868" stroke-width="1"/>
+  <text x="584" y="137" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">resolve N+1</text>
+
+  <!-- Total time bracket -->
+  <line x1="60" y1="156" x2="634" y2="156" stroke="#E57373" stroke-width="1.5"/>
+  <text x="330" y="174" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" font-weight="bold" fill="#E57373">total = GPU + D2H + CPU (serial)</text>
+
+  <!-- Divider -->
+  <line x1="20" y1="190" x2="620" y2="190" stroke="#DDD" stroke-width="1.5"/>
+
+  <!-- Async section -->
+  <text x="30" y="216" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#333">Asynchronous (one-step lookahead)</text>
+  <text x="30" y="235" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">GPU launch N overlaps with CPU resolve N-1</text>
+
+  <!-- Async timeline -->
+  <text x="18" y="261" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#555">GPU</text>
+  <text x="18" y="293" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#555">CPU</text>
+
+  <!-- Step N GPU -->
+  <rect x="60" y="244" width="170" height="24" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
+  <text x="145" y="261" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">GPU forward N</text>
+
+  <rect x="230" y="244" width="45" height="24" rx="4" fill="#FFE8A8" stroke="#C8A050" stroke-width="1"/>
+  <text x="252" y="261" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">D2H</text>
+
+  <!-- CPU resolve N-1 overlaps with GPU N -->
+  <rect x="60" y="276" width="110" height="24" rx="4" fill="#F0C8B0" stroke="#B88868" stroke-width="1"/>
+  <text x="115" y="293" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">resolve N-1</text>
+
+  <!-- Overlap highlight -->
+  <rect x="56" y="240" width="224" height="64" rx="6" fill="none" stroke="#66BB6A" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="168" y="320" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#2E7D32">overlapped</text>
+
+  <!-- Step N+1 GPU -->
+  <rect x="290" y="244" width="170" height="24" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
+  <text x="375" y="261" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">GPU forward N+1</text>
+
+  <rect x="460" y="244" width="45" height="24" rx="4" fill="#FFE8A8" stroke="#C8A050" stroke-width="1"/>
+  <text x="482" y="261" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">D2H</text>
+
+  <!-- CPU resolve N overlaps with GPU N+1 -->
+  <rect x="290" y="276" width="110" height="24" rx="4" fill="#F0C8B0" stroke="#B88868" stroke-width="1"/>
+  <text x="345" y="293" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">resolve N</text>
+
+  <rect x="286" y="240" width="224" height="64" rx="6" fill="none" stroke="#66BB6A" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="398" y="320" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#2E7D32">overlapped</text>
+
+  <!-- Total time bracket -->
+  <line x1="60" y1="332" x2="510" y2="332" stroke="#66BB6A" stroke-width="1.5"/>
+  <text x="285" y="350" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" font-weight="bold" fill="#2E7D32">total = max(GPU, CPU) &#8212; CPU work is hidden</text>
+</svg>

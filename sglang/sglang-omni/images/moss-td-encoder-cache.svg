@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 745 195">
+  <defs>
+    <marker id="ar1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+    </marker>
+    <marker id="ar1g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#66BB6A"/>
+    </marker>
+    <marker id="ar1r" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#E57373"/>
+    </marker>
+  </defs>
+
+  <rect width="745" height="195" rx="4" fill="#F5F5F5"/>
+  <text x="372" y="24" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333">Encoder LRU Cache Flow</text>
+
+  <!-- Input -->
+  <rect x="14" y="60" width="112" height="50" rx="8" fill="#E8E8E8" stroke="#999" stroke-width="1.2"/>
+  <text x="70" y="82" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#333">Audio Input</text>
+  <text x="70" y="98" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">waveform</text>
+
+  <line x1="130" y1="85" x2="150" y2="85" stroke="#555" stroke-width="1.2" marker-end="url(#ar1)"/>
+
+  <!-- Hash -->
+  <rect x="154" y="60" width="112" height="50" rx="8" fill="#E0E0E0" stroke="#888" stroke-width="1.2"/>
+  <text x="210" y="82" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#333">Content Hash</text>
+  <text x="210" y="98" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">key the cache</text>
+
+  <line x1="270" y1="85" x2="295" y2="85" stroke="#555" stroke-width="1.2" marker-end="url(#ar1)"/>
+
+  <!-- Cache lookup -->
+  <rect x="300" y="48" width="130" height="74" rx="10" fill="#FFF8E1" stroke="#C8A050" stroke-width="1.5"/>
+  <text x="365" y="78" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">LRU Cache</text>
+  <text x="365" y="98" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">CPU-resident</text>
+
+  <!-- Cache HIT path (top) -->
+  <line x1="434" y1="68" x2="490" y2="68" stroke="#66BB6A" stroke-width="1.5" marker-end="url(#ar1g)"/>
+  <rect x="440" y="42" width="36" height="16" rx="4" fill="#C8E6C9" stroke="#66BB6A" stroke-width="1"/>
+  <text x="458" y="53" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" font-weight="bold" fill="#2E7D32">HIT</text>
+
+  <rect x="495" y="46" width="140" height="44" rx="8" fill="#C8E6C9" stroke="#66BB6A" stroke-width="1.2"/>
+  <text x="565" y="65" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#2E7D32">Skip Encoder</text>
+  <text x="565" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">reuse result</text>
+
+  <line x1="639" y1="68" x2="663" y2="68" stroke="#66BB6A" stroke-width="1.5" marker-end="url(#ar1g)"/>
+
+  <!-- Cache MISS path (bottom) -->
+  <line x1="434" y1="105" x2="490" y2="105" stroke="#E57373" stroke-width="1.5" marker-end="url(#ar1r)"/>
+  <rect x="440" y="96" width="42" height="16" rx="4" fill="#FFCDD2" stroke="#E57373" stroke-width="1"/>
+  <text x="461" y="107" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" font-weight="bold" fill="#C62828">MISS</text>
+
+  <rect x="495" y="92" width="140" height="44" rx="8" fill="#FFCDD2" stroke="#E57373" stroke-width="1.2"/>
+  <text x="565" y="108" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#C62828">Whisper Encoder</text>
+  <text x="565" y="125" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">full forward pass</text>
+
+  <line x1="639" y1="105" x2="663" y2="105" stroke="#E57373" stroke-width="1.5" marker-end="url(#ar1r)"/>
+
+  <!-- Store back to cache on miss -->
+  <path d="M565,140 L565,165 L365,165 L365,126" stroke="#E57373" stroke-width="1" stroke-dasharray="4,3" fill="none" marker-end="url(#ar1r)"/>
+  <text x="465" y="160" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#C62828">store result</text>
+
+  <!-- Output -->
+  <rect x="667" y="56" width="70" height="58" rx="8" fill="#FFE8A8" stroke="#C8A050" stroke-width="1.2"/>
+  <text x="702" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">Encoder</text>
+  <text x="702" y="96" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">Output</text>
+  <text x="702" y="108" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">&#8594; LLM</text>
+</svg>

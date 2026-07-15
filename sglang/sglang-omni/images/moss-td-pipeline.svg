@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 160">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+    </marker>
+  </defs>
+
+  <rect width="880" height="160" rx="4" fill="#F5F5F5"/>
+
+  <text x="440" y="28" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333">MOSS-TD ASR Inference Pipeline</text>
+
+  <!-- Audio -->
+  <rect x="20" y="55" width="100" height="70" rx="10" fill="#E8E8E8" stroke="#999" stroke-width="1.5"/>
+  <text x="70" y="87" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Audio</text>
+  <text x="70" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">up to ~90 min</text>
+
+  <line x1="124" y1="90" x2="150" y2="90" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Encoder -->
+  <rect x="155" y="55" width="180" height="70" rx="10" fill="#FFE8A8" stroke="#C8A050" stroke-width="1.5"/>
+  <text x="245" y="87" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">1. Encoder</text>
+  <text x="245" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">Whisper &#8594; embeddings</text>
+
+  <line x1="339" y1="90" x2="365" y2="90" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- LLM Prefill -->
+  <rect x="370" y="55" width="180" height="70" rx="10" fill="#F0C8B0" stroke="#B88868" stroke-width="1.5"/>
+  <text x="460" y="87" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">2. LLM Prefill</text>
+  <text x="460" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">Qwen3 builds the KV cache</text>
+
+  <line x1="554" y1="90" x2="580" y2="90" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- AR Decode -->
+  <rect x="585" y="55" width="180" height="70" rx="10" fill="#D4B8A8" stroke="#907058" stroke-width="1.5"/>
+  <text x="675" y="87" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">3. AR Decode</text>
+  <text x="675" y="105" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">generate tokens until EOS</text>
+
+  <line x1="769" y1="90" x2="785" y2="90" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Output -->
+  <rect x="790" y="55" width="80" height="70" rx="10" fill="#C8E6C9" stroke="#66BB6A" stroke-width="1.5"/>
+  <text x="830" y="82" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Text</text>
+  <text x="830" y="98" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">diarized</text>
+  <text x="830" y="114" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">transcript</text>
+</svg>
