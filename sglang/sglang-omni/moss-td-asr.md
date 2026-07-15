@@ -145,16 +145,67 @@ Encoder-side mel alignment and LLM-side sequence packing allow multiple requests
 
 ## Benchmark Results
 
-*Benchmark results are being re-measured and will be added here.*
+We benchmark MOSS-TD on two private multi-speaker datasets that bracket the input-length spectrum:
 
-We prepared two datasets for multi-speaker ASR:
-
-- **movies800times**: short-sequence dataset, 800 dialog clips
-- **aishell4_long**: long-sequence dataset, 20 long-form meeting recordings
+- **movies800times**: short-sequence dataset, 800 dialog clips (~12 s each).
+- **aishell4_long**: long-sequence dataset, 20 long-form meeting recordings (~38 min each).
 
 Both datasets are currently under private license — contact the MOSS team for access.
 
-Key metrics we report: **RTF** (Real-Time Factor) is processing time divided by input audio duration — `<1` means faster than real time. **audio_s/s** is total audio seconds processed per wall-clock second, which measures how much batching delivers real throughput gains.
+Key metrics: **RTF** (Real-Time Factor) is processing time divided by input audio duration — `<1` means faster than real time. **audio_s/s** is total audio seconds processed per wall-clock second, which measures how much batching delivers real throughput gains.
+
+**Environment:** 1× H100 80GB, colocate single-GPU. MOSS-Transcribe-Diarize, bf16, CUDA Graph, greedy decoding. Server pinned at `max_running_requests = cuda_graph_max_bs = 16`, `mem_fraction_static = 0.80`. movies800times speed points are the mean of 3 runs; aishell4_long is a single run per point (each request is a ~38 min meeting). Accuracy is measured once at c=16 (concurrency-independent under greedy decoding).
+
+### movies800times — short multi-speaker dialog (N=800)
+
+| Concurrency | Throughput (req/s) | RTF mean | audio_s/s | Latency mean (s) | Latency p95 (s) |
+|---:|---:|---:|---:|---:|---:|
+| 1  | 4.55  | 0.022 | 52.7  | 0.219 | 0.500 |
+| 2  | 8.40  | 0.024 | 97.2  | 0.238 | 0.544 |
+| 4  | 14.96 | 0.027 | 173.2 | 0.267 | 0.610 |
+| 8  | 24.90 | 0.033 | 288.1 | 0.321 | 0.714 |
+| 16 | 32.79 | 0.043 | 379.5 | 0.422 | 0.935 |
+
+From c=1 to c=16, throughput and audio_s/s both scale **~7.2×** (4.6 → 32.8 req/s; 53 → 379 audio_s/s) while RTF stays far below 1 (0.022 → 0.043, i.e. **~23–45× faster than real time**) and mean latency stays sub-second. Short-audio ASR becomes encoder- and prefill-bound as batches fill, so per-request RTF drifts up, but aggregate throughput keeps climbing.
+
+### aishell4_long — long-form meetings (N=20, ~38 min each)
+
+| Concurrency | Throughput (req/s) | RTF mean | audio_s/s | Latency mean (s) | Latency p95 (s) |
+|---:|---:|---:|---:|---:|---:|
+| 1  | 0.021 | 0.021 | 47.0 | 48.7  | 71.1  |
+| 2  | 0.030 | 0.028 | 69.7 | 64.9  | 78.5  |
+| 4  | 0.034 | 0.048 | 77.7 | 110.2 | 142.7 |
+| 8  | 0.037 | 0.081 | 85.4 | 184.8 | 239.2 |
+| 16 | 0.043 | 0.127 | 97.5 | 291.0 | 374.5 |
+
+Each request is a ~38 min meeting dominated by the AR decode loop, so req/s is low by design and **RTF is the meaningful speed metric**. A single stream already transcribes a 38 min meeting in **~49 s** (RTF 0.021, ~47× faster than real time). Pushing concurrency to 16 **more than doubles** aggregate audio_s/s (47 → 97.5) and req/s (0.021 → 0.043); per-request latency and RTF grow with batch contention but stay ~8× faster than real time (RTF 0.127). This is the long-audio batching trade-off: aggregate throughput up, single-request latency up.
+
+### Accuracy
+
+Measured at c=16 with greedy decoding. **CER** is character error rate; **cpCER** is concatenated-minimum-permutation CER (speaker-attributed); **Δ CER** is the cpCER − CER gap attributable to speaker assignment; **DER** is the speaker-timestamp diarization error rate.
+
+| Dataset | Samples | CER (%) | cpCER (%) | Δ CER (%) | Speaker-timestamp DER (%) |
+|---|---:|---:|---:|---:|---:|
+| movies800times | 800 | 5.92  | 13.12 | 7.20 | 21.20 |
+| aishell4_long  | 20  | 13.76 | 15.07 | 1.31 | 10.25 |
+
+### Reproducing the Benchmarks
+
+The [`eval_transcribe_diarize`](https://github.com/sgl-project/sglang-omni/blob/main/benchmarks/eval/eval_transcribe_diarize.py) driver runs the whole pipeline — it launches a single-GPU server, sends the dataset, and writes speed metrics to `<output-dir>/transcribe_diarize_speed_results.json`:
+
+```bash
+python -m benchmarks.eval.eval_transcribe_diarize \
+  --dataset movies800times --max-concurrency 16 \
+  --mem-fraction-static 0.80 \
+  --output-dir results/moss_transcribe_diarize_movies800times
+
+python -m benchmarks.eval.eval_transcribe_diarize \
+  --dataset aishell4_long --max-concurrency 16 \
+  --mem-fraction-static 0.80 \
+  --output-dir results/moss_transcribe_diarize_aishell4_long
+```
+
+The tables above sweep client concurrency ∈ {1, 2, 4, 8, 16} against one warm server pinned at `max_running_requests = cuda_graph_max_bs = 16`, isolating the effect of batching.
 
 ------
 
