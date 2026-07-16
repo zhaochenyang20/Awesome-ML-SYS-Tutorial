@@ -147,16 +147,16 @@ Encoder-side mel alignment and LLM-side sequence packing allow multiple requests
 
 We benchmark MOSS-TD on two private multi-speaker datasets that bracket the input-length spectrum:
 
-- **movies800times**: short-sequence dataset, 800 dialog clips (~12 s each).
-- **aishell4_long**: long-sequence dataset, 20 long-form meeting recordings (~38 min each).
+- **Movies** (`movies800times`): short-sequence dataset, 800 dialog clips (~12 s each).
+- **AISHELL-4 Long** (`aishell4_long`): long-sequence dataset, 20 long-form meeting recordings (~38 min each).
 
 Both datasets are currently under private license — contact the MOSS team for access.
 
 Key metrics: **RTF** (Real-Time Factor) is processing time divided by input audio duration — `<1` means faster than real time. **audio_s/s** is total audio seconds processed per wall-clock second, which measures how much batching delivers real throughput gains.
 
-**Environment:** 1× H100 80GB, colocate single-GPU. MOSS-Transcribe-Diarize, bf16, CUDA Graph, greedy decoding. Server pinned at `max_running_requests = cuda_graph_max_bs = 16`, `mem_fraction_static = 0.80`. movies800times speed points are the mean of 3 runs; aishell4_long is a single run per point (each request is a ~38 min meeting). Accuracy is measured once at c=16 (concurrency-independent under greedy decoding).
+**Environment:** 1× H100 80GB, colocate single-GPU. MOSS-Transcribe-Diarize, bf16, CUDA Graph, greedy decoding. Server pinned at `max_running_requests = cuda_graph_max_bs = 16`, `mem_fraction_static = 0.80`. Movies speed points are the mean of 3 runs; AISHELL-4 Long is a single run per point (each request is a ~38 min meeting). Accuracy is measured once at c=16 (concurrency-independent under greedy decoding).
 
-### movies800times — short multi-speaker dialog (N=800)
+### Movies — short multi-speaker dialog (N=800)
 
 | Concurrency | Throughput (req/s) | RTF mean | audio_s/s | Latency mean (s) | Latency p95 (s) |
 |---:|---:|---:|---:|---:|---:|
@@ -168,7 +168,7 @@ Key metrics: **RTF** (Real-Time Factor) is processing time divided by input audi
 
 From c=1 to c=16, throughput and audio_s/s both scale **~7.2×** (4.6 → 32.8 req/s; 53 → 379 audio_s/s) while RTF stays far below 1 (0.022 → 0.043, i.e. **~23–45× faster than real time**) and mean latency stays sub-second. Short-audio ASR becomes encoder- and prefill-bound as batches fill, so per-request RTF drifts up, but aggregate throughput keeps climbing.
 
-### aishell4_long — long-form meetings (N=20, ~38 min each)
+### AISHELL-4 Long — long-form meetings (N=20, ~38 min each)
 
 | Concurrency | Throughput (req/s) | RTF mean | audio_s/s | Latency mean (s) | Latency p95 (s) |
 |---:|---:|---:|---:|---:|---:|
@@ -186,8 +186,8 @@ Measured at c=16 with greedy decoding. **CER** is character error rate; **cpCER*
 
 | Dataset | Samples | CER (%) | cpCER (%) | Δ CER (%) | Speaker-timestamp DER (%) |
 |---|---:|---:|---:|---:|---:|
-| movies800times | 800 | 5.92  | 13.12 | 7.20 | 21.20 |
-| aishell4_long  | 20  | 13.76 | 15.07 | 1.31 | 10.25 |
+| Movies | 800 | 5.92  | 13.12 | 7.20 | 21.20 |
+| AISHELL-4 Long | 20  | 13.76 | 15.07 | 1.31 | 10.25 |
 
 ### Reproducing the Benchmarks
 
@@ -221,7 +221,7 @@ Several optimization efforts are still in progress:
 
 - **Streaming audio input**: accept audio as it arrives and transcribe incrementally, instead of waiting for the full clip to upload
 - **Piecewise prefill CUDA Graph**: capture chunked prefill as a CUDA graph
-- **Tensor parallelism**: TP integration for multi-GPU deployment
+- **Tensor parallelism**: TP integration for multi-GPU deployment, targeting the potential demand for very long audio files — their KV cache can outgrow a single GPU's memory
 
 ------
 
