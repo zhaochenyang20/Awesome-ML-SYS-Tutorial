@@ -22,7 +22,7 @@ MOSS-TD follows the Audio LLM paradigm — a Whisper encoder produces continuous
 
 The pipeline has three stages:
 
-1. **Encoder.** Waveform → log-mel spectrogram (80 bins) → 24-layer Whisper Transformer → 4× Time Merge (concatenate every 4 frames) → FFN adaptor (Linear→SiLU→Linear, 4096→1024). The output is a sequence of continuous float vectors in the LLM's embedding space.
+1. **Encoder.** Waveform → log-mel spectrogram (80 bins) → 24-layer Whisper Transformer → 4× Time Merge (concatenate every 4 frames) → FFN adaptor (Linear→SiLU→Linear→LayerNorm, 4096→1024). The output is a sequence of continuous float vectors in the LLM's embedding space.
 
 2. **LLM Prefill.** The audio embeddings replace placeholder tokens in the prompt. Qwen3 processes the full prompt in one forward pass to build the KV cache.
 
@@ -191,15 +191,15 @@ Measured at c=16 with greedy decoding. **CER** is character error rate; **cpCER*
 
 ### Reproducing the Benchmarks
 
-The [`eval_transcribe_diarize`](https://github.com/sgl-project/sglang-omni/blob/main/benchmarks/eval/eval_transcribe_diarize.py) driver runs the whole pipeline — it launches a single-GPU server, sends the dataset, and writes speed metrics to `<output-dir>/transcribe_diarize_speed_results.json`:
+The [`benchmark_asr_transcribe_diarize`](https://github.com/sgl-project/sglang-omni/blob/main/benchmarks/eval/benchmark_asr_transcribe_diarize.py) driver runs the whole pipeline — it launches a single-GPU server, sends the dataset, and writes speed metrics to `<output-dir>/transcribe_diarize_speed_results.json`:
 
 ```bash
-python -m benchmarks.eval.eval_transcribe_diarize \
+python -m benchmarks.eval.benchmark_asr_transcribe_diarize \
   --dataset movies800times --max-concurrency 16 \
   --mem-fraction-static 0.80 \
   --output-dir results/moss_transcribe_diarize_movies800times
 
-python -m benchmarks.eval.eval_transcribe_diarize \
+python -m benchmarks.eval.benchmark_asr_transcribe_diarize \
   --dataset aishell4_long --max-concurrency 16 \
   --mem-fraction-static 0.80 \
   --output-dir results/moss_transcribe_diarize_aishell4_long

@@ -22,7 +22,7 @@
 
   <rect x="300" y="76" width="220" height="46" rx="8" fill="#E0E0E0" stroke="#888" stroke-width="1.2"/>
   <text x="410" y="94" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">FFN Adaptor</text>
-  <text x="410" y="111" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">Linear&#8594;SiLU&#8594;Linear, 4096&#8594;1024</text>
+  <text x="410" y="111" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">Linear&#8594;SiLU&#8594;Linear&#8594;LayerNorm</text>
 
   <line x1="524" y1="99" x2="556" y2="99" stroke="#555" stroke-width="1.5" marker-end="url(#arrvs)"/>
 
