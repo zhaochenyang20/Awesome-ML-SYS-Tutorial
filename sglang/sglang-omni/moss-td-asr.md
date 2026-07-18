@@ -1,4 +1,4 @@
-# SGLang-Omni Day-0 Support for MOSS ASR Model: An ASR Engineering Field Guide
+# Optimizing ASR Models to Transcribe 90-Minute Multi-Speaker Audio
 
 [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (MOSS-TD for short) does more than speech-to-text: it labels who spoke and when in complex conversation scenarios, on audio up to ~90 minutes long. 
 
