@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 260">
+  <defs>
+    <marker id="arrvs" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748B"/>
+    </marker>
+  </defs>
+
+  <rect width="820" height="260" fill="#F8FAFC"/>
+
+  <text x="410" y="26" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" letter-spacing="4" fill="#4C66C9">ASR VS TTS ARCHITECTURE</text>
+  <line x1="40" y1="36" x2="780" y2="36" stroke="#D9E0EC" stroke-width="1"/>
+
+  <!-- ASR row -->
+  <rect x="20" y="44" width="780" height="90" rx="8" fill="#EDF2FB" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="36" y="66" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#16265C">ASR (MOSS-TD)</text>
+  <text x="220" y="66" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" fill="#64748B">Audio &#8594; Text</text>
+
+  <rect x="40" y="76" width="220" height="46" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="150" y="94" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">Whisper Encoder</text>
+  <text x="150" y="111" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">24-layer Transformer, d=1024</text>
+
+  <line x1="264" y1="99" x2="296" y2="99" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrvs)"/>
+
+  <rect x="300" y="76" width="220" height="46" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="410" y="94" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">FFN Adaptor</text>
+  <text x="410" y="111" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">Linear&#8594;SiLU&#8594;Linear&#8594;LayerNorm</text>
+
+  <line x1="524" y1="99" x2="556" y2="99" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrvs)"/>
+
+  <rect x="560" y="76" width="220" height="46" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1.2"/>
+  <text x="670" y="94" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#FFFFFF">Qwen3 LLM</text>
+  <text x="670" y="111" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#CDD9F6">28-layer decoder &#8594; text tokens</text>
+
+  <!-- TTS row -->
+  <rect x="20" y="150" width="780" height="90" rx="8" fill="#EDF2FB" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="36" y="172" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#16265C">TTS (MOSS-TTS-Local-v1.5)</text>
+  <text x="300" y="172" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" fill="#64748B">Text &#8594; Audio</text>
+
+  <rect x="40" y="182" width="165" height="46" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="122" y="200" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">Codec Encoder</text>
+  <text x="122" y="216" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#64748B">~1B RVQ, 12 codebooks</text>
+
+  <line x1="209" y1="205" x2="231" y2="205" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrvs)"/>
+
+  <rect x="235" y="182" width="165" height="46" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1.2"/>
+  <text x="317" y="200" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#FFFFFF">Qwen3-4B Backbone</text>
+  <text x="317" y="216" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#CDD9F6">36-layer, hidden states</text>
+
+  <line x1="404" y1="205" x2="426" y2="205" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrvs)"/>
+
+  <rect x="430" y="182" width="165" height="46" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1.2"/>
+  <text x="512" y="200" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#FFFFFF">Local Transformer</text>
+  <text x="512" y="216" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#CDD9F6">1-layer, 12 codes/frame</text>
+
+  <line x1="599" y1="205" x2="621" y2="205" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrvs)"/>
+
+  <rect x="625" y="182" width="165" height="46" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1.2"/>
+  <text x="707" y="200" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#FFFFFF">Vocoder</text>
+  <text x="707" y="216" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#AAB6E4">~1B decoder &#8594; 48 kHz</text>
+</svg>

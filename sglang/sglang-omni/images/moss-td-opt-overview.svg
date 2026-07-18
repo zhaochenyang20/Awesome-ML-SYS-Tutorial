@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 240">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748B"/>
+    </marker>
+  </defs>
+
+  <rect width="820" height="240" fill="#F8FAFC"/>
+
+  <text x="410" y="26" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" letter-spacing="4" fill="#4C66C9">MOSS-TD OPTIMIZATION STRATEGIES BY STAGE</text>
+  <line x1="40" y1="36" x2="780" y2="36" stroke="#D9E0EC" stroke-width="1"/>
+
+  <!-- Pipeline boxes (top row) -->
+  <!-- Encoder -->
+  <rect x="30" y="48" width="230" height="36" rx="6" fill="#EFF3FC" stroke="#2B52D6" stroke-width="1.5"/>
+  <text x="145" y="71" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2B52D6">Encoder</text>
+
+  <line x1="264" y1="66" x2="294" y2="66" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- LLM Prefill -->
+  <rect x="300" y="48" width="200" height="36" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1.5"/>
+  <text x="400" y="71" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">LLM Prefill</text>
+
+  <line x1="504" y1="66" x2="534" y2="66" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- AR Decode -->
+  <rect x="540" y="48" width="240" height="36" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1.5"/>
+  <text x="660" y="71" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">AR Decode</text>
+
+  <!-- Vertical connectors -->
+  <line x1="145" y1="84" x2="145" y2="103" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="400" y1="84" x2="400" y2="103" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="660" y1="84" x2="660" y2="103" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Encoder optimizations -->
+  <rect x="30" y="106" width="230" height="112" rx="8" fill="#EDF2FB" stroke="#C7D2E8" stroke-width="1"/>
+
+  <rect x="45" y="118" width="200" height="26" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1"/>
+  <text x="145" y="135" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#16265C">CUDA Graph</text>
+
+  <rect x="45" y="150" width="200" height="26" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1"/>
+  <text x="145" y="167" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#16265C">Torch Compile (opt-in)</text>
+
+  <rect x="45" y="182" width="200" height="26" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1"/>
+  <text x="145" y="199" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#16265C">LRU Cache</text>
+
+  <!-- Prefill optimizations -->
+  <rect x="300" y="106" width="200" height="80" rx="8" fill="#EDF2FB" stroke="#C7D2E8" stroke-width="1"/>
+
+  <rect x="315" y="118" width="170" height="26" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1"/>
+  <text x="400" y="135" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF">Chunked Prefill</text>
+
+  <rect x="315" y="150" width="170" height="26" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1"/>
+  <text x="400" y="167" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF">Batched Inference</text>
+
+  <!-- Decode optimizations -->
+  <rect x="540" y="106" width="240" height="112" rx="8" fill="#EDF2FB" stroke="#C7D2E8" stroke-width="1"/>
+
+  <rect x="555" y="118" width="210" height="26" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1"/>
+  <text x="660" y="135" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF">CUDA Graph</text>
+
+  <rect x="555" y="150" width="210" height="26" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1"/>
+  <text x="660" y="167" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF">Async Decode</text>
+
+  <rect x="555" y="182" width="210" height="26" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1"/>
+  <text x="660" y="199" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF">Stream Output</text>
+</svg>
