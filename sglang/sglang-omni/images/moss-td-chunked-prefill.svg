@@ -1,57 +1,58 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 220">
-  <rect width="780" height="220" rx="4" fill="#F5F5F5"/>
-  <text x="390" y="24" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333">Chunked Prefill for Long Audio</text>
+  <rect width="780" height="220" fill="#F8FAFC"/>
+  <text x="390" y="24" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" letter-spacing="4" fill="#4C66C9">CHUNKED PREFILL FOR LONG AUDIO</text>
+  <line x1="40" y1="34" x2="740" y2="34" stroke="#D9E0EC" stroke-width="1"/>
 
   <!-- Long sequence representation -->
-  <rect x="30" y="48" width="720" height="24" rx="4" fill="#FFE8A8" stroke="#C8A050" stroke-width="1"/>
-  <text x="390" y="64" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#555">90-min audio &#8594; ~67k encoded tokens</text>
+  <rect x="30" y="48" width="720" height="24" rx="4" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1"/>
+  <text x="390" y="64" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#16265C">90-min audio &#8594; ~67k encoded tokens</text>
 
   <!-- Split arrows -->
-  <line x1="390" y1="76" x2="390" y2="93" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>
-  <text x="390" y="88" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">split into 4096-token chunks</text>
+  <line x1="390" y1="76" x2="390" y2="93" stroke="#64748B" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="390" y="88" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#64748B">split into 4096-token chunks</text>
 
   <!-- Chunks -->
-  <rect x="30" y="98" width="90" height="28" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="75" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">Chunk 1</text>
+  <rect x="30" y="98" width="90" height="28" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="75" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">Chunk 1</text>
 
-  <rect x="130" y="98" width="90" height="28" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="175" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">Chunk 2</text>
+  <rect x="130" y="98" width="90" height="28" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="175" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">Chunk 2</text>
 
-  <rect x="230" y="98" width="90" height="28" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="275" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">Chunk 3</text>
+  <rect x="230" y="98" width="90" height="28" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="275" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">Chunk 3</text>
 
-  <text x="340" y="116" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" fill="#888">...</text>
+  <text x="340" y="116" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" fill="#94A3B8">...</text>
 
-  <rect x="370" y="98" width="90" height="28" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="415" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#333">Chunk N</text>
+  <rect x="370" y="98" width="90" height="28" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="415" y="116" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#16265C">Chunk N</text>
 
   <!-- Interleave timeline -->
-  <text x="30" y="152" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#555">Scheduling timeline &#8212; other requests' decode steps run between chunks</text>
+  <text x="30" y="152" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#16265C">Scheduling timeline &#8212; other requests' decode steps run between chunks</text>
 
   <!-- Timeline bar -->
-  <rect x="30" y="162" width="100" height="34" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="80" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">Prefill 1</text>
+  <rect x="30" y="162" width="100" height="34" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="80" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#16265C">Prefill 1</text>
 
-  <rect x="135" y="162" width="70" height="34" rx="6" fill="#D4B8A8" stroke="#907058" stroke-width="1.2"/>
-  <text x="170" y="178" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#333">other req</text>
-  <text x="170" y="192" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#333">decode</text>
+  <rect x="135" y="162" width="70" height="34" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1.2"/>
+  <text x="170" y="178" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#FFFFFF">other req</text>
+  <text x="170" y="192" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#AAB6E4">decode</text>
 
-  <rect x="210" y="162" width="100" height="34" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="260" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">Prefill 2</text>
+  <rect x="210" y="162" width="100" height="34" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="260" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#16265C">Prefill 2</text>
 
-  <rect x="315" y="162" width="70" height="34" rx="6" fill="#D4B8A8" stroke="#907058" stroke-width="1.2"/>
-  <text x="350" y="178" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#333">other req</text>
-  <text x="350" y="192" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#333">decode</text>
+  <rect x="315" y="162" width="70" height="34" rx="6" fill="#1B2660" stroke="#1B2660" stroke-width="1.2"/>
+  <text x="350" y="178" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#FFFFFF">other req</text>
+  <text x="350" y="192" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#AAB6E4">decode</text>
 
-  <rect x="390" y="162" width="100" height="34" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="440" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">Prefill 3</text>
+  <rect x="390" y="162" width="100" height="34" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="440" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#16265C">Prefill 3</text>
 
-  <text x="500" y="184" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" fill="#888">...</text>
+  <text x="500" y="184" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" fill="#94A3B8">...</text>
 
-  <rect x="520" y="162" width="100" height="34" rx="6" fill="#F0C8B0" stroke="#B88868" stroke-width="1.2"/>
-  <text x="570" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">Prefill N</text>
+  <rect x="520" y="162" width="100" height="34" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="570" y="184" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#16265C">Prefill N</text>
 
-  <rect x="625" y="162" width="90" height="34" rx="6" fill="#C8E6C9" stroke="#66BB6A" stroke-width="1.2"/>
-  <text x="670" y="178" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" font-weight="bold" fill="#2E7D32">AR decode</text>
-  <text x="670" y="192" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#2E7D32">starts</text>
+  <rect x="625" y="162" width="90" height="34" rx="6" fill="#2B52D6" stroke="#2B52D6" stroke-width="1.2"/>
+  <text x="670" y="178" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" font-weight="bold" fill="#FFFFFF">AR decode</text>
+  <text x="670" y="192" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#CDD9F6">starts</text>
 </svg>

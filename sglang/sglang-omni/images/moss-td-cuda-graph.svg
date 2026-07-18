@@ -1,36 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 190">
-  <rect width="780" height="190" rx="4" fill="#F5F5F5"/>
-  <text x="390" y="24" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333">Eager Execution vs CUDA Graph Replay</text>
+  <rect width="780" height="190" fill="#F8FAFC"/>
+  <text x="390" y="24" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" letter-spacing="4" fill="#4C66C9">EAGER EXECUTION VS CUDA GRAPH REPLAY</text>
+  <line x1="40" y1="34" x2="740" y2="34" stroke="#D9E0EC" stroke-width="1"/>
 
   <!-- Eager side -->
-  <rect x="20" y="44" width="360" height="120" rx="10" fill="#FFEBEE" stroke="#E57373" stroke-width="1.5"/>
-  <text x="200" y="66" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#333">Eager Mode</text>
+  <rect x="20" y="44" width="360" height="120" rx="8" fill="#EAF4FB" stroke="#A9CDE9" stroke-width="1.2"/>
+  <text x="200" y="66" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#3E76A8">Eager Mode</text>
 
-  <rect x="40" y="80" width="70" height="22" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
-  <text x="75" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">kernel 1</text>
+  <rect x="40" y="80" width="70" height="22" rx="4" fill="#2B52D6" stroke="#2B52D6" stroke-width="1"/>
+  <text x="75" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" fill="#FFFFFF">kernel 1</text>
 
-  <rect x="114" y="80" width="26" height="22" rx="2" fill="#FFCDD2" stroke="#E57373" stroke-width="0.8"/>
-  <text x="127" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12" fill="#C62828">gap</text>
+  <rect x="114" y="80" width="26" height="22" rx="4" fill="#FFFFFF" stroke="#8FC3E8" stroke-width="1"/>
+  <text x="127" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12" fill="#3E76A8">gap</text>
 
-  <rect x="144" y="80" width="70" height="22" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
-  <text x="179" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">kernel 2</text>
+  <rect x="144" y="80" width="70" height="22" rx="4" fill="#2B52D6" stroke="#2B52D6" stroke-width="1"/>
+  <text x="179" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" fill="#FFFFFF">kernel 2</text>
 
-  <rect x="218" y="80" width="26" height="22" rx="2" fill="#FFCDD2" stroke="#E57373" stroke-width="0.8"/>
-  <text x="231" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12" fill="#C62828">gap</text>
+  <rect x="218" y="80" width="26" height="22" rx="4" fill="#FFFFFF" stroke="#8FC3E8" stroke-width="1"/>
+  <text x="231" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12" fill="#3E76A8">gap</text>
 
-  <rect x="248" y="80" width="70" height="22" rx="4" fill="#D4B8A8" stroke="#907058" stroke-width="1"/>
-  <text x="283" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#333">kernel 3</text>
+  <rect x="248" y="80" width="70" height="22" rx="4" fill="#2B52D6" stroke="#2B52D6" stroke-width="1"/>
+  <text x="283" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" fill="#FFFFFF">kernel 3</text>
 
-  <text x="326" y="95" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" fill="#888">...</text>
+  <text x="326" y="95" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" fill="#94A3B8">...</text>
 
-  <text x="200" y="140" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.25" fill="#C62828">CPU dispatch overhead between every kernel</text>
+  <text x="200" y="140" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#3E76A8">CPU dispatch overhead between every kernel</text>
 
   <!-- CUDA Graph side -->
-  <rect x="400" y="44" width="360" height="120" rx="10" fill="#E8F5E9" stroke="#66BB6A" stroke-width="1.5"/>
-  <text x="580" y="66" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#333">CUDA Graph Replay</text>
+  <rect x="400" y="44" width="360" height="120" rx="8" fill="#EEF7F1" stroke="#9CCFAF" stroke-width="1.2"/>
+  <text x="580" y="66" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2F7D4F">CUDA Graph Replay</text>
 
-  <rect x="420" y="80" width="320" height="22" rx="4" fill="#C8E6C9" stroke="#66BB6A" stroke-width="1.2"/>
-  <text x="580" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.75" font-weight="bold" fill="#2E7D32">all kernels &#8212; zero CPU dispatch</text>
+  <rect x="420" y="80" width="320" height="22" rx="4" fill="#2B52D6" stroke="#2B52D6" stroke-width="1"/>
+  <text x="580" y="95" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF">all kernels &#8212; zero CPU dispatch</text>
 
-  <text x="580" y="140" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.25" fill="#2E7D32">record once, replay as a single GPU operation</text>
+  <text x="580" y="140" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#2F7D4F">record once, replay as a single GPU operation</text>
 </svg>

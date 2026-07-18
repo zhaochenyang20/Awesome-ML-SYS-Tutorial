@@ -1,18 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 195">
   <defs>
     <marker id="arrds" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-      <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+      <polygon points="0 0, 8 3, 0 6" fill="#64748B"/>
     </marker>
   </defs>
 
-  <rect width="900" height="195" rx="4" fill="#F5F5F5"/>
+  <rect width="900" height="195" fill="#F8FAFC"/>
 
-  <text x="450" y="28" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333">What the Data Looks Like at Each Stage</text>
+  <text x="450" y="28" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" letter-spacing="4" fill="#4C66C9">WHAT THE DATA LOOKS LIKE AT EACH STAGE</text>
+  <line x1="40" y1="38" x2="860" y2="38" stroke="#D9E0EC" stroke-width="1"/>
 
   <!-- 1. Audio waveform -->
-  <rect x="30" y="60" width="130" height="115" rx="10" fill="#E8E8E8" stroke="#999" stroke-width="1.5"/>
-  <text x="95" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Audio</text>
-  <g stroke="#777" stroke-width="2.5" stroke-linecap="round">
+  <rect x="30" y="60" width="130" height="115" rx="6" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="1.2"/>
+  <text x="95" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#16265C">Audio</text>
+  <g stroke="#64748B" stroke-width="2.5" stroke-linecap="round">
     <line x1="45" y1="108" x2="45" y2="116"/>
     <line x1="51" y1="104" x2="51" y2="120"/>
     <line x1="57" y1="98" x2="57" y2="126"/>
@@ -32,32 +33,32 @@
     <line x1="141" y1="102" x2="141" y2="122"/>
     <line x1="147" y1="105" x2="147" y2="119"/>
   </g>
-  <text x="95" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">16 kHz waveform</text>
-  <text x="95" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#777">up to ~90 min</text>
+  <text x="95" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#16265C">16 kHz waveform</text>
+  <text x="95" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">up to ~90 min</text>
 
-  <line x1="164" y1="118" x2="196" y2="118" stroke="#555" stroke-width="1.5" marker-end="url(#arrds)"/>
-  <text x="180" y="52" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">log-mel</text>
+  <line x1="164" y1="118" x2="196" y2="118" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrds)"/>
+  <text x="180" y="54" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#64748B">log-mel</text>
 
   <!-- 2. Mel spectrogram -->
-  <rect x="200" y="60" width="130" height="115" rx="10" fill="#FFF8E1" stroke="#C8A050" stroke-width="1.5"/>
-  <text x="265" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Spectrogram</text>
-  <g fill="#C8A050">
+  <rect x="200" y="60" width="130" height="115" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="265" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#16265C">Spectrogram</text>
+  <g fill="#2B52D6">
     <rect x="217" y="90" width="11" height="8" opacity="0.25"/><rect x="229" y="90" width="11" height="8" opacity="0.6"/><rect x="241" y="90" width="11" height="8" opacity="0.4"/><rect x="253" y="90" width="11" height="8" opacity="0.8"/><rect x="265" y="90" width="11" height="8" opacity="0.3"/><rect x="277" y="90" width="11" height="8" opacity="0.7"/><rect x="289" y="90" width="11" height="8" opacity="0.2"/><rect x="301" y="90" width="11" height="8" opacity="0.5"/>
     <rect x="217" y="99" width="11" height="8" opacity="0.7"/><rect x="229" y="99" width="11" height="8" opacity="0.3"/><rect x="241" y="99" width="11" height="8" opacity="0.85"/><rect x="253" y="99" width="11" height="8" opacity="0.4"/><rect x="265" y="99" width="11" height="8" opacity="0.6"/><rect x="277" y="99" width="11" height="8" opacity="0.25"/><rect x="289" y="99" width="11" height="8" opacity="0.75"/><rect x="301" y="99" width="11" height="8" opacity="0.35"/>
     <rect x="217" y="108" width="11" height="8" opacity="0.4"/><rect x="229" y="108" width="11" height="8" opacity="0.8"/><rect x="241" y="108" width="11" height="8" opacity="0.3"/><rect x="253" y="108" width="11" height="8" opacity="0.65"/><rect x="265" y="108" width="11" height="8" opacity="0.9"/><rect x="277" y="108" width="11" height="8" opacity="0.45"/><rect x="289" y="108" width="11" height="8" opacity="0.6"/><rect x="301" y="108" width="11" height="8" opacity="0.3"/>
     <rect x="217" y="117" width="11" height="8" opacity="0.55"/><rect x="229" y="117" width="11" height="8" opacity="0.35"/><rect x="241" y="117" width="11" height="8" opacity="0.7"/><rect x="253" y="117" width="11" height="8" opacity="0.25"/><rect x="265" y="117" width="11" height="8" opacity="0.5"/><rect x="277" y="117" width="11" height="8" opacity="0.85"/><rect x="289" y="117" width="11" height="8" opacity="0.4"/><rect x="301" y="117" width="11" height="8" opacity="0.65"/>
     <rect x="217" y="126" width="11" height="8" opacity="0.3"/><rect x="229" y="126" width="11" height="8" opacity="0.6"/><rect x="241" y="126" width="11" height="8" opacity="0.45"/><rect x="253" y="126" width="11" height="8" opacity="0.75"/><rect x="265" y="126" width="11" height="8" opacity="0.35"/><rect x="277" y="126" width="11" height="8" opacity="0.55"/><rect x="289" y="126" width="11" height="8" opacity="0.8"/><rect x="301" y="126" width="11" height="8" opacity="0.25"/>
   </g>
-  <text x="265" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">[T, 80]</text>
-  <text x="265" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#777">80 mel bins</text>
+  <text x="265" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#16265C">[T, 80]</text>
+  <text x="265" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">80 mel bins</text>
 
-  <line x1="334" y1="118" x2="366" y2="118" stroke="#555" stroke-width="1.5" marker-end="url(#arrds)"/>
-  <text x="350" y="52" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">Whisper</text>
+  <line x1="334" y1="118" x2="366" y2="118" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrds)"/>
+  <text x="350" y="54" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#64748B">Whisper</text>
 
   <!-- 3. Encoder hidden states -->
-  <rect x="370" y="60" width="130" height="115" rx="10" fill="#FFE8A8" stroke="#C8A050" stroke-width="1.5"/>
-  <text x="435" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Hiddens</text>
-  <g fill="#C8A050" stroke="#A88030" stroke-width="0.5">
+  <rect x="370" y="60" width="130" height="115" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="435" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#16265C">Hiddens</text>
+  <g fill="#7D97E8">
     <rect x="397" y="90" width="6" height="45" rx="1"/>
     <rect x="407" y="90" width="6" height="45" rx="1"/>
     <rect x="417" y="90" width="6" height="45" rx="1"/>
@@ -67,34 +68,34 @@
     <rect x="457" y="90" width="6" height="45" rx="1"/>
     <rect x="467" y="90" width="6" height="45" rx="1"/>
   </g>
-  <text x="435" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">[T, 1024]</text>
-  <text x="435" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#777">one vector / frame</text>
+  <text x="435" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#16265C">[T, 1024]</text>
+  <text x="435" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">one vector / frame</text>
 
-  <line x1="504" y1="118" x2="536" y2="118" stroke="#555" stroke-width="1.5" marker-end="url(#arrds)"/>
-  <text x="520" y="52" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">merge + FFN</text>
+  <line x1="504" y1="118" x2="536" y2="118" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrds)"/>
+  <text x="520" y="54" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#64748B">merge + FFN</text>
 
   <!-- 4. LLM embeddings -->
-  <rect x="540" y="60" width="130" height="115" rx="10" fill="#F0C8B0" stroke="#B88868" stroke-width="1.5"/>
-  <text x="605" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Embeddings</text>
-  <g fill="#B88868" stroke="#907058" stroke-width="0.5">
+  <rect x="540" y="60" width="130" height="115" rx="6" fill="#E9EEF9" stroke="#C7D2E8" stroke-width="1.2"/>
+  <text x="605" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#16265C">Embeddings</text>
+  <g fill="#2B52D6">
     <rect x="573" y="90" width="10" height="45" rx="1"/>
     <rect x="591" y="90" width="10" height="45" rx="1"/>
     <rect x="609" y="90" width="10" height="45" rx="1"/>
     <rect x="627" y="90" width="10" height="45" rx="1"/>
   </g>
-  <text x="605" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">[T/4, 1024]</text>
-  <text x="605" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#777">67k tokens @ 90 min</text>
+  <text x="605" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#16265C">[T/4, 1024]</text>
+  <text x="605" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">67k tokens @ 90 min</text>
 
-  <line x1="674" y1="118" x2="706" y2="118" stroke="#555" stroke-width="1.5" marker-end="url(#arrds)"/>
-  <text x="690" y="52" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#777">Qwen3</text>
+  <line x1="674" y1="118" x2="706" y2="118" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrds)"/>
+  <text x="690" y="54" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13.5" fill="#64748B">Qwen3</text>
 
   <!-- 5. Diarized text -->
-  <rect x="710" y="60" width="160" height="115" rx="10" fill="#C8E6C9" stroke="#66BB6A" stroke-width="1.5"/>
-  <text x="790" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#333">Diarized Text</text>
-  <rect x="718" y="88" width="144" height="52" rx="4" fill="#FFFFFF" stroke="#66BB6A" stroke-width="0.8"/>
-  <text x="724" y="103" font-family="Menlo, Consolas, monospace" font-size="12.75" fill="#2E7D32">[S01] 0.0-2.4 Hi!</text>
-  <text x="724" y="118" font-family="Menlo, Consolas, monospace" font-size="12.75" fill="#2E7D32">[S02] 2.4-5.1 Yes</text>
-  <text x="724" y="133" font-family="Menlo, Consolas, monospace" font-size="12.75" fill="#2E7D32">[S01] 5.1-8.0 ...</text>
-  <text x="790" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#555">text tokens</text>
-  <text x="790" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#777">speakers + timestamps</text>
+  <rect x="710" y="60" width="160" height="115" rx="6" fill="#EFF3FC" stroke="#2B52D6" stroke-width="1.5"/>
+  <text x="790" y="80" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#2B52D6">Diarized Text</text>
+  <rect x="718" y="88" width="144" height="52" rx="4" fill="#FFFFFF" stroke="#C9D3E6" stroke-width="0.8"/>
+  <text x="724" y="103" font-family="Menlo, Consolas, monospace" font-size="12.75" fill="#2B52D6">[S01] 0.0-2.4 Hi!</text>
+  <text x="724" y="118" font-family="Menlo, Consolas, monospace" font-size="12.75" fill="#2B52D6">[S02] 2.4-5.1 Yes</text>
+  <text x="724" y="133" font-family="Menlo, Consolas, monospace" font-size="12.75" fill="#2B52D6">[S01] 5.1-8.0 ...</text>
+  <text x="790" y="152" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#16265C">text tokens</text>
+  <text x="790" y="169" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.75" fill="#64748B">speakers + timestamps</text>
 </svg>
