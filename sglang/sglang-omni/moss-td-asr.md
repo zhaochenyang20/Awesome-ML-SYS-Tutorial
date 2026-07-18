@@ -1,8 +1,8 @@
 # SGLang-Omni Day-0 Support for MOSS ASR Model: An ASR Engineering Field Guide
 
-The community recently collaborated to bring [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (MOSS-TD for short) to [SGLang-Omni](https://github.com/sgl-project/sglang-omni), covering model support, correctness fixes, and performance optimization. This post records the engineering lessons we accumulated along the way: from how ASR models work, to the MOSS-TD architecture and optimization strategies, to benchmark design and results.
+[MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (MOSS-TD for short) does more than speech-to-text: it labels who spoke and when in complex conversation scenarios, on audio up to ~90 minutes long. 
 
-MOSS-TD's distinguishing feature is multi-speaker diarization with support for up to ~90 minutes of audio. We built long-sequence, multi-speaker ASR datasets into CI specifically for this model, giving performance work a clear target.
+The community recently collaborated to bring MOSS-TD to [SGLang-Omni](https://github.com/sgl-project/sglang-omni), covering model support, correctness fixes, and performance optimization. The result: a single H100 turns a 38-minute multi-speaker meeting into a speaker-labeled, timestamped transcript in ~49 seconds — the whole meeting is transcribed faster than you could listen to its first minute. Batch 16 meetings at once, and the same GPU chews through 97.5 seconds of audio per wall-clock second. This post records all the engineering behind these numbers, and our technical experiences.
 
 ------
 
@@ -24,7 +24,7 @@ The pipeline has three stages:
 
 1. **Encoder.** Waveform → log-mel spectrogram (80 bins) → 24-layer Whisper Transformer → 4× Time Merge (concatenate every 4 frames) → FFN adaptor (Linear→SiLU→Linear→LayerNorm, 4096→1024). The output is a sequence of continuous float vectors in the LLM's embedding space.
 
-2. **LLM Prefill.** The audio embeddings replace placeholder tokens in the prompt. Qwen3 processes the full prompt in one forward pass to build the KV cache.
+2. **LLM Prefill.** The audio embeddings replace placeholder tokens in the prompt. Qwen3 processes the prompt to build the KV cache — in one forward pass for short audio, or split into 4096-token chunks for long audio (see Chunked Prefill below).
 
 3. **AR Decode.** Qwen3 generates text tokens one at a time — transcript with speaker labels `[S01]`/`[S02]` and timestamps — until EOS.
 
@@ -39,7 +39,7 @@ The pipeline has three stages:
 
 ### Chunked Prefill for Long Audio
 
-For long audio (up to ~90 minutes), the encoded token sequence can reach tens of thousands of tokens. **Chunked Prefill** splits it into 4096-token chunks, processing one per scheduling step and interleaving decode steps for other requests between chunks. Stream output is suppressed during chunked prefill to avoid emitting intermediate states as if they were transcript output.
+For long audio (up to ~90 minutes), the encoded token sequence can reach tens of thousands of tokens. Prefilling such a sequence in one forward pass would occupy the GPU for seconds and spike activation memory. And since decode and prefill share one scheduler loop, every other request's decode would stall for that whole stretch. **Chunked Prefill** splits the sequence into 4096-token chunks, processing one per scheduling step and interleaving decode steps for other requests between chunks. The trade-off: the long request's own prefill finishes slightly later (more scheduling rounds), in exchange for bounded decode stalls and smooth streaming for everyone else. Stream output is suppressed during chunked prefill to avoid emitting intermediate states as if they were transcript output.
 
 ![Chunked Prefill for Long Audio](images/moss-td-chunked-prefill.svg)
 
@@ -47,13 +47,13 @@ For long audio (up to ~90 minutes), the encoded token sequence can reach tens of
 
 ### ASR vs TTS
 
-ASR and TTS share much of the same serving infrastructure in SGLang-Omni — both use `OmniScheduler`, share CUDA Graph / KV cache management / continuous batching, and run on the same Qwen3 backbone. The real differences lie in what they encode, what they generate, and how their pipelines are organized:
+ASR and TTS share much of the same serving infrastructure in SGLang-Omni — both use `OmniScheduler`, share CUDA Graph / KV cache management / continuous batching, and both are LLM-backboned autoregressive models (the backbone choice varies by model; MOSS-TD and MOSS-TTS happen to both use Qwen3). The real differences lie in what they encode, what they generate, and how their pipelines are organized:
 
 | Dimension         | ASR (MOSS-TD)                                | TTS (Higgs / MOSS-TTS)                      |
 | ----------------- | -------------------------------------------- | -------------------------------------------- |
 | Audio representation | Continuous features (mel → encoder hidden states) | Discrete codec tokens (RVQ multi-codebook)  |
 | Data flow         | Audio → text                                 | Text → audio                                 |
-| Decoder / Vocoder | Not needed — output is plain text            | Vocoder required to reconstruct waveform     |
+| Audio decoder / Vocoder | Not needed — output is plain text            | Vocoder required to reconstruct waveform     |
 | Typical input length | Very long (MOSS-TD supports ~90 min)       | Short (reference voice: a few seconds)       |
 | Pipeline stages   | Single stage (encoder + LLM)                 | Multi-stage (encoder → AR engine → vocoder)  |
 | Streaming         | Stream text output (incremental transcript)  | Stream audio output + streaming vocoder      |
@@ -105,7 +105,7 @@ Our optimization stack reuses the core infrastructure built for TTS, with ASR-sp
 
 **CUDA Graph.** The Whisper encoder works on fixed 30-second windows: input audio is split into 30 s chunks (the last one padded to 30 s), and each chunk goes through one encoder forward. Since every chunk has the same shape, the only variable is how many chunks a request carries — so the encoder is bucketed by chunk count (default up to 8 chunks, covering ~4 min of audio), and each bucket captures a CUDA graph, eliminating per-call kernel launch overhead.
 
-**Torch Compile** (opt-in). An opt-in setting replaces the encoder CUDA graph with `torch.compile(mode="reduce-overhead")`, which adds kernel fusion on top of its own internal CUDA graph. The two approaches are mutually exclusive — `reduce-overhead` already owns a CUDA graph, so stacking a manual one is redundant (and nesting is illegal). Torch Compile trades slower cold start (one-time per-bucket compilation) for lower steady-state latency. Prefer it for encoder-bound, high-concurrency short-audio workloads.
+**Torch Compile** (opt-in). An opt-in setting replaces the encoder CUDA graph with `torch.compile(self.whisper_encoder, dynamic=False)`, which adds kernel fusion. The default compile mode is used on purpose: `mode="reduce-overhead"` owns its own internal CUDA graphs, and they corrupt memory when they run alongside the decode CUDA graphs in the same process. Torch Compile trades slower cold start (one-time per-bucket compilation) for kernel fusion gains at steady state. Prefer it for encoder-bound, high-concurrency short-audio workloads.
 
 **LRU Cache.** The Whisper encoder forward is deterministic for identical input — same waveform always produces the same embeddings. We cache encoder outputs on CPU (max 64 entries, 4 GB), keyed by a content hash of the input waveform. On a hit, the stored tensor is transferred back to GPU asynchronously and the encoder is skipped entirely.
 
