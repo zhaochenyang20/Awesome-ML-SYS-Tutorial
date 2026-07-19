@@ -113,7 +113,7 @@ After the transformer stack finishes, the valid rows are scattered back into `[b
 
 The decoder carries `input_lengths` through the patch and upsampling stages alongside the feature tensor. When a patch stage doubles the temporal resolution, it updates those valid lengths before the next transformer stage. Packing therefore happens once at the entrance to each projected transformer stage using that stage's current `L`, `2L`, `4L`, `8L`, `16L`, or `32L` lengths; it is not one global packing operation based only on the original codec sequence.
 
-![Packing valid vocoder feature prefixes into the varlen transformer input](images/moss-tts-local-vocoder-packing.png)
+![Packing valid vocoder feature prefixes into the varlen transformer input](images/moss-tts-local-vocoder-packing.svg)
 
 Packing removes computation on padded frames and supplies each transformer layer with the sequence metadata required by SGLang's varlen kernel.
 
@@ -163,7 +163,7 @@ The second K/V range begins at 4 because the first query in that tile is at posi
 
 These ranges overlap, so the implementation builds separate cumulative lengths for the Q segments and the gathered K/V segments. If the required K/V layout is already contiguous, it is used directly. Otherwise, the required rows are gathered once into the layout the kernel expects.
 
-![Local-causal query tiles and their overlapping K/V source ranges](images/moss-tts-local-vocoder-local-causal-tiling.png)
+![Local-causal query tiles and their overlapping K/V source ranges](images/moss-tts-local-vocoder-local-causal-tiling.svg)
 
 The tiles do not become separate kernel launches. The Q segments, gathered K/V segments, `cu_seqlens_q`, and `cu_seqlens_k` are passed into one varlen FlashAttention call per layer. The plan itself is built once for the projected-transformer forward pass and reused across all layers, because their sequence geometry is identical.
 
@@ -177,7 +177,7 @@ Correctness is checked below the task-metric level as well. The tests exercise l
 
 I expected the vocoder to get faster once its transformer attention moved onto the packed path. What surprised me was how much that focused change moved the end-to-end numbers. The published packed-path performance benchmark used the 1,088-sample SeedTTS generate-only workload on an H100 and completed all 1,088 requests. The performance benchmark and the final local-causal quality evaluation were separate runs, so they answer separate performance and quality questions.
 
-![MOSS-TTS Local v1.5 vocoder performance after moving to packed SGLang FlashAttention](images/moss-tts-local-vocoder-performance.png)
+![MOSS-TTS Local v1.5 vocoder performance after moving to packed SGLang FlashAttention](images/moss-tts-local-vocoder-performance.svg)
 
 QPS increased from 4.965 to 7.380, a 48.64% improvement, while serving output throughput—counting generated frame rows—increased from 273.2 to 406.0 per second. Mean latency fell from 1.608 seconds to 1.082 seconds, and the gain held at the tail: p95 fell by 30.14% and p99 by 35.03%.
 
