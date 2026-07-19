@@ -1,8 +1,10 @@
 # How We Removed MOSS-TTS Local v1.5’s Transformer Vocoder Bottleneck in SGLang Omni
 
-Once an autoregressive model has generated the audio codes, it is easy to assume that the expensive part of text-to-speech inference is over. That assumption did not hold for MOSS-TTS Local v1.5. Its audio tokenizer uses a large transformer decoder as the vocoder, so a non-streaming request still has substantial work left before those codes become a waveform.
+Readers familiar with our earlier [SGLang Omni TTS optimization blog](tts-optimization.md) will know that TTS serving is more than an autoregressive language-model loop. A request moves through reference-audio encoding, codec-frame generation, and waveform reconstruction, and optimizing one stage can expose a different bottleneck elsewhere in the pipeline.
 
-When we profiled the non-streaming path in SGLang Omni, this final decoder had become the largest bottleneck. This article explains how the model's architecture creates that cost, why changing the attention backend alone was not enough, and how I adapted the vocoder's variable-length, local-causal attention to SGLang's packed execution path.
+That earlier blog examined the broader optimization work across the SGLang Omni TTS stack. One important architectural difference was that MOSS-TTS Local v1.5 uses a separate, roughly billion-parameter causal-transformer decoder for waveform reconstruction, while Higgs Audio v3 uses a lighter convolutional DAC vocoder. After the earlier preprocessing and autoregressive paths had been optimized, profiling showed that MOSS's transformer vocoder had become the largest bottleneck in non-streaming generation.
+
+This gave us a more focused question: could we accelerate the transformer computation without replacing the codec or changing the model's learned architecture? Selecting a faster attention backend was not enough because MOSS's decoder combines variable-length inputs with local-causal attention across progressively higher temporal resolutions. This blog explains how I adapted that computation to SGLang's packed attention path while retaining the sequence boundaries, local windows, and rotary positions required by the original model.
 
 ## What We Were Optimizing
 
