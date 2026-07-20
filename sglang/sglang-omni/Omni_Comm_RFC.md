@@ -20,7 +20,7 @@ A communication substrate for multi-stage inference should provide:
 
 To meet those goals, stage code owns computation and logical routing. Once it selects a target, `CommEngine` takes over the movement lifecycle below stage orchestration and above transport-specific relay backends.
 
-![One transfer across the control and data planes](images/omni-comm-two-planes.png)
+![One transfer across the control and data planes](images/omni-comm-two-planes.svg)
 
 The figure follows one relay-backed transfer from producer to consumer. The control plane carries small coordination messages: `DataReadyMessage` on the way out and `DataAckMessage` on the way back. Meanwhile, the data plane carries the bytes until the receiver copies them into receiver-owned memory.
 
@@ -99,7 +99,7 @@ metadata: {chunk_object_id}:meta:{index}
 
 "Same node" is not enough information. Process colocation, GPU identity, actual tensor device, payload shape, and backend capability all change the best path and the lifetime contract.
 
-![Transport selection by CommRouter](images/omni-comm-transport-selection.png)
+![Transport selection by CommRouter](images/omni-comm-transport-selection.svg)
 
 ### 4.1 Selection matrix
 
@@ -134,7 +134,7 @@ Once `CommRouter` selects a relay-backed path, the protocol still has to define 
 
 ### 5.1 Relay-backed transfer lifecycle
 
-![Lifecycle of one relay-backed transfer](images/omni-comm-transfer-lifecycle.png)
+![Lifecycle of one relay-backed transfer](images/omni-comm-transfer-lifecycle.svg)
 
 The figure uses CUDA IPC slots to make the relay lifecycle concrete. Its acknowledgement timeout starts only after the `DataReadyMessage` has been published, which keeps control-plane publication time out of the receiver's 30-second window. SHM uses the same publication boundary, but a timeout unlinks the block and returns its credit instead of failing the relay closed.
 
