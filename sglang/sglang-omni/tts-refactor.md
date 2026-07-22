@@ -6,8 +6,6 @@ Over four weeks, we refactored SGLang Omni's TTS subsystem. **[TODO @ Jiaxuan Xi
 
 Our litmus test: **a new model contributor should never need to copy or modify the framework's scheduling state machine — only understand the shared contract and implement their own hooks.**
 
-<!-- TODO @jiaxuan @xinyu: add the tts code stats dashboard screenshot -->
-
 ---
 
 ## Multi-Stage TTS Inference
