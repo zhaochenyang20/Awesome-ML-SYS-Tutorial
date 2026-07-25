@@ -1,0 +1,75 @@
+<svg viewBox="0 0 1336 720" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+      .title { font-size: 25px; font-weight: 700; letter-spacing: 3px; fill: #111827; }
+      .section { font-size: 15px; font-weight: 700; letter-spacing: 2px; fill: #475569; }
+      .metric { font-size: 38px; font-weight: 750; fill: #111827; }
+      .label { font-size: 17px; font-weight: 650; fill: #1f2937; }
+      .small { font-size: 14px; fill: #475569; }
+      .tiny { font-size: 12px; fill: #64748b; }
+      .barval { font-size: 16px; font-weight: 700; fill: #111827; }
+    </style>
+  </defs>
+  <rect width="1336" height="720" fill="#fafbfd"/>
+  <text x="668" y="42" text-anchor="middle" class="title mono">THE ONBOARDING TEST: AUDAR-TTS</text>
+  <line x1="58" y1="66" x2="1278" y2="66" stroke="#d3dcef"/>
+
+  <text x="86" y="112" class="section mono">MODEL-OWNED PRODUCTION CODE</text>
+  <rect x="58" y="132" width="760" height="458" rx="14" fill="#ffffff" stroke="#d3dcef"/>
+
+  <!-- LOC chart 1 -->
+  <text x="92" y="180" class="label">Production-equivalent integration</text>
+  <text x="92" y="204" class="small">non-test, non-documentation LOC</text>
+  <text x="92" y="250" class="tiny mono">WITHOUT FRAMEWORK</text>
+  <rect x="270" y="226" width="456" height="36" rx="7" fill="#f3d9cf"/>
+  <text x="742" y="250" class="barval">797</text>
+  <text x="92" y="302" class="tiny mono">WITH FRAMEWORK</text>
+  <rect x="270" y="278" width="354" height="36" rx="7" fill="#b8cef0"/>
+  <text x="640" y="302" class="barval">619</text>
+  <rect x="688" y="281" width="96" height="30" rx="15" fill="#e8f0fc"/>
+  <text x="736" y="301" text-anchor="middle" class="small">-22.3%</text>
+
+  <line x1="92" y1="342" x2="784" y2="342" stroke="#e2e8f0"/>
+
+  <!-- LOC chart 2 -->
+  <text x="92" y="386" class="label">Production capability premium</text>
+  <text x="92" y="410" class="small">extra code from “it runs” to production-ready</text>
+  <text x="92" y="456" class="tiny mono">WITHOUT FRAMEWORK</text>
+  <rect x="270" y="432" width="330" height="36" rx="7" fill="#f3d9cf"/>
+  <text x="616" y="456" class="barval">222</text>
+  <text x="92" y="508" class="tiny mono">WITH FRAMEWORK</text>
+  <rect x="270" y="484" width="114" height="36" rx="7" fill="#b8cef0"/>
+  <text x="400" y="508" class="barval">77</text>
+  <rect x="438" y="487" width="104" height="30" rx="15" fill="#e8f0fc"/>
+  <text x="490" y="507" text-anchor="middle" class="small">-65.3%</text>
+
+  <!-- Evidence cards -->
+  <text x="860" y="112" class="section mono">EQUIVALENCE EVIDENCE</text>
+  <rect x="842" y="132" width="436" height="458" rx="14" fill="#ffffff" stroke="#d3dcef"/>
+
+  <rect x="872" y="166" width="376" height="92" rx="10" fill="#e8f0fc"/>
+  <text x="900" y="198" class="metric">50 / 50</text>
+  <text x="900" y="225" class="label">Arabic waveform hashes identical</text>
+  <text x="900" y="246" class="tiny">codes, float waveforms, and PCM-WAV</text>
+
+  <rect x="872" y="278" width="176" height="126" rx="10" fill="#f8fafc" stroke="#dbe4f3"/>
+  <text x="894" y="310" class="section mono">LATENCY</text>
+  <text x="894" y="354" class="metric">-0.13%</text>
+  <text x="894" y="381" class="small">stage-sum</text>
+
+  <rect x="1072" y="278" width="176" height="126" rx="10" fill="#f8fafc" stroke="#dbe4f3"/>
+  <text x="1094" y="310" class="section mono">RTF</text>
+  <text x="1094" y="354" class="metric">-0.13%</text>
+  <text x="1094" y="381" class="small">real-time factor</text>
+
+  <rect x="872" y="426" width="376" height="126" rx="10" fill="#f8fafc" stroke="#dbe4f3"/>
+  <text x="894" y="458" class="section mono">ENGINE THROUGHPUT</text>
+  <text x="894" y="502" class="metric">+0.16%</text>
+  <text x="1057" y="502" class="small">performance parity</text>
+  <text x="894" y="530" class="tiny">The refactor reduced integration glue—not model computation.</text>
+
+  <!-- Bottom thesis -->
+  <rect x="176" y="624" width="984" height="58" rx="8" fill="#d8e6fb"/>
+  <text x="668" y="660" text-anchor="middle" class="label">Less model glue. The same outputs. The same performance.</text>
+</svg>
