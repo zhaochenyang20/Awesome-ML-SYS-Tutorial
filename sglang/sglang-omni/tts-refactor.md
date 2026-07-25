@@ -96,6 +96,50 @@ This was validated with 18 CPU contract tests for the shared lifecycle and full 
 
 We avoided `enable_legacy`, per-model escape branches, and “temporary” duplicate implementations. The old path was deleted in the migration PR. This made every shared contract real: production traffic had to exercise it, and reviewers never had to reason about two subtly different lifecycles indefinitely.
 
+## What Actually Broke During the Refactor
+
+The final interfaces look tidy, but their less obvious clauses came from concrete failures. Some surfaced as flaky CI tests, while others were contract holes found during review before they became user-visible bugs. Four cases changed how we designed and validated the shared layer.
+
+### A 50 ms Sleep Is Not a Concurrency Proof
+
+The first concurrency tests for [`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926) started several workers, slept for 50 ms, and then released the leader. This usually demonstrated same-key single-flight locally. Under a loaded runner, however, the leader could finish before the followers had registered on the in-flight entry. A failure-propagation test then observed one exception instead of one per worker.
+
+Adding a barrier around input normalization still did not prove the property: all workers could finish normalization without reaching the merge point. The stable test now keeps the leader blocked until the service itself reports `worker_count - 1` merged followers. It waits on the protocol state being asserted, not elapsed time or an earlier phase.
+
+That debugging pass also tightened the runtime contract. A follower timeout must not remove the leader's in-flight work, and an exception during revalidation or cache insertion must still wake every follower without poisoning the cache.
+
+**Lesson:** for concurrent code, synchronize on the state transition that defines correctness. A sleep only tests the scheduler on that particular machine.
+
+### A Round Trip Can Preserve the Wrong Value
+
+While duplicate state tests were being pruned in [PR #1019](https://github.com/sgl-project/sglang-omni/pull/1019), the original round-trip test compared serialized dictionaries against a hand-written expected mapping. It looked comprehensive, but it could miss a field dropped by `to_dict()` when `from_dict()` silently restored the dataclass default.
+
+The revealing mutation was small: force `MossTTSLocalState.to_dict()` to emit `sample_rate=24000` even when the source object held `48000`. The old shape of the test could still pass. The replacement iterates every dataclass field on the restored object and compares it directly with the original non-default object; the mutation then fails at the actual boundary: `MossTTSLocalState.sample_rate: 24000 != 48000`.
+
+This failure informed the later declarative serialization work: field metadata should generate both directions of transport, and the contract test must be field-complete.
+
+**Lesson:** `serialize(deserialize(serialize(x)))` can prove that a wrong representation is stable. Compare restored semantic state with the original object.
+
+### Shutdown Is Part of the Streaming Protocol
+
+The first extraction of [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) cleared its state table during shutdown, but did not call `release_stream_resources()` for every live request. MOSS-TTS-Local happened to tear down its whole codec session afterward, masking the omission. A reusable base class could not assume that every future subclass would own resources at session scope.
+
+The fix routed completion, abort, failure, and shutdown through the same per-request cleanup path. Cleanup failures are logged per request so one bad release cannot prevent the remaining streams from being released. A related review found that completed request IDs were retained in a `set` and trimmed via arbitrary iteration; that could forget a recent completion while retaining an older one, allowing a late chunk to recreate finished state. The tombstones became insertion-ordered and are evicted oldest-first.
+
+The base also rejected a direct single-chunk entry point for coalescing schedulers because it could run the pump outside the lock used by the batch path. Invalid lifecycle entry points are now explicit errors rather than undocumented alternatives.
+
+**Lesson:** completion is not just “produce the last bytes.” It includes ordered tombstones, idempotent late-chunk handling, and exactly-once resource release on every exit path.
+
+### Flexible Hooks Can Silently Remove Safety
+
+During [`TtsEngineBuilder`](https://github.com/sgl-project/sglang-omni/pull/923) extraction, Higgs and MOSS-TTS-Local duplicated the entire `OmniScheduler(...)` construction only to pass async-decode options. That made a dangerous subclass override look legitimate: forgetting `abort_callback=self.make_abort_callback()` would create a working scheduler whose aborted requests leaked model-side state.
+
+The final hook returns only extra scheduler keyword arguments. The base class still owns the abort callback and the invariant construction order. The same review pass moved the Qwen-TTS dependency check ahead of checkpoint resolution; otherwise a missing optional package could be reported only after downloading a remote checkpoint.
+
+**Lesson:** hooks should expose variation, not let subclasses reconstruct invariants. Order expensive work after cheap preflight checks, and never make cleanup wiring optional by accident.
+
+Together, these cases raised the bar for a “shared contract.” It must define not only the happy-path data flow, but also failure propagation, cancellation, teardown, ordering, and how the tests deterministically observe each of those states.
+
 ## Migration Is an Audit: Fish Meets OmniScheduler
 
 FishAudio S2-Pro originally shipped with a bespoke scheduler because the shared scheduler could not express its requirements at the time. Once `OmniScheduler` had matured, [PR #937](https://github.com/sgl-project/sglang-omni/pull/937) removed the 591-line `FishScheduler`; the full PR landed at net −816 lines.
