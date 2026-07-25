@@ -96,59 +96,43 @@ This was validated with 18 CPU contract tests for the shared lifecycle and full 
 
 We avoided `enable_legacy`, per-model escape branches, and “temporary” duplicate implementations. The old path was deleted in the migration PR. This made every shared contract real: production traffic had to exercise it, and reviewers never had to reason about two subtly different lifecycles indefinitely.
 
-## What Actually Broke During the Refactor
+## Three Counterintuitive Bugs the Refactor Had to Design Against
 
-The final interfaces look tidy, but their less obvious clauses came from concrete failures. Some surfaced as flaky CI tests, while others were contract holes found during review before they became user-visible bugs. Four cases changed how we designed and validated the shared layer.
+The most useful bugs were not ordinary missing checks. They appeared where a model-specific assumption stopped being true after the behavior moved behind a shared cache or lifecycle. One was exposed by migration; the other two were contract holes closed during extraction before they became production incidents.
 
-### A 50 ms Sleep Is Not a Concurrency Proof
+### Identical Token IDs Can Still Mean Different Prefixes
 
-The first concurrency tests for [`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926) started several workers, slept for 50 ms, and then released the leader. This usually demonstrated same-key single-flight locally. Under a loaded runner, however, the leader could finish before the followers had registered on the in-flight entry. A failure-propagation test then observed one exception instead of one per worker.
+FishAudio S2-Pro reference audio contains multiple VQ codebooks, but only codebook 0 becomes prompt token IDs. The remaining codebooks enter the model as embeddings. Two references can therefore have identical scheduler-visible token IDs while carrying different acoustic information.
 
-Adding a barrier around input normalization still did not prove the property: all workers could finish normalization without reaching the merge point. The stable test now keeps the leader blocked until the service itself reports `worker_count - 1` merged followers. It waits on the protocol state being asserted, not elapsed time or an earlier phase.
+With a normal radix cache, those requests appear to have the same prefix. Request B can reuse KV states computed from request A's embeddings, so the generated speech is conditioned partly on the wrong reference even though every token ID and cache lookup looks valid. Migrating Fish to `OmniScheduler` in [PR #937](https://github.com/sgl-project/sglang-omni/pull/937) exposed this mismatch. The fix hashes all reference VQ codebooks into `Req.extra_key`, making cache identity represent the full model input rather than only its token projection.
 
-That debugging pass also tightened the runtime contract. A follower timeout must not remove the leader's in-flight work, and an exception during revalidation or cache insertion must still wake every follower without poisoning the cache.
+**Lesson:** prefix-cache identity is not necessarily token identity. Any information injected through embeddings, side channels, or adapter state must participate in the cache key.
 
-**Lesson:** for concurrent code, synchronize on the state transition that defines correctness. A sleep only tests the scheduler on that particular machine.
+### A Request Can Come Back to Life After Its Final Result
 
-### A Round Trip Can Preserve the Wrong Value
+Streaming pipelines do not guarantee that completion and chunk delivery are observed in the same order. Imagine that the vocoder emits the final result, clears request state, and then receives a delayed audio-code chunk already in transit. A naïve state registry sees an unknown request ID and creates a fresh stream.
 
-While duplicate state tests were being pruned in [PR #1019](https://github.com/sgl-project/sglang-omni/pull/1019), the original round-trip test compared serialized dictionaries against a hand-written expected mapping. It looked comprehensive, but it could miss a field dropped by `to_dict()` when `from_dict()` silently restored the dataclass default.
+That “zombie” stream can emit audio after the client has already received the final result. For MOSS-TTS-Local it can also acquire a persistent codec/CUDA Graph slot that will never see another `done` event and therefore never be released. During the [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) extraction, completion became an explicit tombstone: late chunks for completed or aborted IDs are dropped and cannot recreate state. Tombstones are evicted oldest-first so a recently completed request is not accidentally forgotten before an older one.
 
-The revealing mutation was small: force `MossTTSLocalState.to_dict()` to emit `sample_rate=24000` even when the source object held `48000`. The old shape of the test could still pass. The replacement iterates every dataclass field on the restored object and compares it directly with the original non-default object; the mutation then fails at the actual boundary: `MossTTSLocalState.sample_rate: 24000 != 48000`.
+**Lesson:** deleting request state is not enough. In an asynchronous pipeline, “finished” must remain observable long enough to reject messages that were already in flight.
 
-This failure informed the later declarative serialization work: field metadata should generate both directions of transport, and the contract test must be field-complete.
+### A Cache Can Permanently Poison a Key Without Storing Anything
 
-**Lesson:** `serialize(deserialize(serialize(x)))` can prove that a wrong representation is stable. Compare restored semantic state with the original object.
+[`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926) uses same-key single-flight: one leader encodes a reference while followers wait on its future. The subtle failure is after the expensive encode succeeds. Revalidation can fail because the source file changed during encoding, or cache insertion itself can raise.
 
-### Shutdown Is Part of the Streaming Protocol
+If that exception escapes without completing the future and deleting the in-flight entry, no bad value is cached—but the key is still poisoned. Every later request becomes a follower of a leader that no longer exists, waits for the full timeout, and repeats the same behavior indefinitely. The shared service now treats encode, revalidation, and cache insertion as one failure domain: any exception removes the in-flight key and wakes every follower with the same failure. A follower timing out, conversely, must not cancel or remove a still-valid leader.
 
-The first extraction of [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) cleared its state table during shutdown, but did not call `release_stream_resources()` for every live request. MOSS-TTS-Local happened to tear down its whole codec session afterward, masking the omission. A reusable base class could not assume that every future subclass would own resources at session scope.
+**Lesson:** single-flight correctness is not only “compute once.” Every leader exit path must resolve the rendezvous, and followers must never own leader cleanup.
 
-The fix routed completion, abort, failure, and shutdown through the same per-request cleanup path. Cleanup failures are logged per request so one bad release cannot prevent the remaining streams from being released. A related review found that completed request IDs were retained in a `set` and trimmed via arbitrary iteration; that could forget a recent completion while retaining an older one, allowing a late chunk to recreate finished state. The tombstones became insertion-ordered and are evicted oldest-first.
-
-The base also rejected a direct single-chunk entry point for coalescing schedulers because it could run the pump outside the lock used by the batch path. Invalid lifecycle entry points are now explicit errors rather than undocumented alternatives.
-
-**Lesson:** completion is not just “produce the last bytes.” It includes ordered tombstones, idempotent late-chunk handling, and exactly-once resource release on every exit path.
-
-### Flexible Hooks Can Silently Remove Safety
-
-During [`TtsEngineBuilder`](https://github.com/sgl-project/sglang-omni/pull/923) extraction, Higgs and MOSS-TTS-Local duplicated the entire `OmniScheduler(...)` construction only to pass async-decode options. That made a dangerous subclass override look legitimate: forgetting `abort_callback=self.make_abort_callback()` would create a working scheduler whose aborted requests leaked model-side state.
-
-The final hook returns only extra scheduler keyword arguments. The base class still owns the abort callback and the invariant construction order. The same review pass moved the Qwen-TTS dependency check ahead of checkpoint resolution; otherwise a missing optional package could be reported only after downloading a remote checkpoint.
-
-**Lesson:** hooks should expose variation, not let subclasses reconstruct invariants. Order expensive work after cheap preflight checks, and never make cleanup wiring optional by accident.
-
-Together, these cases raised the bar for a “shared contract.” It must define not only the happy-path data flow, but also failure propagation, cancellation, teardown, ordering, and how the tests deterministically observe each of those states.
+These cases changed the abstraction boundary itself: cache keys include hidden conditioning, completion has durable negative state, and failure propagation covers work performed after the nominal computation succeeds.
 
 ## Migration Is an Audit: Fish Meets OmniScheduler
 
 FishAudio S2-Pro originally shipped with a bespoke scheduler because the shared scheduler could not express its requirements at the time. Once `OmniScheduler` had matured, [PR #937](https://github.com/sgl-project/sglang-omni/pull/937) removed the 591-line `FishScheduler`; the full PR landed at net −816 lines.
 
-The deletion was useful, but the stronger result was what the migration exposed.
+The deletion was useful, but the migration also exposed framework assumptions beyond the cache-identity bug above.
 
 **Vocabulary bounds became an enforced contract.** Fish semantic tokens live in the tokenizer's added vocabulary. The shared scheduler validates sampled token IDs, which forced Fish to configure `Req.vocab_size` from the complete tokenizer rather than a smaller base vocabulary.
-
-**Radix-cache identity became explicit.** A Fish reference prompt can have the same primary codebook sequence while differing in auxiliary codebooks. Token IDs alone are therefore insufficient cache identity. The migration added a fingerprint of the reference VQ codes so distinct prompts cannot incorrectly share KV cache state.
 
 **Impossible requests failed early and clearly.** The shared scheduler pre-validates request capacity. Fish therefore had to clamp the generation budget to the remaining context length instead of admitting a request that could never fit and relying on a later stop condition.
 
