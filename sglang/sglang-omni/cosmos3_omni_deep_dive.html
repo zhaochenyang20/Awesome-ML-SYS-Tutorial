@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cosmos 3 Omni · 解码机制与架构拆解</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F6F9; --panel:#FFFFFF; --panel-2:#EEF1F5; --raise:#E5E9F0;
+    --ink:#1A1F2B; --ink-dim:#565E70; --ink-faint:#8892A3;
+    --hair:rgba(26,31,43,.14); --hair-2:rgba(26,31,43,.07);
+    --ar:#5E4FCE; --ar-deep:#4A3AA8; --ar-soft:rgba(94,79,206,.10);
+    --diff:#0E9384; --diff-deep:#0B7A6E; --diff-soft:rgba(14,147,132,.10);
+    --act:#B87514; --act-deep:#96600F; --act-soft:rgba(184,117,20,.12);
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --body:'IBM Plex Sans','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',sans-serif;
+    --disp:'Space Grotesk','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--body); font-size:16.5px; line-height:1.78; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;}
+  ::selection{background:var(--ar-soft)}
+  .wrap{max-width:940px; margin:0 auto; padding:0 24px}
+
+  header.hero{padding:84px 0 40px; border-bottom:1px solid var(--hair);
+    background:radial-gradient(60% 120% at 20% -10%, rgba(94,79,206,.11), transparent 60%),radial-gradient(60% 120% at 84% -10%, rgba(14,147,132,.10), transparent 60%);}
+  .eyebrow{font-family:var(--mono); font-size:12.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:20px;}
+  h1{font-family:var(--disp); font-weight:700; font-size:clamp(38px,7vw,66px); line-height:1.04; margin:0 0 8px; letter-spacing:-.02em;}
+  h1 .g{background:linear-gradient(100deg,var(--ar) 0%,var(--diff) 100%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;}
+  .tagline{font-family:var(--disp); font-weight:500; font-size:clamp(18px,3vw,23px); margin:14px 0 24px; letter-spacing:-.01em;}
+  .thesis{font-size:17px; color:var(--ink-dim); max-width:72ch}
+  .thesis b{color:var(--ink); font-weight:600}
+  .toc{margin:30px 0 4px; font-family:var(--mono); font-size:13px; color:var(--ink-dim); columns:2; column-gap:36px}
+  .toc a{color:var(--ink-dim); text-decoration:none; display:block; padding:3px 0; border-bottom:1px solid transparent}
+  .toc a:hover{color:var(--ar); border-color:var(--ar-soft)}
+  .legend{display:flex; gap:18px; flex-wrap:wrap; margin:24px 0 4px; font-family:var(--mono); font-size:12.5px}
+  .chip{display:inline-flex; align-items:center; gap:8px; color:var(--ink-dim)}
+  .dot{width:11px; height:11px; border-radius:3px; display:inline-block}
+
+  section{padding:58px 0; border-bottom:1px solid var(--hair-2)}
+  .snum{font-family:var(--mono); font-size:13px; color:var(--ink-faint); letter-spacing:.06em; display:inline-block; margin-bottom:10px;}
+  h2{font-family:var(--disp); font-weight:600; font-size:clamp(24px,4vw,31px); line-height:1.15; margin:0 0 18px; letter-spacing:-.015em;}
+  h3{font-family:var(--disp); font-weight:600; font-size:19px; margin:32px 0 10px}
+  p{margin:0 0 15px; max-width:74ch}
+  .lead{font-size:18px; color:var(--ink); max-width:72ch}
+  a{color:var(--diff); text-decoration:none; border-bottom:1px solid rgba(14,147,132,.35)}
+  a:hover{border-color:var(--diff)}
+  strong{font-weight:600; color:#0A0D14}
+  code{font-family:var(--mono); font-size:.87em; background:var(--panel-2); padding:2px 6px; border-radius:5px; color:#39414F; border:1px solid var(--hair-2);}
+  .ar-mark{color:var(--ar); font-weight:600}
+  .diff-mark{color:var(--diff); font-weight:600}
+  .act-mark{color:var(--act); font-weight:600}
+
+  figure{margin:32px 0 12px}
+  figure svg{width:100%; height:auto; display:block}
+  figcaption{font-family:var(--mono); font-size:12.5px; color:var(--ink-faint); margin-top:12px; padding-left:14px; border-left:2px solid var(--hair); line-height:1.6;}
+
+  .formula{background:var(--panel-2); border:1px solid var(--hair); border-radius:10px; padding:16px 22px; margin:18px 0; font-family:var(--mono); font-size:15px; line-height:2.05; overflow-x:auto; color:var(--ink);}
+  .formula .c{color:var(--ink-faint)}
+  .formula b.ar{color:var(--ar); font-weight:500}
+  .formula b.df{color:var(--diff); font-weight:500}
+  sub,sup{font-size:.72em}
+
+  pre{background:#0E1320; border:1px solid var(--hair); border-radius:12px; padding:18px 20px; overflow-x:auto; margin:20px 0; font-family:var(--mono); font-size:13px; line-height:1.62; color:#c7cede;}
+  pre .c{color:#6b7385}
+  pre .k{color:#b4a9f0}
+  pre .s{color:#5dcaa5}
+  pre .n{color:#e7a84e}
+
+  .tbl-wrap{margin:26px 0; overflow-x:auto; border:1px solid var(--hair); border-radius:12px; background:var(--panel)}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:600px}
+  th,td{padding:12px 15px; text-align:left; border-bottom:1px solid var(--hair-2); vertical-align:top}
+  thead th{font-family:var(--mono); font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); background:var(--panel-2)}
+  tbody th{font-family:var(--body); font-weight:500; color:var(--ink-dim); white-space:nowrap}
+  .cell-ar{border-left:2px solid var(--ar)}
+  .cell-diff{border-left:2px solid var(--diff)}
+  tr:last-child td,tr:last-child th{border-bottom:none}
+
+  .judge{background:var(--panel); border:1px solid var(--hair); border-radius:14px; padding:22px 24px; margin:18px 0; box-shadow:0 1px 2px rgba(26,31,43,.05), 0 8px 24px -18px rgba(26,31,43,.25);}
+  .judge .jtag{font-family:var(--mono); font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--diff); margin-bottom:9px; display:block;}
+  .judge h3{margin:0 0 8px; font-size:18px}
+  .judge p:last-child{margin-bottom:0}
+  .prim{background:var(--panel); border:1px solid var(--hair); border-radius:12px; padding:18px 20px; margin:14px 0}
+  .prim .ptag{font-family:var(--mono); font-size:12px; font-weight:500; display:inline-block; padding:2px 9px; border-radius:20px; margin-bottom:8px}
+  .prim.a .ptag{background:var(--ar-soft); color:var(--ar-deep)}
+  .prim.d .ptag{background:var(--diff-soft); color:var(--diff-deep)}
+  .prim p:last-child{margin-bottom:0}
+
+  .note{background:var(--act-soft); border:1px solid rgba(184,117,20,.28); border-radius:12px; padding:16px 20px; margin:22px 0; font-size:15px; color:var(--ink-dim);}
+  .note b{color:var(--act-deep)}
+  .kv{color:var(--act-deep); font-weight:600}
+
+  footer{padding:48px 0 80px; color:var(--ink-faint); font-family:var(--mono); font-size:12.5px}
+  @media (max-width:640px){ body{font-size:15.5px} section{padding:44px 0} .toc{columns:1} }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">内部阅读材料 · Cosmos 3 Omni 机制与架构</div>
+    <h1>一份权重，<span class="g">两种解码</span></h1>
+    <div class="tagline">MoT 的模态解耦、AR + diffusion 的联合注意力、以及它对 Omni serving 抽象的含义</div>
+    <p class="thesis">Cosmos 3 用 <b>Mixture-of-Transformers</b> 把两种运行时特征完全不同的解码方式——文本的自回归 decode 与其余模态的 diffusion 去噪——装进同一份权重、同一条序列、同一次注意力里。本材料从底层机制一路拆到 serving 抽象：先讲清"混合"到底混的是什么，再给出三种 attention 的数学、完整的 decode 过程与伪代码、latent 的本质，最后落到我们 SGLang Omni 的抽象取向上。</p>
+    <div class="legend">
+      <span class="chip"><span class="dot" style="background:var(--ar)"></span>AR / 离散 / 文本 / 逐 token</span>
+      <span class="chip"><span class="dot" style="background:var(--diff)"></span>diffusion / 连续 / latent / 去噪</span>
+      <span class="chip"><span class="dot" style="background:var(--act)"></span>action / KV / 需要注意的点</span>
+    </div>
+    <nav class="toc">
+      <a href="#s1">01 · 架构总览：MoT 双塔</a>
+      <a href="#s2">02 · "混合"到底混的是什么</a>
+      <a href="#s3">03 · 和 Ming-Omni 的区别</a>
+      <a href="#s4">04 · 三种 attention 的数学</a>
+      <a href="#s5">05 · 为什么 diffusion 不能 KV-cache</a>
+      <a href="#s6">06 · 完整 decode 过程</a>
+      <a href="#s7">07 · Reasoner vs Generator</a>
+      <a href="#s8">08 · 各模态请求实例</a>
+      <a href="#s9">09 · latent 的本质与还原</a>
+      <a href="#s10">10 · 对 SGLang Omni 的抽象含义</a>
+      <a href="#s11">11 · 诚实边界</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ============ 01 ============ -->
+<section id="s1">
+  <span class="snum">01 — 架构总览</span>
+  <h2>MoT 双塔：5 套按模态分开的权重，共用一次注意力</h2>
+  <p class="lead">Cosmos 3 是 Mixture-of-Transformers。它不是一个"通用大脑"，而是把每个模态的权重分开、再用一次共享注意力缝在一起。文本走自回归塔，image / video / audio / action 走 diffusion 塔。</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MoT 端到端：输入经编码进入 L 层主体，text 走 AR、latent 走 diffusion 再经 decoder 还原为输出">
+      <defs><marker id="o1" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.t{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .d{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .h{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+
+      <!-- INPUT -->
+      <text x="76" y="46" text-anchor="middle" class="h d" fill="#1A1F2B" font-size="13">输入</text>
+      <g><rect x="24" y="62" width="104" height="30" rx="7" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="76" y="81" text-anchor="middle" class="t" fill="#5E4FCE">text</text></g>
+      <g><rect x="24" y="98" width="104" height="30" rx="7" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="76" y="117" text-anchor="middle" class="t" fill="#0E9384">image</text></g>
+      <g><rect x="24" y="134" width="104" height="30" rx="7" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="76" y="153" text-anchor="middle" class="t" fill="#0E9384">video</text></g>
+      <g><rect x="24" y="170" width="104" height="30" rx="7" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="76" y="189" text-anchor="middle" class="t" fill="#0E9384">audio</text></g>
+      <g><rect x="24" y="206" width="104" height="30" rx="7" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="76" y="225" text-anchor="middle" class="t" fill="#96600F">action</text></g>
+      <line x1="128" y1="149" x2="150" y2="149" stroke="#8892A3" marker-end="url(#o1)"/>
+
+      <!-- ENCODER -->
+      <rect x="152" y="84" width="172" height="160" rx="11" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="238" y="108" text-anchor="middle" class="h" fill="#1A1F2B" font-size="13">模态编码器</text>
+      <text x="238" y="134" text-anchor="middle" class="d">text &#8594; embed table</text>
+      <text x="238" y="156" text-anchor="middle" class="d">image / video &#8594; VAE</text>
+      <text x="238" y="178" text-anchor="middle" class="d">audio &#8594; 音频编码</text>
+      <text x="238" y="200" text-anchor="middle" class="d">action &#8594; 轨迹编码</text>
+      <text x="238" y="226" text-anchor="middle" class="d" fill="#8892A3">&#8594; 条件 token（本地表示）</text>
+      <line x1="324" y1="185" x2="344" y2="185" stroke="#8892A3" marker-end="url(#o1)"/>
+
+      <!-- MoT TRUNK -->
+      <rect x="346" y="70" width="290" height="230" rx="14" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="491" y="96" text-anchor="middle" class="h" fill="#1A1F2B" font-size="14">MoT 主体 · &#215; L 层</text>
+      <text x="491" y="116" text-anchor="middle" class="d">单一 checkpoint · 5 套权重共用一次 attention</text>
+      <g><rect x="358" y="134" width="82" height="34" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="399" y="154" text-anchor="middle" class="d" fill="#1A1F2B">&#9312; 投影 QKV</text></g>
+      <g><rect x="450" y="134" width="82" height="34" rx="8" fill="#FFFFFF" stroke="#4A3AA8" stroke-dasharray="3 3"/><text x="491" y="154" text-anchor="middle" class="d" fill="#1A1F2B">&#9313; 共享 attn</text></g>
+      <g><rect x="542" y="134" width="82" height="34" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="583" y="154" text-anchor="middle" class="d" fill="#1A1F2B">&#9314; 模态 FFN</text></g>
+      <line x1="440" y1="151" x2="450" y2="151" stroke="#8892A3" marker-end="url(#o1)"/>
+      <line x1="532" y1="151" x2="542" y2="151" stroke="#8892A3" marker-end="url(#o1)"/>
+      <text x="491" y="190" text-anchor="middle" class="d" fill="#8892A3">每层都这样 · 重复 &#215; L</text>
+      <text x="491" y="216" text-anchor="middle" class="d">条件 token 冻结做前缀，待生成位置在此产出</text>
+      <text x="491" y="238" text-anchor="middle" class="d">text 位置 &#8594; 上路　　latent 位置 &#8594; 下路</text>
+
+      <line x1="636" y1="120" x2="648" y2="120" stroke="#4A3AA8" marker-end="url(#o1)"/>
+      <line x1="636" y1="250" x2="648" y2="250" stroke="#0B7A6E" marker-end="url(#o1)"/>
+
+      <!-- OUTPUT top: text via AR -->
+      <rect x="650" y="97" width="176" height="46" rx="10" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="738" y="116" text-anchor="middle" class="h" fill="#5E4FCE" font-size="12.5">AR 逐 token 解码</text>
+      <text x="738" y="133" text-anchor="middle" class="d">text 位置 · KV-cache</text>
+      <text x="842" y="90" text-anchor="middle" class="d" fill="#8892A3">detokenize</text>
+      <line x1="826" y1="120" x2="858" y2="120" stroke="#8892A3" marker-end="url(#o1)"/>
+      <rect x="860" y="99" width="118" height="42" rx="9" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="919" y="116" text-anchor="middle" class="t" fill="#5E4FCE">text</text>
+      <text x="919" y="132" text-anchor="middle" class="d" fill="#5E4FCE">输出</text>
+
+      <!-- OUTPUT bottom: latent via diffusion -->
+      <rect x="650" y="227" width="176" height="46" rx="10" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="738" y="246" text-anchor="middle" class="h" fill="#0E9384" font-size="12.5">diffusion 去噪 &#215; T</text>
+      <text x="738" y="263" text-anchor="middle" class="d">latent 位置 · 无 KV-cache</text>
+      <text x="842" y="220" text-anchor="middle" class="d" fill="#8892A3">VAE / vocoder</text>
+      <line x1="826" y1="250" x2="858" y2="250" stroke="#8892A3" marker-end="url(#o1)"/>
+      <rect x="860" y="229" width="118" height="42" rx="9" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="919" y="246" text-anchor="middle" class="t" fill="#0E9384" font-size="12">图/视/音/动</text>
+      <text x="919" y="262" text-anchor="middle" class="d" fill="#0E9384">输出</text>
+
+      <!-- FOOTER -->
+      <rect x="24" y="448" width="954" height="56" rx="12" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="44" y="472" class="d">编码器与 VAE / vocoder 还原级通常在 MoT 主体之外，可各自单独成 stage（relay 传 token / latent）。</text>
+      <text x="44" y="491" class="d">MoT 主体本身 = 一个 checkpoint（64B · BF16 · 5 套模态权重 + 1 次无参数共享 attention）。</text>
+    </svg>
+    <figcaption>端到端读法（左→右）：5 种输入各经<strong>自己的编码器</strong>变成条件 token → 进入 <strong>MoT 主体（× L 层，5 套权重共用一次 attention）</strong> → 生成时按输出位置的模态分两条路：<strong>text 位置</strong>自回归解码后 detokenize 成文本，<strong>latent 位置</strong> diffusion 去噪 T 步后经 <strong>VAE/vocoder</strong> 还原成图/视/音/动。编码器与还原级通常在主体之外、可单独成 stage；<strong>MoT 主体本身才是那个 checkpoint</strong>。</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 02 ============ -->
+<section id="s2">
+  <span class="snum">02 — 概念澄清</span>
+  <h2>"混合"到底混的是什么</h2>
+  <p class="lead">最常见的误解：以为有一个参数一会儿去噪、一会儿 decode。<strong>没有这种参数。</strong> MoT 的"mixture"指的是一个 transformer 里同时装着好几套按模态分开的权重，一条混合序列流过去，每个 token 按模态被路由到自己那套。</p>
+
+  <p><a href="https://arxiv.org/abs/2411.04996">MoT 论文</a>把这件事说得很干净：它按模态解耦所有非 embedding 参数——feed-forward、attention 投影矩阵、layer normalization——每个模态各一套，唯独 self-attention 作为一次操作对全序列共享。所以 text 权重永远只处理 text token，image 权重永远只处理图像 latent，<strong>从不换岗</strong>。</p>
+
+  <h3>为什么"不共享参数"和"同一次 attention"不矛盾</h3>
+  <p>关键点一句话：<strong>attention 这个"混合"操作本身没有可学习参数。</strong> 参数全在两侧的投影（Q/K/V/O）和 FFN 里，而这些都是各模态一套。中间那次把它们缝起来的 softmax(QK<sup>⊤</sup>)V 是零参数的——它只是把各自算好的 q/k/v 混在一起。拆开一层看：</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="一层 MoT：分开的权重，共享的无参数 attention">
+      <defs><marker id="o2" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.t2{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .d2{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11.5px} .h2t{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+
+      <text x="500" y="28" text-anchor="middle" class="d2">一条混合序列（text token 与 image latent 混排）</text>
+      <g><rect x="300" y="42" width="100" height="32" rx="6" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="350" y="63" text-anchor="middle" class="d2" fill="#5E4FCE">text</text></g>
+      <g><rect x="410" y="42" width="100" height="32" rx="6" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="460" y="63" text-anchor="middle" class="d2" fill="#5E4FCE">text</text></g>
+      <g><rect x="540" y="42" width="100" height="32" rx="6" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="590" y="63" text-anchor="middle" class="d2" fill="#0E9384">image~</text></g>
+      <g><rect x="650" y="42" width="100" height="32" rx="6" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="700" y="63" text-anchor="middle" class="d2" fill="#0E9384">image~</text></g>
+
+      <line x1="410" y1="74" x2="410" y2="116" stroke="#8892A3" marker-end="url(#o2)"/>
+      <line x1="645" y1="74" x2="645" y2="116" stroke="#8892A3" marker-end="url(#o2)"/>
+
+      <rect x="230" y="118" width="360" height="60" rx="10" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="410" y="142" text-anchor="middle" class="h2t" fill="#5E4FCE" font-size="14">text 权重集</text>
+      <text x="410" y="163" text-anchor="middle" class="d2">LN · Wq/Wk/Wv · Wo · FFN</text>
+      <rect x="620" y="118" width="360" height="60" rx="10" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="800" y="142" text-anchor="middle" class="h2t" fill="#0E9384" font-size="14">image 权重集</text>
+      <text x="800" y="163" text-anchor="middle" class="d2">LN · Wq/Wk/Wv · Wo · FFN</text>
+
+      <line x1="410" y1="178" x2="470" y2="236" stroke="#8892A3" marker-start="url(#o2)" marker-end="url(#o2)"/>
+      <line x1="800" y1="178" x2="620" y2="236" stroke="#8892A3" marker-start="url(#o2)" marker-end="url(#o2)"/>
+
+      <rect x="330" y="238" width="360" height="62" rx="10" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="510" y="263" text-anchor="middle" class="h2t t2" font-size="14">self-attention</text>
+      <text x="510" y="284" text-anchor="middle" class="d2">混合所有 token · softmax(QK<tspan baseline-shift="super" font-size="8">⊤</tspan>)V · 无可学习参数</text>
+    </svg>
+    <figcaption>一层里：每个 token 先过它自己模态的 LN 和 Q/K/V 投影（分开的权重），所有 token 的 q/k/v 再丢进同一个 softmax(QK<sup>⊤</sup>)V（零参数的混合），最后各过各的 Wo/FFN。参数全在两侧，中间的混合无参数——这就是"既不共享参数、又在同一次 attention 里"的确切含义。</figcaption>
+  </figure>
+
+  <h3>稀疏激活：不是每次 forward 都用全部参数</h3>
+  <p>因为参数按模态解耦，<strong>一次 forward 真正激活的只是"这次序列里出现的那几个模态的那几套权重"</strong>，其余模态的 FFN / 投影一个都不碰。这是 MoT 被称为"稀疏"的原因（论文里 speech 只用 dense 基线约 37% 的 FLOPs、Chameleon 设定约 56%）。要区分两件事：</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>维度</th><th>是否稀疏</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><th>每次 forward 的 active 参数（FLOPs）</th><td class="cell-diff">稀疏</td><td>只算出现模态那几套，"全用到"是错的</td></tr>
+      <tr><th>需要驻留显存的参数（loading）</th><td class="cell-ar">不一定</td><td>通用 any-to-any 服务事先不知下个请求带什么模态，往往仍需全部驻留；省显存靠<strong>单一用途部署只 load 需要那片</strong>（这正是单独的 <code>Cosmos3ReasonerForConditionalGeneration</code> arch class 存在的意义）</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============ 03 ============ -->
+<section id="s3">
+  <span class="snum">03 — 对照</span>
+  <h2>和 Ming-Omni 的区别：联合注意力 vs 交棒</h2>
+  <p>直觉上 Cosmos 和 Ming-Omni 很像——都是"一个 AR 部分 + 一个 diffusion 部分，参数分开"。这个层面对。差别在<strong>耦合的紧度</strong>。</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th></th><th>Ming-Omni</th><th>Cosmos MoT</th></tr></thead>
+    <tbody>
+      <tr><th>结构</th><td class="cell-ar">dedicated encoders → Ling(MoE)理解+出文本 → <strong>交棒</strong>给独立的 audio decoder / diffusion 模型</td><td class="cell-diff">只有一叠层；text token 与 latent 从头到尾在<strong>同一条序列</strong></td></tr>
+      <tr><th>注意力</th><td class="cell-ar">两套：backbone 一套、diffusion 一套，各自独立</td><td class="cell-diff">每层一次共享注意力，跨模态互相看</td></tr>
+      <tr><th>条件如何进入生成</th><td class="cell-ar">backbone 产出 conditioning，一次性喂给下游网络</td><td class="cell-diff">latent 在每一层的同一次 attention 里读条件（深、双向、逐层）</td></tr>
+      <tr><th>能否干净切成两 stage</th><td class="cell-ar">能（thinker → diffusion，relay 传 hidden state）</td><td class="cell-diff">难——没有"交棒点"，整个生成是一次融合 forward</td></tr>
+    </tbody>
+  </table></div>
+  <p>比喻只用一次：Ming 是两场会，A 会写纪要、B 会开场念一遍；MoT 是所有人坐同一张桌子，每一层实时对话——各说各的语言（各自权重），但同一场对话（同一次 attention）。这个差别对我们划 Stage 有直接后果，见 <a href="#s10">第 10 节</a>。</p>
+</section>
+
+<!-- ============ 04 ============ -->
+<section id="s4">
+  <span class="snum">04 — 数学</span>
+  <h2>三种 attention 的数学</h2>
+  <p class="lead">三者的差别几乎全在<strong>掩码</strong>和<strong>用几套投影</strong>上，核心公式是同一个 softmax。记号：位置 <code>p</code> 的隐状态 h<sub>p</sub>，投影出 q/k/v，头维 d。</p>
+
+  <h3>① 传统自回归（因果掩码）</h3>
+  <p>一套权重，所有 token 共用：</p>
+  <div class="formula">
+    q<sub>i</sub> = W<sub>Q</sub> h<sub>i</sub> ，  k<sub>i</sub> = W<sub>K</sub> h<sub>i</sub> ，  v<sub>i</sub> = W<sub>V</sub> h<sub>i</sub><br>
+    α<sub>ij</sub> = softmax<sub>j</sub>( q<sub>i</sub> · k<sub>j</sub> / √d ) ， <b class="ar">仅 j ≤ i（因果 / 下三角）</b><br>
+    o<sub>i</sub> = Σ<sub>j≤i</sub> α<sub>ij</sub> v<sub>j</sub>
+  </div>
+  <p>每个 token 只看自己和过去。生成逐 token 串行，过去的 k/v 进 KV-cache。目标：next-token 交叉熵。</p>
+
+  <h3>② 传统 diffusion（DiT，全连接）</h3>
+  <p>latent token z<sub>1..m</sub> = 整张（带噪）图/视频在噪声档 t 的表示，t 经 AdaLN 或 embedding 注入。一套权重：</p>
+  <div class="formula">
+    q<sub>i</sub> = W<sub>Q</sub> z<sub>i</sub> ， …（z<sub>i</sub> 依噪声档 t）<br>
+    α<sub>ij</sub> = softmax<sub>j</sub>( q<sub>i</sub> · k<sub>j</sub> / √d ) ， <b class="df">所有 j（全连接 / 双向）</b><br>
+    o<sub>i</sub> = Σ<sub>j</sub> α<sub>ij</sub> v<sub>j</sub> <span class="c">，网络预测 ε<sub>θ</sub>(z<sub>t</sub>, t, c)，跑 T 步</span>
+  </div>
+  <p>每个 patch 看到所有 patch，无因果结构。一次 forward = 一个去噪步；步与步之间 z 全变，<strong>没有 KV-cache</strong>。</p>
+
+  <h3>③ Cosmos（MoT + Transfusion 式联合）</h3>
+  <p>一条序列混着 text token 和 latent，位置 p 的模态 m(p)。<strong>投影按模态分开</strong>；掩码是块因果混合：</p>
+  <div class="formula">
+    q<sub>p</sub> = W<sub>Q</sub><sup>m(p)</sup> h<sub>p</sub> ，  k<sub>p</sub> = W<sub>K</sub><sup>m(p)</sup> h<sub>p</sub> ，  v<sub>p</sub> = W<sub>V</sub><sup>m(p)</sup> h<sub>p</sub><br>
+    α<sub>pq</sub> = softmax<sub>q</sub>( q<sub>p</sub> · k<sub>q</sub> / √d <b class="ar">+ M<sub>pq</sub></b> ) ，  o<sub>p</sub> = Σ<sub>q</sub> α<sub>pq</sub> v<sub>q</sub><br>
+    <span class="c">M<sub>pq</sub> = 0（可见）/ −∞（不可见）</span><br>
+    <span class="c">text p：因果（q 在更早块，或 q ≤ p）　　image p∈块B：{B 之前的全部} ∪ {B 内全部，双向}</span>
+  </div>
+  <p>关键：不管哪套 W，q<sub>p</sub> 和 k<sub>q</sub> 都落在同一个 ℝ<sup>d</sup>，所以跨模态的 q<sub>p</sub>·k<sub>q</sub> 是有定义的实数——这就是文本和图像"能对话"的数学入口。三种掩码画成矩阵：</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三种 attention 掩码对比">
+      <style>.mt{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:12px} .ml{font-family:'Space Grotesk',sans-serif; font-weight:600; fill:#1A1F2B; font-size:13px}</style>
+      <!-- panel A: AR -->
+      <text x="200" y="42" text-anchor="middle" class="ml">autoregressive</text>
+      <text x="140" y="60" text-anchor="middle" class="mt">t1</text><text x="176" y="60" text-anchor="middle" class="mt">t2</text><text x="212" y="60" text-anchor="middle" class="mt">t3</text><text x="248" y="60" text-anchor="middle" class="mt">t4</text>
+      <!-- filled (causal) purple -->
+      <g fill="rgba(94,79,206,.20)" stroke="#4A3AA8" stroke-width="0.5">
+        <rect x="124" y="70" width="32" height="32"/>
+        <rect x="124" y="104" width="32" height="32"/><rect x="160" y="104" width="32" height="32"/>
+        <rect x="124" y="138" width="32" height="32"/><rect x="160" y="138" width="32" height="32"/><rect x="196" y="138" width="32" height="32"/>
+        <rect x="124" y="172" width="32" height="32"/><rect x="160" y="172" width="32" height="32"/><rect x="196" y="172" width="32" height="32"/><rect x="232" y="172" width="32" height="32"/>
+      </g>
+      <g stroke="rgba(26,31,43,.14)" stroke-width="0.5">
+        <line x1="124" y1="70" x2="124" y2="204"/><line x1="160" y1="70" x2="160" y2="204"/><line x1="196" y1="70" x2="196" y2="204"/><line x1="232" y1="70" x2="232" y2="204"/><line x1="268" y1="70" x2="268" y2="204"/>
+        <line x1="124" y1="70" x2="268" y2="70"/><line x1="124" y1="104" x2="268" y2="104"/><line x1="124" y1="138" x2="268" y2="138"/><line x1="124" y1="172" x2="268" y2="172"/><line x1="124" y1="204" x2="268" y2="204"/>
+      </g>
+      <text x="196" y="230" text-anchor="middle" class="mt">因果 · 下三角</text>
+
+      <!-- panel B: diffusion -->
+      <text x="500" y="42" text-anchor="middle" class="ml">diffusion (DiT)</text>
+      <text x="440" y="60" text-anchor="middle" class="mt">i1</text><text x="476" y="60" text-anchor="middle" class="mt">i2</text><text x="512" y="60" text-anchor="middle" class="mt">i3</text><text x="548" y="60" text-anchor="middle" class="mt">i4</text>
+      <g fill="rgba(14,147,132,.20)" stroke="#0B7A6E" stroke-width="0.5">
+        <rect x="424" y="70" width="32" height="32"/><rect x="460" y="70" width="32" height="32"/><rect x="496" y="70" width="32" height="32"/><rect x="532" y="70" width="32" height="32"/>
+        <rect x="424" y="104" width="32" height="32"/><rect x="460" y="104" width="32" height="32"/><rect x="496" y="104" width="32" height="32"/><rect x="532" y="104" width="32" height="32"/>
+        <rect x="424" y="138" width="32" height="32"/><rect x="460" y="138" width="32" height="32"/><rect x="496" y="138" width="32" height="32"/><rect x="532" y="138" width="32" height="32"/>
+        <rect x="424" y="172" width="32" height="32"/><rect x="460" y="172" width="32" height="32"/><rect x="496" y="172" width="32" height="32"/><rect x="532" y="172" width="32" height="32"/>
+      </g>
+      <text x="496" y="230" text-anchor="middle" class="mt">全连接 · 双向</text>
+
+      <!-- panel C: cosmos -->
+      <text x="800" y="42" text-anchor="middle" class="ml">cosmos (MoT)</text>
+      <text x="740" y="60" text-anchor="middle" class="mt">t1</text><text x="776" y="60" text-anchor="middle" class="mt">t2</text><text x="812" y="60" text-anchor="middle" class="mt">i1</text><text x="848" y="60" text-anchor="middle" class="mt">i2</text>
+      <!-- text-key attends: purple; image-key: teal -->
+      <g fill="rgba(94,79,206,.20)" stroke="#4A3AA8" stroke-width="0.5">
+        <rect x="724" y="70" width="32" height="32"/>
+        <rect x="724" y="104" width="32" height="32"/><rect x="760" y="104" width="32" height="32"/>
+        <rect x="724" y="138" width="32" height="32"/><rect x="760" y="138" width="32" height="32"/>
+        <rect x="724" y="172" width="32" height="32"/><rect x="760" y="172" width="32" height="32"/>
+      </g>
+      <g fill="rgba(14,147,132,.20)" stroke="#0B7A6E" stroke-width="0.5">
+        <rect x="796" y="138" width="32" height="32"/><rect x="832" y="138" width="32" height="32"/>
+        <rect x="796" y="172" width="32" height="32"/><rect x="832" y="172" width="32" height="32"/>
+      </g>
+      <g stroke="rgba(26,31,43,.14)" stroke-width="0.5">
+        <line x1="724" y1="70" x2="724" y2="204"/><line x1="760" y1="70" x2="760" y2="204"/><line x1="796" y1="70" x2="796" y2="204"/><line x1="832" y1="70" x2="832" y2="204"/><line x1="868" y1="70" x2="868" y2="204"/>
+        <line x1="724" y1="70" x2="868" y2="70"/><line x1="724" y1="104" x2="868" y2="104"/><line x1="724" y1="138" x2="868" y2="138"/><line x1="724" y1="172" x2="868" y2="172"/><line x1="724" y1="204" x2="868" y2="204"/>
+      </g>
+      <text x="796" y="230" text-anchor="middle" class="mt">块因果 · 混合</text>
+
+      <!-- legend -->
+      <rect x="220" y="256" width="14" height="14" fill="rgba(94,79,206,.20)" stroke="#4A3AA8" stroke-width="0.5"/>
+      <text x="242" y="268" class="mt">attend 到 text key</text>
+      <rect x="420" y="256" width="14" height="14" fill="rgba(14,147,132,.20)" stroke="#0B7A6E" stroke-width="0.5"/>
+      <text x="442" y="268" class="mt">attend 到 image key</text>
+      <rect x="620" y="256" width="14" height="14" fill="none" stroke="rgba(26,31,43,.14)" stroke-width="0.5"/>
+      <text x="642" y="268" class="mt">masked（−∞）</text>
+    </svg>
+    <figcaption>cosmos 那格里，左上紫色三角是文本因果，右下青色方块是图像块内双向，<strong>左下那块紫色（图像行 × 文本列）就是"图像 latent 在同一次 attention 里读文本条件"</strong>——这就是"联合"。三个轴：掩码（三角/满/块混合）、投影权重（一套/一套/按模态各一套）、目标（CE/去噪/两者）。</figcaption>
+  </figure>
+
+  <h3>index 级走一遍</h3>
+  <p>最小序列 <code>[t1, t2, i1, i2, i3]</code>，位置 1、2 是文本，3、4、5 是一个图像块。取图像 query i2（pos 4），它可见 {1,2,3,4,5}：</p>
+  <div class="formula">
+    s<sub>4,1</sub> = q<sub>4</sub>·k<sub>1</sub> / √d <span class="c">（q<sub>4</sub>=W<sub>Q</sub><sup>img</sup>h<sub>4</sub>，k<sub>1</sub>=W<sub>K</sub><sup>txt</sup>h<sub>1</sub>） ← 图 query · 文本 key</span><br>
+    s<sub>4,2</sub> = q<sub>4</sub>·k<sub>2</sub> / √d <span class="c">← 图 query · 文本 key</span><br>
+    s<sub>4,3</sub>, s<sub>4,4</sub>, s<sub>4,5</sub> <span class="c">← 图 · 图（块内双向，含"后面的" i3）</span><br>
+    α<sub>4,·</sub> = softmax( {s<sub>4,1</sub> … s<sub>4,5</sub>} )<br>
+    o<sub>4</sub> = <b class="ar">α<sub>4,1</sub>v<sub>1</sub> + α<sub>4,2</sub>v<sub>2</sub></b> + <b class="df">α<sub>4,3</sub>v<sub>3</sub> + α<sub>4,4</sub>v<sub>4</sub> + α<sub>4,5</sub>v<sub>5</sub></b>
+  </div>
+  <p>o<sub>4</sub> 是一个横跨文本 value（紫，W<sub>V</sub><sup>txt</sup>）和图像 value（青，W<sub>V</sub><sup>img</sup>）的凸组合。文本条件就在这一个加权和里进到图像 patch——没有第二个网络、没有交棒，只是同一个 softmax 的分母里既有文本 key 又有图像 key。<strong>掩码决定这行在哪些 q 上求和，模态决定每个位置的 q/k/v 由哪套 W 算，两者塞进同一个 softmax(QK<sup>⊤</sup>/√d + M)V。</strong></p>
+</section>
+
+<!-- ============ 05 ============ -->
+<section id="s5">
+  <span class="snum">05 — KV-cache</span>
+  <h2>为什么 diffusion 的 latent 不能 KV-cache</h2>
+  <p class="lead">KV-cache 是"增量式序列扩展"的优化，成立要同时满足两条：上下文 append-only（只在末尾追加），且已有位置的隐状态被冻住（k/v 固定可复用）。diffusion 的循环两条全破。</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>前提</th><th>AR decode</th><th>diffusion 去噪</th></tr></thead>
+    <tbody>
+      <tr><th>是不是 append-only</th><td class="cell-ar">是，逐 token 在末尾追加</td><td class="cell-diff">否，token 数始终 m，没有"新位置"</td></tr>
+      <tr><th>已有位置隐状态是否冻结</th><td class="cell-ar">是，x<sub>1..t</sub> 永不再变 → k/v 固定</td><td class="cell-diff">否，去噪定义就是 z<sup>(s−1)</sup> ≠ z<sup>(s)</sup>，每步 h 全变 → k/v 每步不同</td></tr>
+    </tbody>
+  </table></div>
+  <div class="formula">
+    z<sup>(T)</sup> → z<sup>(T−1)</sup> → … → z<sup>(0)</sup> <span class="c">（定长 m 个 latent，反复精修，不扩展）</span><br>
+    k<sub>j</sub><sup>(s−1)</sup> = W<sub>K</sub> h<sub>j</sub><sup>(s−1)</sup> ≠ W<sub>K</sub> h<sub>j</sub><sup>(s)</sup> = k<sub>j</sub><sup>(s)</sup> <span class="c">← 上一步缓存的 k/v 这一步是错的，必须全重算</span>
+  </div>
+  <div class="note"><b>两个边界（别记死）：</b>①<strong>固定的条件</strong>（文本 prompt）在 T 步里不变，其 k/v 算一次可复用 T 步——不能缓存的严格来说<em>只是正在被去噪的那些 latent</em>。②DeepCache 一类跨相邻步复用特征是<strong>近似</strong>（相邻步特征变化慢），不是精确 KV 复用，别混。</div>
+</section>
+
+<!-- ============ 06 ============ -->
+<section id="s6">
+  <span class="snum">06 — 解码全过程</span>
+  <h2>完整 decode 过程</h2>
+  <p class="lead">底层只有两个解码 primitive，任何模态组合的请求都是这两个按控制 token 编排出的序列。</p>
+
+  <div class="prim a"><span class="ptag">primitive · AR 步</span>
+    <p>尾部 append 1 个离散 token，因果注意力，k/v 立即入 cache 并永久复用。文本走这个，逐 token 增长。</p></div>
+  <div class="prim d"><span class="ptag">primitive · 去噪块</span>
+    <p>尾部 append 固定 m 个连续 latent，块内双向 + attend 前缀，原地迭代去噪 T 步，完事整块 k/v 入 cache。image / video / audio / action 走这个，块长不变。</p></div>
+
+  <h3>相位模型：严格 append-only，一次只有一个区域活动</h3>
+  <p>整条序列从左往右一块一块长出来。任何时刻只有一个区域"活动"，它左边全部冻结、右边尚不存在。text 段和 latent 块<strong>不会同时活动</strong>——这就是"text 从中间变长、latent 同时在动"这种矛盾场景根本不存在的原因。</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="decode 相位时间线">
+      <defs><marker id="o6" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.t6{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:12.5px} .d6{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .h6{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+
+      <rect x="40" y="90" width="200" height="60" rx="9" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="140" y="114" text-anchor="middle" class="h6 t6" fill="#5E4FCE">text span</text>
+      <text x="140" y="134" text-anchor="middle" class="d6">AR · 逐 token append · 增量缓存</text>
+
+      <rect x="255" y="90" width="230" height="60" rx="9" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="370" y="114" text-anchor="middle" class="h6 t6" fill="#0E9384">latent block (m) ↻</text>
+      <text x="370" y="134" text-anchor="middle" class="d6">去噪 T 步 · 定长 · 自身每步重算</text>
+
+      <rect x="500" y="90" width="180" height="60" rx="9" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="590" y="114" text-anchor="middle" class="h6 t6" fill="#5E4FCE">text span</text>
+      <text x="590" y="134" text-anchor="middle" class="d6">AR</text>
+
+      <rect x="695" y="90" width="180" height="60" rx="9" fill="#FFFFFF" stroke="rgba(26,31,43,.14)" stroke-dasharray="4 4"/>
+      <text x="785" y="114" text-anchor="middle" class="d6">next block…</text>
+      <text x="785" y="134" text-anchor="middle" class="d6" fill="#8892A3">尚未生成</text>
+
+      <line x1="240" y1="120" x2="253" y2="120" stroke="#8892A3" marker-end="url(#o6)"/>
+      <line x1="485" y1="120" x2="498" y2="120" stroke="#8892A3" marker-end="url(#o6)"/>
+      <line x1="680" y1="120" x2="693" y2="120" stroke="#8892A3" marker-end="url(#o6)"/>
+
+      <line x1="40" y1="72" x2="485" y2="72" stroke="#4A3AA8" stroke-width="0.5"/>
+      <text x="262" y="60" text-anchor="middle" class="d6" fill="#4A3AA8">已 finalize = 冻结 KV 前缀（读缓存，不重算）</text>
+      <line x1="500" y1="176" x2="680" y2="176" stroke="#0B7A6E" stroke-width="0.5"/>
+      <text x="590" y="196" text-anchor="middle" class="d6" fill="#0B7A6E">当前 active（正在过网络）</text>
+      <text x="500" y="228" class="d6" fill="#8892A3">序列尾部 append-only 增长 →　H 单调增　prefix_kv 只增不改</text>
+    </svg>
+    <figcaption>每个已 finalize 的块都是冻结前缀；当前 active 块要么是 AR 尾巴（append + 全缓存），要么是去噪块（定长 + 自身每步重算 + 前缀复用）。不存在两块同时动，也不存在往中间插位置。</figcaption>
+  </figure>
+
+  <h3>主循环</h3>
+  <pre><span class="k">prefix_kv</span> = [ {"K": empty[0,d], "V": empty[0,d]} <span class="k">for</span> _ <span class="k">in</span> range(L) ]  <span class="c"># 逐层各一份</span>
+H = 0; h_new = embed(BOS)
+<span class="k">while</span> not done:
+    <span class="c"># ===== AR 文本相位 =====</span>
+    <span class="k">while</span> True:
+        x = decode_one_text_token(h_new, pos=H, prefix_kv); H += 1
+        <span class="k">if</span> x == <span class="n">&lt;EOS&gt;</span>: done = True; break
+        <span class="k">if</span> x == <span class="n">&lt;BOI&gt;</span>: break        <span class="c"># begin-image/audio/video/action</span>
+        h_new = embed(x)
+    <span class="k">if</span> done: break
+
+    <span class="c"># ===== 去噪相位（块大小 m 此刻定死）=====</span>
+    m = resolve_block_size(spec)              <span class="c"># 图=patch数; 视频=帧×patch; 音频=帧率×时长; action=步数×D</span>
+    block_positions = range(H, H+m)           <span class="c"># 位置 id 立刻确定，去噪中不变</span>
+    z = noise(m)                              <span class="c"># z^(T)</span>
+    <span class="k">for</span> s <span class="k">in</span> range(T, 0, -1):
+        eps = forward_denoise(z, s, block_positions, prefix_kv)  <span class="c"># 只前向这 m 个</span>
+        z   = sampler_update(z, eps, s)                          <span class="c"># z^(s)→z^(s-1)，在网络之外改 z</span>
+    finalize_block_into_cache(z, block_positions, prefix_kv); H += m  <span class="c"># clean K/V 入 cache</span>
+    h_new = embed(<span class="n">&lt;EOI&gt;</span>)</pre>
+
+  <h3>两个内层：AR 单步 与 去噪单步（差别全在这里）</h3>
+  <pre><span class="c"># —— AR：只新增 1 个位置，拼前缀 KV，算完 append（append-only）——</span>
+<span class="k">def</span> decode_one_text_token(h_new, pos, prefix_kv):
+    <span class="k">for</span> l <span class="k">in</span> range(L):
+        h = layernorm_txt[l](h_new)
+        q,k,v = W_Q_txt[l]@h, W_K_txt[l]@h, W_V_txt[l]@h      <span class="c"># 文本投影</span>
+        q,k = rope(q,pos), rope(k,pos)
+        K = concat(prefix_kv[l]["K"], k); V = concat(prefix_kv[l]["V"], v)   <span class="c"># [H+1, d]</span>
+        a = softmax(q@K.T / sqrt(d)); o = a@V                 <span class="c"># 因果：新 token 看全部 H+1，无需显式 mask</span>
+        h_new = h_new + W_O_txt[l]@o; h_new = h_new + FFN_txt[l](h_new)
+        prefix_kv[l]["K"], prefix_kv[l]["V"] = K, V           <span class="c"># append，永不再改</span>
+    <span class="k">return</span> sample(unembed(h_new))
+
+<span class="c"># —— 去噪：只前向这 m 个 latent，读前缀 KV 但不写；块内双向 ——</span>
+<span class="k">def</span> forward_denoise(z, s, block_positions, prefix_kv):
+    h = latent_in_proj(z) + timestep_embed(s)                 <span class="c"># [m, D]，噪声档注入</span>
+    <span class="k">for</span> l <span class="k">in</span> range(L):
+        hn = layernorm_img[l](h)
+        q,k,v = hn@W_Q_img[l].T, hn@W_K_img[l].T, hn@W_V_img[l].T   <span class="c"># [m,d] 每步重算(z 变了)</span>
+        q,k = rope(q,block_positions), rope(k,block_positions)      <span class="c"># 位置=常量</span>
+        Kp,Vp = prefix_kv[l]["K"], prefix_kv[l]["V"]          <span class="c"># [H,d] 冻结，读缓存不重算</span>
+        K = concat(Kp,k); V = concat(Vp,v)                    <span class="c"># [H+m, d]</span>
+        a = softmax(q@K.T / sqrt(d))                          <span class="c"># [m, H+m]，块内无下三角=双向</span>
+        h = h + (a@V)@W_O_img[l].T; h = h + FFN_img[l](h)
+        <span class="c"># 注意：这里绝不写 prefix_kv[l]，去噪中途不落 cache</span>
+    <span class="k">return</span> eps_head(h)                                        <span class="c"># [m, D_latent] 预测噪声/velocity</span></pre>
+
+  <h3>第三个内层：块 finalize（去噪完 → clean K/V 入 cache）</h3>
+  <pre><span class="c"># —— 去噪跑完 z 是 z^(0)(clean)，用 clean 的 K/V 整块 append，此后这块变成冻结前缀 ——</span>
+<span class="k">def</span> finalize_block_into_cache(z0, block_positions, prefix_kv):
+    h0 = latent_in_proj(z0)                               <span class="c"># clean latent，不再加噪声档 embedding</span>
+    <span class="k">for</span> l <span class="k">in</span> range(L):
+        hn = layernorm_img[l](h0)
+        k  = rope(hn@W_K_img[l].T, block_positions)        <span class="c"># 位置=同一批常量</span>
+        v  =      hn@W_V_img[l].T
+        prefix_kv[l]["K"] = concat(prefix_kv[l]["K"], k)   <span class="c"># H → H+m</span>
+        prefix_kv[l]["V"] = concat(prefix_kv[l]["V"], v)   <span class="c"># 此后冻结、可被后续 text 复用</span></pre>
+  <p>注意入 cache 用的是 <strong>clean 的 z<sup>(0)</sup></strong>，不是去噪中途某步：后续文本 token attend 的语义必须是"已经画好的图"。至此三件套齐全——主循环编排 <code>decode_one_text_token</code>（AR 步）、<code>forward_denoise</code>（去噪块单步）、<code>finalize_block_into_cache</code>（落 cache），任何模态请求都是这三者的排列组合。</p>
+
+  <p><strong>latent 每步在变的唯一来源是采样器，不是 text</strong>：<code>sampler_update</code> 是网络之外的闭式更新（DDIM/flow-matching），把当前带噪 z 和预测 eps 推进一格 z<sup>(s−1)</sup>。z 变了 → 下一次 <code>forward_denoise</code> 里 h、q/k/v 都变 → 所以不能跨步复用它们的 KV；而前缀没进过这个更新，纹丝不动，所以能复用。</p>
+
+  <h3>逐区域的 KV 行为</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>区域</th><th>长度</th><th>生成它时自身 K/V</th><th>同时前缀 K/V</th><th>finalize 后</th></tr></thead>
+    <tbody>
+      <tr><th>text span</th><td>逐 token 增长</td><td class="cell-ar">算一次即缓存、复用</td><td>复用</td><td>冻结入 cache</td></tr>
+      <tr><th>latent block</th><td>固定 m</td><td class="cell-diff">每去噪步全重算</td><td>复用（前缀是冻的）</td><td>用 clean z 的 K/V 整块入 cache</td></tr>
+    </tbody>
+  </table></div>
+  <p>所以同一次生成里 KV 是<span class="kv">"前缀缓存、去噪块每步重算"</span>的第三种形态——既非纯 AR 的全缓存，也非纯 DiT 的全不缓存。这是 scheduler 要单列处理的一类。（细节：入 cache 用的是 z<sup>(0)</sup> clean 的 K/V，因为后续文本 attend 的是"已经画好的图"。）</p>
+</section>
+
+<!-- ============ 07 ============ -->
+<section id="s7">
+  <span class="snum">07 — 路径</span>
+  <h2>Reasoner vs Generator</h2>
+  <p class="lead">上面那套"AR + 去噪交替"的混合解码是 <strong>Generator 独有</strong>的；Reasoner 是它的退化情形——序列里一个去噪块都没有，只剩纯 AR。判据是<strong>输出模态</strong>，不是输入。</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th></th><th>Reasoner</th><th>Generator</th></tr></thead>
+    <tbody>
+      <tr><th>触发</th><td class="cell-ar">输出 = 纯 text</td><td class="cell-diff">输出含 image/video/audio/action</td></tr>
+      <tr><th>序列里有无去噪块</th><td class="cell-ar">无</td><td class="cell-diff">有（一个或多个）</td></tr>
+      <tr><th>相位</th><td class="cell-ar">全程 AR 一个相位</td><td class="cell-diff">AR 文本相位 ↔ 去噪相位 交替</td></tr>
+      <tr><th>用到的权重</th><td class="cell-ar">text 权重 + 输入侧编码</td><td class="cell-diff">上述 + 目标模态 diffusion 权重</td></tr>
+      <tr><th>KV 行为</th><td class="cell-ar">全程逐 token 增量缓存</td><td class="cell-diff">text 段增量缓存；去噪块每步重算自身、复用前缀、完事整块入缓存</td></tr>
+      <tr><th>能否单独部署</th><td class="cell-ar">可（arch class 只 load 理解侧）</td><td class="cell-diff">需 diffusion 那套权重</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>输入模态只决定前缀里放什么 condition token，输出模态决定走哪条路径、有没有去噪相位。</strong> 这也是那个 CI 盲点的根：同样的输入组合（比如 image+text），输出不同（text vs video）→ code path 完全不重叠。覆盖矩阵的第一维必须是 <code>(input set, output modality)</code> pair。</p>
+</section>
+
+<!-- ============ 08 ============ -->
+<section id="s8">
+  <span class="snum">08 — 实例</span>
+  <h2>各模态请求实例</h2>
+  <p class="lead">记号：<code>[...]</code> 是一段 token 及其权重/角色；<code>⟨denoise m⟩</code> 表示尾部追加 m 个 latent 并原地去噪 T 步、完事入 cache。</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="各类请求的 token 段与权重路由">
+      <style>.rt{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .rd{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .rl{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:12.5px}</style>
+      <!-- helper: gray cond, purple AR, teal diffusion -->
+      <!-- row templates: label x=40; segs start x=250 -->
+      <!-- r1 -->
+      <text x="40" y="62" class="rl" dominant-baseline="central">text → text</text>
+      <rect x="250" y="42" width="150" height="40" rx="8" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="325" y="58" text-anchor="middle" class="rt" fill="#5E4FCE" dominant-baseline="central">text</text><text x="325" y="72" text-anchor="middle" class="rd" fill="#5E4FCE" dominant-baseline="central">AR 续写</text>
+      <!-- r2 -->
+      <text x="40" y="122" class="rl" dominant-baseline="central">img+text → text</text>
+      <rect x="250" y="102" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="118" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="132" text-anchor="middle" class="rd" dominant-baseline="central">输入</text>
+      <rect x="410" y="102" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="485" y="118" text-anchor="middle" class="rt" dominant-baseline="central">text</text><text x="485" y="132" text-anchor="middle" class="rd" dominant-baseline="central">输入</text>
+      <rect x="570" y="102" width="150" height="40" rx="8" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="645" y="118" text-anchor="middle" class="rt" fill="#5E4FCE" dominant-baseline="central">text</text><text x="645" y="132" text-anchor="middle" class="rd" fill="#5E4FCE" dominant-baseline="central">AR 续写</text>
+      <!-- r3 -->
+      <text x="40" y="182" class="rl" dominant-baseline="central">text → audio+text</text>
+      <rect x="250" y="162" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="178" text-anchor="middle" class="rt" dominant-baseline="central">text</text><text x="325" y="192" text-anchor="middle" class="rd" dominant-baseline="central">条件</text>
+      <rect x="410" y="162" width="150" height="40" rx="8" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="485" y="178" text-anchor="middle" class="rt" fill="#5E4FCE" dominant-baseline="central">text</text><text x="485" y="192" text-anchor="middle" class="rd" fill="#5E4FCE" dominant-baseline="central">AR 文字稿</text>
+      <rect x="570" y="162" width="150" height="40" rx="8" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="645" y="178" text-anchor="middle" class="rt" fill="#0E9384" dominant-baseline="central">audio</text><text x="645" y="192" text-anchor="middle" class="rd" fill="#0E9384" dominant-baseline="central">去噪</text>
+      <!-- r4 -->
+      <text x="40" y="242" class="rl" dominant-baseline="central">img+text → action</text>
+      <rect x="250" y="222" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="238" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="252" text-anchor="middle" class="rd" dominant-baseline="central">条件</text>
+      <rect x="410" y="222" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="485" y="238" text-anchor="middle" class="rt" dominant-baseline="central">text</text><text x="485" y="252" text-anchor="middle" class="rd" dominant-baseline="central">指令条件</text>
+      <rect x="570" y="222" width="150" height="40" rx="8" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="645" y="238" text-anchor="middle" class="rt" fill="#96600F" dominant-baseline="central">action</text><text x="645" y="252" text-anchor="middle" class="rd" fill="#96600F" dominant-baseline="central">去噪</text>
+      <!-- r5 -->
+      <text x="40" y="302" class="rl" dominant-baseline="central">image → video (i2v)</text>
+      <rect x="250" y="282" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="298" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="312" text-anchor="middle" class="rd" dominant-baseline="central">首帧条件</text>
+      <rect x="410" y="282" width="150" height="40" rx="8" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="485" y="298" text-anchor="middle" class="rt" fill="#0E9384" dominant-baseline="central">video</text><text x="485" y="312" text-anchor="middle" class="rd" fill="#0E9384" dominant-baseline="central">去噪</text>
+      <!-- r6 -->
+      <text x="40" y="362" class="rl" dominant-baseline="central">img+action → video ↻</text>
+      <rect x="250" y="342" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="358" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="372" text-anchor="middle" class="rd" dominant-baseline="central">首帧</text>
+      <rect x="410" y="342" width="150" height="40" rx="8" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="485" y="358" text-anchor="middle" class="rt" fill="#96600F" dominant-baseline="central">action</text><text x="485" y="372" text-anchor="middle" class="rd" fill="#96600F" dominant-baseline="central">chunk 条件</text>
+      <rect x="570" y="342" width="150" height="40" rx="8" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="645" y="358" text-anchor="middle" class="rt" fill="#0E9384" dominant-baseline="central">video</text><text x="645" y="372" text-anchor="middle" class="rd" fill="#0E9384" dominant-baseline="central">去噪 ↻</text>
+
+      <!-- legend -->
+      <rect x="250" y="400" width="14" height="14" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="272" y="407" class="rd" dominant-baseline="central">条件 / 输入</text>
+      <rect x="400" y="400" width="14" height="14" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="422" y="407" class="rd" dominant-baseline="central">AR · 有 KV-cache</text>
+      <rect x="590" y="400" width="14" height="14" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="612" y="407" class="rd" dominant-baseline="central">diffusion 去噪</text>
+      <rect x="760" y="400" width="14" height="14" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="782" y="407" class="rd" dominant-baseline="central">action 去噪</text>
+    </svg>
+    <figcaption>灰 = 条件/输入（读，不生成），紫 = AR（仅 text），青/黄 = diffusion 去噪。行 1、2 是 Reasoner（无去噪块）；其余是 Generator。最后一行 img+action→video 是 rollout：chunk 内 diffusion、chunk 间自回归（取生成视频最后一帧当下一 chunk 首帧），两层循环叠加。</figcaption>
+  </figure>
+
+  <p><strong>text → audio + text</strong>（如"念这句并给文字稿"）：前缀塞 text 条件 → AR 出文字稿到 <code>&lt;BOA&gt;</code> → ⟨denoise m<sub>a</sub> 个 audio latent，attend 前缀 text 含刚写的文字稿，这就是"念的和写的一致"的来源⟩ → 可续文本 → <code>&lt;EOS&gt;</code>。</p>
+  <p><strong>img+text → action</strong>：前缀 image 编码 + text 指令 → 直接 ⟨denoise m<sub>act</sub> 个 action latent；m<sub>act</sub> = 步数 × embodiment 维度 D（单臂 Franka 10D、Agibot 29D…）⟩。无 AR 文本段。</p>
+  <p><strong>image → video (i2v)</strong>：前缀首帧编码 → ⟨denoise m<sub>v</sub> 个 video latent，时空双向 + attend 首帧⟩。<strong>forward-dynamics rollout</strong> 是它的分块自回归版：<code>[首帧][action_chunk_0]⟨denoise chunk0⟩</code> → 取生成视频最后一帧当下一块首帧 → 再来一块。</p>
+</section>
+
+<!-- ============ 09 ============ -->
+<section id="s9">
+  <span class="snum">09 — latent</span>
+  <h2>latent 的本质，与如何和 text 一起 attention</h2>
+  <p class="lead">latent 不是"各模态的统一 embedding"。恰恰相反：各模态的 latent 是各自独立、彼此不通用的向量。它们能和 text 同场 attention，靠的不是统一表示，而是被各自的投影映射到同一个 d 维打分空间。</p>
+
+  <h3>latent 是各模态本地的连续张量</h3>
+  <p>latent 是该模态自己的编码器压出来的：image latent = VAE 把图压成 <code>[h×w, c]</code> 的 patch 网格；video latent = 时空 VAE 的 <code>[帧′×h′×w′, c]</code>；audio latent = 音频 VAE 的 <code>[帧, c]</code>；action latent = 轨迹的 <code>[T, D]</code>。<strong>它们之间没有共享语义</strong>，维度 c 都可能不同。Cosmos 恰恰没有把所有模态塞进一个通用表示。</p>
+
+  <h3>统一的是投影之后的 d 维空间，不是 latent</h3>
+  <p>text 那边也一样本地（查表得 <code>[D_text]</code>）。让它们"能对话"的是每个模态各自的输入投影 + Q/K/V 投影，把本地表示拉到同一个头维 d：</p>
+  <div class="formula">
+    <b class="ar">text</b>:　e = embed_table[tok] <span class="c">[D_txt]</span> → h = in_proj_txt(e) <span class="c">[D]</span> → q = W<sub>Q</sub><sup>txt</sup>·LN(h) <span class="c">[d]</span><br>
+    <b class="df">image</b>: z = vae_encode(patch) <span class="c">[c_img]</span> → h = in_proj_img(z) <span class="c">[D]</span> → q = W<sub>Q</sub><sup>img</sup>·LN(h) <span class="c">[d]</span><br>
+    <span class="c">起点不同、维度不同，但两条 in_proj 各自拉到同一主干宽度 D，再各自的 W 拉到同一 d</span><br>
+    → q<sub>img</sub> · k<sub>txt</sub> / √d <span class="c">是两个同维实向量的点积 = 一个普通标量。attention 只对 d 维向量做点积，不关心来源。</span>
+  </div>
+  <p>类比只一句：不同货币各按自己汇率换成美元后就能加总——latent 是各国货币（不通用），in_proj + W<sub>Q/K/V</sub> 是各自汇率，d 维空间是美元，attention 只在"美元"层做算术。这也正是"MoT 参数按模态分开"的落点：每个模态需要自己的一条接入路径。</p>
+
+  <h3>latent → 模态 decoder：还原到信号域</h3>
+  <p>去噪产出的是<strong>目标模态的 latent，不是可播波形 / 可看像素</strong>。后面还挂一个模态专属 decoder 把 latent 拉回信号域：audio latent → vocoder/codec → waveform；video/image latent → VAE decoder → 逐帧像素。这跟 latent diffusion 一个套路（低维 latent 去噪，末端 VAE/vocoder 拉回高维）。</p>
+  <div class="note"><b>两个措辞要拧准：</b>① Cosmos diffusion 路径去噪的是<strong>连续 latent</strong>，不是离散 "audio token"（后者是 Qwen3 talker / Fish 那种 AR codebook 路线，机制不同）。② 这个 decoder 通常是<strong>主体之外</strong>独立训练的 VAE/vocoder，不在那 L 层 MoT 里、不参与联合 attention——所以它天然是流水线上<strong>另一个（可流式的）terminal stage</strong>，中间走 relay 传 latent。</div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+  <span class="snum">10 — 抽象</span>
+  <h2>对 SGLang Omni 的抽象含义</h2>
+  <p class="lead">真实分层是 <strong>Coordinator → Stage → Scheduler → ModelRunner → forward</strong>；relay（含 CommEngine）是 Stage 之下、沿图的边搬 tensor 的<strong>正交传输</strong>，不在 ModelRunner 之上。统一发生在 Stage 这个 model-agnostic 的 IO 壳（"从不检查 scheduler 类型"），异构性下推到 Scheduler / ModelRunner。</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SGLang Omni 真实分层">
+      <defs><marker id="oa" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.ta{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .da{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .hha{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+      <rect x="200" y="14" width="600" height="46" rx="11" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="500" y="34" text-anchor="middle" class="hha ta" font-size="14">Coordinator</text>
+      <text x="500" y="52" text-anchor="middle" class="da">全局路由 · 跨 stage 生命周期 · 合并 terminal · 广播 abort · 持 rollout session</text>
+      <line x1="270" y1="60" x2="270" y2="90" stroke="#8892A3" marker-end="url(#oa)"/>
+      <line x1="730" y1="60" x2="730" y2="90" stroke="#8892A3" marker-end="url(#oa)"/>
+
+      <rect x="70" y="92" width="400" height="300" rx="13" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="90" y="116" class="hha ta" font-size="13">STAGE</text>
+      <text x="90" y="134" class="da">uniform IO 壳 · model-agnostic · 从不检查 scheduler 类型</text>
+      <rect x="92" y="146" width="356" height="236" rx="11" fill="#FFFFFF" stroke="#4A3AA8"/>
+      <text x="270" y="168" text-anchor="middle" class="hha" fill="#5E4FCE" font-size="13">OmniScheduler (AR)</text>
+      <rect x="112" y="180" width="316" height="150" rx="10" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="270" y="203" text-anchor="middle" class="hha" fill="#5E4FCE" font-size="13">ThinkerModelRunner</text>
+      <text x="270" y="222" text-anchor="middle" class="da">prepare_forward / post_forward hooks</text>
+      <rect x="140" y="238" width="260" height="40" rx="20" fill="#FFFFFF" stroke="#4A3AA8"/>
+      <text x="270" y="263" text-anchor="middle" class="ta" fill="#5E4FCE" font-size="12">forward() · AR 步</text>
+      <text x="270" y="368" text-anchor="middle" class="da">Reasoner 侧 — text out · 纯 AR · 全程 KV-cache</text>
+
+      <rect x="530" y="92" width="400" height="300" rx="13" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="550" y="116" class="hha ta" font-size="13">STAGE</text>
+      <text x="550" y="134" class="da">同一个壳 · 只是换了 scheduler / runner</text>
+      <rect x="552" y="146" width="356" height="236" rx="11" fill="#FFFFFF" stroke="#0B7A6E"/>
+      <text x="730" y="168" text-anchor="middle" class="hha" fill="#0E9384" font-size="13">Diffusion Scheduler</text>
+      <rect x="572" y="180" width="316" height="150" rx="10" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="730" y="203" text-anchor="middle" class="hha" fill="#0E9384" font-size="13">DiffusionModelRunner</text>
+      <text x="730" y="222" text-anchor="middle" class="da">同一去噪 primitive · 换权重/m/位置编码</text>
+      <rect x="600" y="238" width="260" height="40" rx="20" fill="#FFFFFF" stroke="#0B7A6E"/>
+      <text x="730" y="263" text-anchor="middle" class="ta" fill="#0E9384" font-size="12">forward() · 去噪块（迭代 T 步）</text>
+      <text x="730" y="368" text-anchor="middle" class="da">Generator 侧 — 半缓存 KV · 文档已定为一等 runner #236</text>
+
+      <line x1="470" y1="360" x2="530" y2="360" stroke="#8892A3" marker-start="url(#oa)" marker-end="url(#oa)"/>
+      <line x1="270" y1="392" x2="270" y2="416" stroke="#8892A3" marker-end="url(#oa)"/>
+      <line x1="730" y1="392" x2="730" y2="416" stroke="#8892A3" marker-end="url(#oa)"/>
+
+      <rect x="70" y="418" width="860" height="106" rx="13" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="90" y="442" class="hha ta" font-size="12.5">Inter-stage transport — 位于 Stage 之下，与 runner 栈正交</text>
+      <text x="90" y="466" class="da"><tspan fill="#1A1F2B">control plane · ZMQ</tspan>  —  Submit / DataReady / Abort / Shutdown（小消息）</text>
+      <text x="90" y="486" class="da"><tspan fill="#1A1F2B">data plane · Relay</tspan>  —  SHM / NCCL / NixL / Mooncake · 搬 latent / hidden state / frame</text>
+      <text x="90" y="510" class="da" fill="#B87514">CommEngine / relay 是这一层的组件 —— 不是 ModelRunner 之上的 orchestration 层</text>
+    </svg>
+    <figcaption>AR 与 diffusion 不是"两个引擎"，是同一个 Stage 壳下的两种 ModelRunner。VAE/vocoder 那个还原级则是另一个（terminal）Stage，中间用 relay 传 latent。下面几条判断可直接拿去 review。</figcaption>
+  </figure>
+
+  <div class="judge"><span class="jtag">判断一</span><h3>统一在 Stage 壳，不在通讯层</h3>
+    <p>KV-cache / continuous batching 对 diffusion 无意义，CFG / denoising scheduler 对 AR 无意义。硬统一 Engine = 造一个 <code>if-modality</code> 分支体。正确缝合点是 Stage（一条 code path，从不检查 scheduler 类型），异构性下推到 Scheduler / ModelRunner。Cosmos 的 Reasoner / Generator 落在不相交的权重子集上，正是它们该是不同 runner、能各自 disaggregate 只 load 自己那片的根据。</p></div>
+
+  <div class="judge"><span class="jtag">判断二</span><h3>去噪块是同一个 primitive 的不同实例化</h3>
+    <p>image/video/audio/action 的解码<strong>机制相同</strong>（块内双向 + 去噪 T 步），不同的只是三个参数化：走哪套 diffusion 权重、块大小 m 怎么算、块内位置编码（2D/3D/1D）。所以不需要每模态一套 decode loop——一套"去噪块" <code>DiffusionModelRunner</code> + 按模态注入（权重、m、位置编码）即可。这正对上文档里 DiffusionModelRunner 想成为一等 runner 的设计。</p></div>
+
+  <div class="judge"><span class="jtag">判断三</span><h3>KV 的"第三种形态"要 scheduler 单列</h3>
+    <p>一次生成请求里 KV 是"前缀缓存、去噪块每步重算、完事整块入缓存"的混合。既不是纯 AR 的全缓存，也不是纯 DiT 的全不缓存。内存回收、抢占、显存预算都要按这个形态设计——而不是套用 LLM 的 KV 管理。</p></div>
+
+  <div class="judge"><span class="jtag">判断四</span><h3>联合注意力抗拒 thinker→talker 式的两段切分</h3>
+    <p>Ming 松耦合，天然两 Stage（thinker → diffusion，relay 传 hidden state）。Cosmos 若是真 joint-attention，去噪块每一层都要在同一次 attention 里读文本条件，<strong>没有交棒点</strong>——整个生成是一次融合 forward，更想当成<em>一个 Stage 里跑一个既做 AR 条件又做去噪的 runner</em>。这可能是它对我们现有 producer-consumer 切法最大的挑战。（而末端的 VAE/vocoder 还原级仍是可干净切出的另一个 stage。）</p></div>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="s11">
+  <span class="snum">11 — 诚实边界</span>
+  <h2>诚实边界：什么是读法、什么要 white paper 才能敲死</h2>
+  <p>本材料第 02、04、06 节的"单序列内 AR 段与去噪块交替 + block-causal 掩码 + 模态解耦投影"是 <strong>MoT + Transfusion 的读法</strong>。卡片说了 MoT / single framework / AR 塔 / diffusion 塔，这些指向这个读法（MoT 论文本身就研究了文本 AR + 图像 diffusion 同处一个 transformer 的设定）。但卡片<strong>没有逐字确认</strong>以下几点，需要 white paper / config / HF arch class 实现才能坐实：</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>存疑点</th><th>若为 A（联合，本材料读法）</th><th>若为 B（cross-attention 交棒，更像 Ming）</th></tr></thead>
+    <tbody>
+      <tr><th>文本 K/V 与 latent 的关系</th><td class="cell-diff">同一个 softmax 的分母里（联合）</td><td class="cell-ar">单独一次 cross-attention（交棒）</td></tr>
+      <tr><th>能否两段切分</th><td class="cell-diff">难，整生成一次融合 forward</td><td class="cell-ar">可，backbone → diffusion 两 stage</td></tr>
+      <tr><th>两塔是否共享 attention 序列</th><td class="cell-diff">是</td><td class="cell-ar">否，各自独立栈</td></tr>
+    </tbody>
+  </table></div>
+  <p>另需实现确认的：两塔间是否有共享 trunk、输入 encoder 塔是否独立于 MoT backbone、Reasoner arch class 实际砍掉了多少、以及 Cosmos SGLang cookbook 里 diffusion 挂在哪个 scheduler 下。这些不影响本材料对<em>机制原理</em>的描述，但会影响落到我们 Stage / runner 上的具体切法。</p>
+</section>
+
+</main>
+
+<footer class="wrap">
+  内部阅读材料 · 基于 nvidia/Cosmos3-Super 模型卡 + MoT(2411.04996) / Transfusion 机制 · 供 SGLang Omni 抽象设计参考<br>
+  机制部分为 MoT + Transfusion 读法；涉及 Cosmos 具体 wiring 与 RFC / PR 的连接为尽力对照，落地前请核对 white paper 与实现。
+</footer>
+
+</body>
+</html>
