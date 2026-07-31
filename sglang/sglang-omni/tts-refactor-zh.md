@@ -1,4 +1,4 @@
-# 告别无效重复：SGLang Omni TTS Serving 重构
+# 生命周期与框架抽象：SGLang Omni TTS Serving 重构
 
 **一个通用的 Serving 框架，应该怎样管理复杂且差异巨大的语音模型？**
 
@@ -53,9 +53,7 @@
 
 ### Cache Key 不能只看 Token ID
 
-FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会变成 prompt token IDs，其余 codebook 则是通过 embedding 输入模型。这导致两段不同的参考音频，可能会拥有完全相同的 Token ID。
-
-普通的 Radix Cache 会把它们当作相同的 Prefix，导致后续请求复用错误的声学条件。
+FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会变成 prompt token IDs，其余 codebook 则是通过 embedding 输入模型。这导致两段不同的参考音频，可能会拥有完全相同的 Token ID。普通的 Radix Cache 会把它们当作相同的 Prefix，导致后续请求复用错误的声学条件。
 
 **解法：** 在迁移到 [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937) 时我们明确了规范，只要 embedding、adapter 等机制会影响 KV state，它的 fingerprint 就必须显式写入 `Req.extra_key`。
 
@@ -75,7 +73,7 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 ## 新模型验证：我们的抽象是否足够？
 
-旧模型跑通只能说明接口兼容已有代码。Ming-Omni-TTS、ZONOS2 和 Audar-TTS 这三个不在最初设计范围内的后端，才是检验这层抽象是否合理的试金石。
+旧模型跑通只能说明接口兼容已有代码。Ming-Omni-TTS、ZONOS2 和 Audar-TTS 这三个不在最初设计范围内的后端，我们通过新增三个 TTS 模型来检查我们的抽象是否通用。一方面要检查新模型支持是否便捷方便，另一方面要检查新的模型是否能够快速复用已有抽象，实现很好的性能。
 
 Ming-Omni-TTS 也说明框架支持连续的中间表示：它的自回归 backbone 输出 hidden state，再由 FlowLoss/CFM tail 采样 continuous acoustic latent，最后交给 AudioVAE 解码。这条路径复用了同一套 engine、reference encode 和 state transport 接口。
 
@@ -106,8 +104,8 @@ Audar-TTS 是一个阿拉伯语 TTS 模型。以它为例，在不改变底层�
 
 ### 致谢
 
-这次重构由 [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 统一追踪。感谢所有在核心 Roadmap、关联 PR 以及探索 PR 中担任作者的贡献者（按 GitHub 用户名字母序）：
+这次重构由 [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 统一追踪。感谢所有在核心 Roadmap、关联 PR 以及探索 PR 中担任作者的贡献者：
 
-[@AkazaAkane](https://github.com/AkazaAkane)、[@GaokaiZhang](https://github.com/GaokaiZhang)、[@Hayden727](https://github.com/Hayden727)、[@keke0315](https://github.com/keke0315)、[@luojiaxuan](https://github.com/luojiaxuan)、[@MelodyyyYin](https://github.com/MelodyyyYin)、[@SandyLuXY](https://github.com/SandyLuXY)、[@XinhaoTheo](https://github.com/XinhaoTheo) 和 [@YzXiao101](https://github.com/YzXiao101)。
+[Yuhao Chen](https://github.com/AkazaAkane), [Chenchen Hong](https://github.com/Hayden727), [Xiangrui Ke](https://github.com/keke0315), [Xinyu Lu](https://github.com/SandyLuXY), [Jiaxuan Luo](https://github.com/luojiaxuan), [Xinhao Tan](https://github.com/XinhaoTheo), [Yue Yin](https://github.com/MelodyyyYin), [Gaokai Zhang](https://github.com/GaokaiZhang), [YzXiao](https://github.com/YzXiao101)
 
 完整的 PR 历史、评审讨论和废弃方案都保留在 [issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 中。
