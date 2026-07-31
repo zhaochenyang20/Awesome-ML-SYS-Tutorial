@@ -1,16 +1,16 @@
-# 告别复制粘贴：SGLang Omni TTS Serving 重构
+# 告别无效重复：SGLang Omni TTS Serving 重构
 
 **一个通用的 Serving 框架，应该怎样管理复杂且差异巨大的语音模型？**
 
-这是我们设计 SGLang Omni 时反复讨论的问题。理想的接入方式其实很简单：**声明流水线拓扑，实现模型特定的计算，然后把调度、通信和生命周期管理全部交给框架。**
+这是我们设计 SGLang Omni 时反复讨论的问题。理想的接入方式应该很简单：**声明流水线拓扑，实现模型特定的计算，然后把调度、通信和生命周期管理全部交给框架。**
 
 但在重构前，TTS（Text-to-Speech）Serving 模块离这个目标还有段距离。每接入一个新模型，开发者除了要实现文本到 latent、再到波形的生成逻辑，还要在模型目录里额外维护一整套 Serving 机制：从 engine 的启动调度、跨进程的状态传输，再到 vocoder 的流式生命周期和异常清理。接一个新模型，几乎等于重新搭半套 Serving 栈。
 
-这次重构的核心目标就是重新划定这道边界：**让模型专注于生成算法，让框架统一接管重复的生命周期。**
+这显然不是一个令人满意的状态。为此，我们专门花费了一个月的时间来重新划定这道边界：**让模型专注于生成算法，让框架统一接管重复的生命周期。**
 
 ## 重构空间和挑战
 
-盘点一下 Higgs、MOSS-TTS 或是 FishAudio S2-Pro 等主流 TTS 模型，它们的主链路大体相似：
+如同我们在 [TTS 性能优化实战](./tts-optimization-zh.md)中介绍的那样，一个 TTS 模型的推理链路主要如下：
 
 > 参考音频编码 → 自回归生成 audio token → vocoder 解码波形
 
@@ -18,16 +18,14 @@
 
 比如，**Higgs** 原生不支持流式，我们通过 window 和 crossfade 实现增量输出；**MOSS-TTS-Local** 带有独立的因果 transformer vocoder，需要维护持久化的 codec session、分配 CUDA Graph slot 并跨请求合批；**FishAudio S2-Pro** 的多 codebook 结构则要求 KV Cache 在 Token ID 之外继续识别 embedding 输入。
 
-这些优化直接影响吞吐、延迟和流式体验，也让模型差异进入了 Serving lifecycle。重构需要保留已有的性能优化，再把重复的控制流抽到框架中。
-
-关于这些优化的设计和效果，以及 codebook layout、delay pattern、Dual AR、Global + Local Transformer 和 vocoder 的具体差异，可以参考 [TTS 性能优化实战](./tts-optimization-zh.md)。
+这些优化直接影响吞吐、延迟和流式体验，也让模型差异进入了 Serving lifecycle。重构需要保留已有的强大性能优势，并且尽量将重复的控制流抽象到框架中。
 
 <div align="center">
   <img src="images/tts-opt-pipeline-overview.svg" alt="SGLang Omni TTS 从预处理、参考音频编码、自回归生成到 vocoder 解码的多阶段流水线" width="78%">
   <p><em>图 1：典型的多阶段 TTS 推理流水线。框架负责统一调度各个标准阶段，而阶段内的具体生成逻辑与计算仍由各模型独立实现。</em></p>
 </div>
 
-## 我们真正抽掉了什么？
+## 我们完成了哪些抽象？
 
 截至 2026 年 7 月 30 日，这次重构在 non-test 实现代码上净删除了 **2840 行**。
 
@@ -40,7 +38,7 @@
 
 删掉的代码主要集中在以往反复手写的 Serving 机制上：比如状态传输的 `to_dict` / `from_dict`（这极易导致漏改丢字段）、参考音频的 LRU 淘汰与并发控制，以及流式请求的异常清理。
 
-重构后，模型目录保留了特有的 codec session、checkpoint 解析和生成逻辑。边界的制定原则也非常严格：**共享代码不能依赖模型名称。所有差异必须通过 Hook、显式字段或 capability metadata 来表达。**
+重构后，模型目录保留了特有的 codec session、checkpoint 解析和生成逻辑。边界的制定原则也非常严格：**共享代码不能含有对模型名称的特判。所有差异必须通过 Hook、显式字段或 capability metadata 来表达。**
 
 <div align="center">
   <img src="images/tts-refactor-before-after.svg" alt="六套独立的 TTS Serving 栈重构为公共框架接口与模型 Hook 的前后对比" width="96%">
@@ -51,9 +49,9 @@
 
 ## 公共生命周期会放大隐含假设
 
-把各模型分散的逻辑收编进框架，很容易踩的坑是“隐式假设的放大”。原来只影响一个模型的边界问题，现在可能会在所有后端 TTS 模型上复现。重构迁移过程中，我们重点排查并修复了几个典型问题：
+把各模型分散的逻辑收编进框架后，原来只影响一个模型的隐含假设，可能沿着公共路径影响多个后端。例如，缓存通常根据 Token ID 判断两段输入是否相同；FishAudio S2-Pro 的参考音频还有一部分声学信息没有写进 Token ID，沿用原来的判断就会复用错误的参考条件。迁移过程中，我们重点排查并修复了以下三个问题：
 
-### 1. Cache Key 不能只看 Token ID
+### Cache Key 不能只看 Token ID
 
 FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会变成 prompt token IDs，其余 codebook 则是通过 embedding 输入模型。这导致两段不同的参考音频，可能会拥有完全相同的 Token ID。
 
@@ -61,13 +59,13 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 **解法：** 在迁移到 [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937) 时我们明确了规范，只要 embedding、adapter 等机制会影响 KV state，它的 fingerprint 就必须显式写入 `Req.extra_key`。
 
-### 2. Final 发出后，仍有晚到的 Chunk
+### Final 发出后，仍有晚到的 Chunk
 
 在流式流水线中，vocoder 发出 final result 并清理掉请求状态后，网络中较慢的音频 chunk 仍可能到达。如果状态表把未知的 request ID 当作新请求，就会意外地重新创建一条流。对于 MOSS-TTS-Local 来说，这条无效的请求甚至会永远占住 codec session 和 CUDA Graph slot。
 
 **解法：** [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) 引入了 Tombstone（墓碑）机制。已完成或中断的请求会保留 Tombstone，晚到的 chunk 匹配到后会直接丢弃，最后再根据时间统一淘汰。
 
-### 3. Single-flight 异常路径的“死锁”
+### Single-flight 异常路径的“死锁”
 
 为了防止缓存击穿，我们通过 Single-flight 合并相同 Key 的并发请求：Leader 执行 encode，Followers 挂起等待。
 
@@ -75,7 +73,7 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 **解法：** [`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926) 将 encode、复检和 cache insertion 放在同一个 failure domain 中。任一步骤失败，都会立刻删除 Key 并把异常广播给所有 Followers。
 
-## 新模型验证：这层抽象足够通用吗？
+## 新模型验证：我们的抽象是否足够？
 
 旧模型跑通只能说明接口兼容已有代码。Ming-Omni-TTS、ZONOS2 和 Audar-TTS 这三个不在最初设计范围内的后端，才是检验这层抽象是否合理的试金石。
 
@@ -92,7 +90,7 @@ Audar-TTS 是一个阿拉伯语 TTS 模型。以它为例，在不改变底层�
 
 这次重构没有通过牺牲精度或改变计算逻辑来换取性能。它减少的是把模型从“能跑”推进到“稳定提供高性能服务”所需的缓存、调度和生命周期代码。
 
-## 结语：什么该抽离，什么该放手？
+## 结语：重构的职责边界
 
 在重构的最后，像 sampling、codec session、MoE、codebook layout 以及波形后处理这些逻辑，我们依然让它们留在模型自己的目录里。因为它们直接决定了模型如何生成和解码，各家的约束天差地别，强行统一只会导致接口变得臃肿。
 
@@ -112,4 +110,4 @@ Audar-TTS 是一个阿拉伯语 TTS 模型。以它为例，在不改变底层�
 
 [@AkazaAkane](https://github.com/AkazaAkane)、[@GaokaiZhang](https://github.com/GaokaiZhang)、[@Hayden727](https://github.com/Hayden727)、[@keke0315](https://github.com/keke0315)、[@luojiaxuan](https://github.com/luojiaxuan)、[@MelodyyyYin](https://github.com/MelodyyyYin)、[@SandyLuXY](https://github.com/SandyLuXY)、[@XinhaoTheo](https://github.com/XinhaoTheo) 和 [@YzXiao101](https://github.com/YzXiao101)。
 
-完整的 PR 历史、评审讨论和废弃方案都保留在 issue #985 中。
+完整的 PR 历史、评审讨论和废弃方案都保留在 [issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 中。
