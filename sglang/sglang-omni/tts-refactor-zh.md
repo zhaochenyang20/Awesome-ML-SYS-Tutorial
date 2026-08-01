@@ -38,14 +38,14 @@
 
 删掉的代码主要集中在以往反复手写的 Serving 机制上：比如状态传输的 `to_dict` / `from_dict`（手写这部分代码极易因漏改而丢失字段）、参考音频的 LRU 淘汰与并发控制，以及流式请求的异常清理。
 
-重构后，模型目录保留了特有的 codec session、checkpoint 解析和生成逻辑。边界的制定原则也非常严格：**共享代码不能含有对模型名称的特判。所有差异必须通过 Hook、显式字段或 capability metadata 来表达。**
+重构后，框架提供 engine 启动、状态传输、缓存和 vocoder 生命周期的公共骨架；模型目录保留了特有的 codec session、checkpoint 解析和生成逻辑。边界的制定原则也非常严格：**共享代码不能含有对模型名称的特判。所有差异必须通过 Hook、显式字段或 capability metadata 来表达。**
 
 <div align="center">
   <img src="images/tts-refactor-before-after.svg" alt="六套独立的 TTS Serving 栈重构为公共框架接口与模型 Hook 的前后对比" width="96%">
   <p><em>图 3：模型保留生成和 codec 的具体实现，框架统一管理重复的 Serving 生命周期。</em></p>
 </div>
 
-对应的关键实现包括 [`TtsEngineBuilder`](https://github.com/sgl-project/sglang-omni/pull/923)、[`DeclarativeStateBase`](https://github.com/sgl-project/sglang-omni/pull/1050)、[`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926)、[`BatchVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/940)、[`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) 和 [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937)。
+对应到实现上，关键的几个组件包括 [`TtsEngineBuilder`](https://github.com/sgl-project/sglang-omni/pull/923)、[`DeclarativeStateBase`](https://github.com/sgl-project/sglang-omni/pull/1050)、[`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926)、[`BatchVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/940)、[`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) 和 [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937)。它们是可以按模型需求组合的窄接口，比如一个后端可以只用引擎启动而不用流式 vocoder，也可以只用状态传输而不共享 codec 实现。
 
 ## 公共生命周期会放大隐含假设
 
@@ -104,7 +104,7 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 ## 致谢
 
-这次重构由 [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 统一追踪。感谢核心 Roadmap、关联 PR 以及探索 PR 的所有作者：
+这次重构由 [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 统一追踪。感谢核心 Roadmap、关联 PR 以及探索 PR 的所有贡献者：
 
 [Yuhao Chen](https://github.com/AkazaAkane), [Jiaxin Deng](https://github.com/JiaxinD), [Jingwen Gu](https://github.com/JingwenGu0829), [Chenchen Hong](https://github.com/Hayden727), [Yizhuo Huang](https://github.com/YzXiao101), [Xiangrui Ke](https://github.com/keke0315), [Xinyu Lu](https://github.com/SandyLuXY), [Jiaxuan Luo](https://github.com/luojiaxuan), [Ratish P](https://github.com/Ratish1), [Xinhao Tan](https://github.com/XinhaoTheo), [Xuesong Ye](https://github.com/yxs), [Yue Yin](https://github.com/MelodyyyYin), [Gaokai Zhang](https://github.com/GaokaiZhang), [Yichi Zhang](https://github.com/Ccyest), [Chenyang Zhao](https://github.com/zhaochenyang20)
 
