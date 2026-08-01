@@ -1,224 +1,168 @@
-# When Six TTS Stacks Converge: Refactoring TTS Serving in SGLang Omni
+# Lifecycle Management and Framework Abstractions: Refactoring TTS Serving in SGLang Omni
 
-**How should a general serving framework manage speech models that differ substantially in architecture?** We kept returning to this question while designing SGLang Omni. Our onboarding goal was straightforward: *declare the pipeline topology, implement the model-specific computation, and leave scheduling, communication, and lifecycle management to the framework.*
+**How should a general-purpose serving framework support speech models with vastly different architectures and runtime requirements?**
 
-Before the refactor, TTS was still far from that goal. After implementing the model-specific generation path—how text and reference audio become latents, and how those latents become a waveform—a contributor still had to maintain engine bootstrap, cross-process state transport, reference-audio caching, vocoder scheduling, streaming request state, and failure cleanup inside the model directory. Onboarding a model often meant building another serving stack.
+This was one of the questions we repeatedly returned to while designing SGLang Omni. Ideally, integrating a new model should be straightforward:
 
-The six backends we had been actively optimizing—Higgs, MOSS-TTS, MOSS-TTS-Local, Qwen3-TTS, FishAudio S2-Pro, and Voxtral-TTS—share a broad pipeline: reference encoding, autoregressive acoustic generation, and waveform decoding. That common shape creates room for shared scheduling and lifecycle code. The details still differ sharply. Higgs uses delayed codebooks and a DAC vocoder that needs windowing for streaming; MOSS-TTS-Local uses a backbone-plus-inner-transformer loop and a persistent causal vocoder session; FishAudio's Dual AR injects conditioning that is not fully represented by token IDs. [Optimizing TTS Inference](./tts-optimization.md) explains these generation paths in detail.
+1. Declare the pipeline topology
+2. Implement the model-specific computation
+3. Let the framework handle scheduling, communication, and lifecycle management
 
-The refactor moved their repeated serving mechanics behind explicit contracts. As of July 30, 2026:
+Before this refactor, however, the TTS serving stack was still far from that goal. To add a new model, developers had to implement not only the core generation path—from text to acoustic latents and eventually to waveforms—but also a substantial amount of serving infrastructure inside the model directory. This included engine startup and scheduling, cross-process state transport, streaming vocoder state management, and cleanup on failures or request cancellation.
 
-| Proof point | Result |
-|---|---|
-| **Implementation progress** | Across 20 allowlisted refactor commits, non-test implementation code is down by a net **2,840 lines**: 5,923 added and 8,763 deleted. Tests grew by a net 2,982 lines to guard shared contracts and behavioral equivalence throughout the migrations. |
-| **Six refactored TTS backends** | Migrated onto shared contracts for engine bootstrap, state transport, reference encoding, vocoder lifecycle, capabilities, and scheduling. |
-| **FishAudio scheduler migration** | Deleted the 591-line `FishScheduler`; the migration PR landed at net **−816 lines** while preserving accuracy and performance. |
-| **Controlled Audar-TTS A/B** | Reduced production-equivalent integration code from **797 to 619 lines** and the production capability premium from **222 to 77 lines (−65.3%)**, with byte-identical outputs and performance parity. |
-| **New-model onboarding** | Ming-Omni-TTS, Audar-TTS, and ZONOS2 reused the shared surfaces without copying another engine, cache, or streaming state machine. |
+In practice, integrating a new model often meant rebuilding half of the serving stack. That was clearly not a sustainable boundary. We therefore spent a month redefining the responsibilities between models and the framework:
+
+> **Models should focus on generation algorithms. The framework should own the recurring serving lifecycle.**
+
+## The Refactoring Space and Challenges
+
+As described in [Optimizing TTS Inference: Engineering Lessons from Profiling to Streaming in SGLang Omni](./tts-optimization.md), a typical TTS inference pipeline consists of three major stages:
+
+> Reference audio encoding → autoregressive audio-token generation → waveform decoding with a vocoder
+
+This shared pipeline creates natural opportunities to reuse scheduling, caching, and request-lifecycle infrastructure.
+
+The real challenge came from the model-specific optimizations we had previously introduced to improve inference performance. Many of these optimizations were deeply integrated into serving concerns such as batching, cache-key construction, and streaming state management. For example:
+
+- **Higgs** does not natively support streaming, so we implemented incremental output using overlapping windows and crossfading.
+- **MOSS-TTS-Local** uses a separate causal Transformer vocoder. Serving it efficiently requires persistent codec sessions, CUDA Graph slot allocation, and batching across concurrent requests.
+- **FishAudio S2-Pro** uses multiple codebooks, which means its KV cache must distinguish not only token IDs but also embedding-based inputs.
+
+These optimizations directly affect throughput, latency, and streaming quality. They also allow model-specific assumptions to leak into the serving lifecycle.
+
+The refactor therefore had to satisfy two goals at once: preserve the performance advantages of the existing implementations while moving as much repeated control flow as possible into the framework.
+
+<div align="center">
+  <img src="images/tts-opt-pipeline-overview.svg" alt="A multi-stage SGLang Omni TTS pipeline covering preprocessing, reference audio encoding, autoregressive generation, and vocoder decoding" width="78%">
+  <p><em>Figure 1: A typical multi-stage TTS inference pipeline. The framework schedules the standard stages, while each model retains control over its generation logic and stage-specific computation.</em></p>
+</div>
+
+## What Did We Abstract?
+
+As of July 30, 2026, the refactor had removed a net total of **2,840 lines of non-test implementation code**.
 
 <div align="center">
   <a href="https://luojiaxuan.github.io/sglang-omni/tts-refactor/">
-    <img src="images/tts-refactor-progress-2026-07-30.png" alt="TTS Refactor Progress page showing 2,840 net deleted lines of non-test implementation code" width="96%">
+    <img src="images/tts-refactor-progress-2026-07-30.png" alt="The TTS Refactor Progress page showing a net reduction of 2,840 lines of non-test implementation code" width="96%">
   </a>
-  <p><em>Figure 1. Snapshot from July 30, 2026. The live commit-by-commit accounting is available on the <a href="https://luojiaxuan.github.io/sglang-omni/tts-refactor/">TTS Refactor Progress</a> page.</em></p>
+  <p><em>Figure 2: Progress snapshot from July 30, 2026. For the latest statistics and a commit-by-commit breakdown, see <a href="https://luojiaxuan.github.io/sglang-omni/tts-refactor/">TTS Refactor Progress</a>.</em></p>
 </div>
 
-Our litmus test was simple:
+Most of the deleted code came from serving mechanisms that had previously been reimplemented for each model. Examples include:
 
-> **A model contributor should implement model semantics and hooks—not copy, fork, or modify a framework scheduling state machine.**
+- Handwritten `to_dict` and `from_dict` methods for state transport, which are easy to break when a newly added field is not propagated everywhere.
+- LRU eviction and concurrency control for reference-audio caching.
+- Cleanup logic for interrupted or failed streaming requests.
+
+After the refactor, the framework provides a shared skeleton for engine startup, state transport, caching, and vocoder lifecycle management. Model directories retain their own codec sessions, checkpoint parsing, sampling logic, and generation algorithms.
+
+We also enforced a strict rule when defining this boundary:
+
+> **Shared framework code must never branch on model names.**
+
+Every model-specific difference must instead be represented through hooks, explicit state fields, or capability metadata.
+
+<div align="center">
+  <img src="images/tts-refactor-before-after.svg" alt="Before-and-after comparison showing six independent TTS serving stacks consolidated behind shared framework interfaces and model-specific hooks" width="96%">
+  <p><em>Figure 3: Models retain their generation and codec implementations, while the framework manages the recurring serving lifecycle.</em></p>
+</div>
+
+The key abstractions introduced during the refactor include [`TtsEngineBuilder`](https://github.com/sgl-project/sglang-omni/pull/923), [`DeclarativeStateBase`](https://github.com/sgl-project/sglang-omni/pull/1050), [`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926), [`BatchVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/940), [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936), and [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937). These are intentionally narrow, composable interfaces rather than a monolithic base class. A backend can reuse engine startup without adopting the streaming-vocoder abstraction, or reuse state transport without sharing its codec implementation.
+
+## Shared Lifecycles Amplify Hidden Assumptions
+
+Once previously isolated model logic moves into a shared framework path, an assumption that used to affect only one backend can suddenly affect many.
+
+Caching is a good example. A conventional token-based cache assumes that two inputs are equivalent when their token IDs are identical. For FishAudio S2-Pro, however, part of the acoustic conditioning from the reference audio is not represented in the token IDs at all. Reusing the standard cache identity rules would therefore associate requests with the wrong reference conditions.
+
+During the migration, we identified and fixed three particularly important classes of problems.
+
+### A Cache Key Cannot Depend on Token IDs Alone
+
+FishAudio S2-Pro represents reference audio using multiple VQ codebooks. Only codebook 0 is converted into prompt token IDs; the remaining codebooks enter the model as embeddings.
+
+This creates a subtle failure mode. Two requests may contain different acoustic information while sharing both the same text prompt and the same first-layer codebook values. A standard Radix Cache would treat their prefixes as identical. The later request could then reuse the KV cache from the earlier one, causing the generated speech to inherit the wrong reference voice.
+
+**Solution:** As part of the migration to [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937), we established an explicit rule: every input or piece of state that can affect the KV state—such as embeddings or adapters—must contribute a fingerprint to `Req.extra_key`.
+
+### The Request Has Ended, but an Audio Chunk Is Still in Flight
+
+This sounds impossible. If a termination result has already been emitted, how can another audio chunk arrive afterward?
+
+For requests that complete normally, it cannot. The engine sends any remaining audio chunks before sending the final result, and the pipeline preserves per-request delivery order.
+
+The problematic case is request cancellation. An abort signal propagates asynchronously across pipeline stages. At the same time, an audio chunk produced by an upstream stage may already be in transit. That chunk can arrive after the request state has been removed. If the vocoder treats the late chunk as the beginning of a new request, it can unintentionally resurrect a stream that has already terminated. For MOSS-TTS-Local, such a phantom request may permanently occupy both a codec session and a CUDA Graph slot.
+
+**Solution:** [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) introduces a tombstone mechanism. When a request completes or is aborted, the system temporarily retains a tombstone for its request ID. Any late-arriving chunk that matches the tombstone is discarded immediately. Tombstones are then evicted after a configured retention period.
+
+### A “Deadlock” in the Single-Flight Error Path
+
+Reference-audio encoding is relatively expensive, while the same speaker reference is often reused across many requests. To avoid duplicate work, the framework applies a single-flight mechanism: concurrent requests for the same reference audio share one encoding operation, and the remaining requests wait for its result.
+
+We found a failure mode in the error path. If audio loading or cache insertion failed without clearing the coordination state, subsequent requests using the same reference audio could wait indefinitely for a result that would never arrive.
+
+**Solution:** Encoding, cache insertion, and error propagation now belong to the same lifecycle. If any step fails, the framework immediately clears the in-flight state and forwards the error to every waiting request.
+
+## Validating the Abstractions with New Models
+
+Successfully migrating existing models only proves that the new interfaces are compatible with the old implementations. It does not prove that the abstractions are general enough for new architectures.
+
+To test that, we integrated three additional TTS models: Ming-Omni-TTS, ZONOS2, and Audar-TTS. The goal was twofold:
+
+- Determine whether a new model could be integrated with substantially less serving code.
+- Verify that the shared abstractions could be reused without sacrificing correctness or performance.
+
+Ming-Omni-TTS provides one example of a substantially different generation path. Its autoregressive backbone produces hidden states, which are passed to a FlowLoss/CFM tail to sample continuous acoustic latents. An AudioVAE then decodes those latents into waveforms. Despite these architectural differences, the model was able to reuse the same engine, reference-encoding, and state-transport interfaces.
+
+Audar-TTS provides another useful case study. Audar-TTS is an Arabic text-to-speech model. Before the refactor, we had already built a working implementation. We then reimplemented it using the unified framework and compared the two versions on identical inputs.
+
+The results were bit-for-bit consistent:
+
+- Across 28 paired requests, both implementations produced exactly the same 285-code sequences and identical 24 kHz waveforms.
+- On a separate set of 50 Arabic sentences, the acoustic codes, floating-point waveforms, and PCM-WAV hashes all matched.
+
+Performance was also unchanged. On an H100, the refactored implementation differed from the original by: **−0.13%** in stage-sum latency, **−0.13%** in real-time factor, and **+0.16%** in engine throughput. All three differences were within normal measurement variance.
+
+At the same time, the amount of additional model-side code required to turn a demo into a production-ready serving implementation fell from 222 lines to 77 lines—a reduction of **65.3%**. The resulting code was also easier to understand and maintain.
+
+<div align="center">
+  <img src="images/tts-refactor-audar-validation.svg" alt="Comparison of the original and refactored Audar-TTS implementations across code size, output consistency, and performance" width="88%">
+  <p><em>Figure 4: The refactor reduces the amount of production-serving code required on the model side while preserving outputs and performance.</em></p>
+</div>
+
+The refactor did not change the model’s numerical behavior or generation algorithm. What it removed was the repeated caching, scheduling, and lifecycle code required to move a model from “it runs” to “it serves reliably at high performance.”
+
+## Where We Drew the Boundary
+
+Sampling, codec sessions, MoE execution, codebook layouts, and waveform post-processing remain inside model-specific directories. These components directly determine how a model generates and decodes audio, and their constraints vary significantly across architectures. Trying to force them behind a single abstraction would produce a large and brittle interface rather than meaningful reuse.
+
+During the refactor, we also explored several broader abstractions based on profiling results, including batched reference encoding and a shared decode-state pool. Load testing showed, however, that these optimizations were highly workload-dependent. They produced meaningful gains only for particular combinations of models and traffic patterns, and the improvements did not consistently transfer to other backends. Because their semantics and benefits had not yet converged, we chose not to promote them into the framework prematurely. Individual models can continue to explore and adopt these optimizations where they are useful.
+
+The abstractions that did move into the shared layer are the serving lifecycles that repeatedly appeared across models and had developed stable semantics:
+
+- Engine construction and startup.
+- State transport across pipeline stages.
+- Reference-audio caching.
+- Batch and streaming vocoder scheduling.
+- Request-state cleanup.
+- Shared scheduler validation.
+
+After six existing backends were migrated successfully, the integration of Ming-Omni-TTS, ZONOS2, and Audar-TTS provided further evidence that these interfaces can support new model architectures.
+
+The goal of a refactor is not to move every possible line of code into the framework. The better contract is:
+
+> **The framework owns the stable mechanisms required for reliable, high-performance serving. Models remain lightweight and retain the generation logic and optimization strategies that best fit their architectures.**
+
+Future progress, updated statistics, and a commit-by-commit breakdown will continue to be published on the [TTS Refactor Progress](https://luojiaxuan.github.io/sglang-omni/tts-refactor/) page.
 
 ---
 
-## Similar Pipelines, Different Model Semantics
+## Acknowledgments
 
-TTS inference in SGLang Omni is a multi-stage pipeline. Preprocessing, reference-audio encoding, autoregressive generation, and waveform decoding have different compute profiles, memory lifetimes, and batching opportunities. For the broader architecture, see [Why SGLang-Omni](./why-sglang-omni-en.md); for performance work inside individual stages, see [Optimizing TTS Inference](./tts-optimization.md).
+The refactor is tracked in [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985).
 
-<div align="center">
-  <img src="images/tts-opt-pipeline-overview.svg" alt="TTS inference pipeline from preprocessing through audio encoding and autoregressive generation to the vocoder" width="78%">
-  <p><em>Figure 2. A typical multi-stage TTS inference pipeline in SGLang Omni.</em></p>
-</div>
+We would like to thank everyone who contributed to the core roadmap, related pull requests, and exploratory implementations:
 
-The refactor focused on the layer *around* those stages: the mechanics every production implementation needs but no model directory should own by itself.
+[Yuhao Chen](https://github.com/AkazaAkane), [Jiaxin Deng](https://github.com/JiaxinD), [Jingwen Gu](https://github.com/JingwenGu0829), [Chenchen Hong](https://github.com/Hayden727), [Yizhuo Huang](https://github.com/YzXiao101), [Xiangrui Ke](https://github.com/keke0315), [Xinyu Lu](https://github.com/SandyLuXY), [Jiaxuan Luo](https://github.com/luojiaxuan), [Ratish P](https://github.com/Ratish1), [Xinhao Tan](https://github.com/XinhaoTheo), [Xuesong Ye](https://github.com/yxs), [Yue Yin](https://github.com/MelodyyyYin), [Gaokai Zhang](https://github.com/GaokaiZhang), [Yichi Zhang](https://github.com/Ccyest), and [Chenyang Zhao](https://github.com/zhaochenyang20).
 
-## The Repetition Was in Serving Mechanics
-
-Looking only at computation, the six TTS backends appeared unrelated. Looking at lifecycle, the same structure repeated:
-
-- engine bootstrap resolved checkpoints, built server arguments, initialized model-specific state, captured CUDA Graphs, created adapters, and assembled schedulers in nearly the same order;
-- every model manually serialized pipeline state across stage boundaries;
-- reference-audio paths independently implemented cache keys, LRU eviction, same-key deduplication, and failure handling;
-- batch and streaming vocoders independently managed request state, chunk thresholds, flush ordering, aborts, and terminal results;
-- capability differences lived in scattered conditionals instead of one declarative surface.
-
-The repeated code was visible; deciding where to cut was the difficult part. Checkpoint quirks, codec sessions, and codebook layouts belong to the model. LRU eviction, single-flight, terminal ordering, and failure propagation can be shared. Reusing whole functions would pull model semantics into the framework, while copying them kept six implementations drifting apart. We split each path into stable framework control flow and model-owned hooks.
-
-<div align="center">
-  <img src="images/tts-refactor-before-after.svg" alt="Before and after diagram showing six model-local serving stacks consolidated into shared framework contracts with model-specific hooks" width="96%">
-  <p><em>Figure 3. Models retain generation and codec semantics; the framework owns the repeated serving lifecycle.</em></p>
-</div>
-
-The boundary principle was:
-
-> **Framework owns reusable mechanics. Model directories own model semantics.**
-
-That principle led to three design rules:
-
-1. **No model-name conditionals in shared code.** Differences are expressed through hooks, capabilities, or declarative fields—not `if model == ...`.
-2. **Migrate or delete.** A model does not keep a hidden legacy path after adopting a shared surface.
-3. **Review the boundary with backend owners, then test it on the hardest consumer.** A simple backend fitting the API is only the first check.
-
-## The Contract Stack
-
-The outcome is not one giant `TTSBaseModel`. It is a small stack of contracts, each with a deliberately narrow ownership boundary.
-
-| Shared surface | The framework owns | The model owns |
-|---|---|---|
-| [`TtsEngineBuilder`](https://github.com/sgl-project/sglang-omni/pull/923) | invariant bootstrap order, server-argument plumbing, deferred CUDA Graph setup, scheduler assembly, and post-wiring | checkpoint quirks, model setup, compile policy, adapters, and model-specific callbacks |
-| [`DeclarativeStateBase`](https://github.com/sgl-project/sglang-omni/pull/1050) and typed tensors | field emission rules, codecs, round-trip transport, dtype/shape-preserving tensor payloads | which state exists and how each field should travel |
-| [`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926) | byte-bounded LRU caching, same-key single-flight, waiter failure propagation, no-poison retries, and cache statistics | input normalization, identity keys, codec execution, artifact dtype/device policy, and revalidation |
-| [`BatchVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/940) | scheduler wiring and `prepare → decode batch → store` orchestration | the three corresponding hooks and waveform semantics |
-| [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) | request-state registry, contract latching, chunk/flush/terminal ordering, abort behavior, and coalesced-step failure isolation | codec sessions, cursor math, CUDA Graph slots, decode plans, and emitted audio shape |
-| [Model capabilities](https://github.com/sgl-project/sglang-omni/pull/957) and [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937) | declarative feature discovery plus common request, batch, KV-cache, abort, and finish lifecycles | sampling, stop semantics, cache fingerprints, row layouts, and model-side buffers |
-
-The important property is composability. A backend can adopt the engine builder without using a streaming vocoder, or use typed state transport without sharing its codec implementation. Each contract removes one class of lifecycle duplication without pretending all TTS models are the same.
-
-## Refactoring Without Changing the Model
-
-A serving refactor can be logically clean and still be operationally dangerous. We therefore classified changes by behavioral risk and raised the acceptance gate with the risk.
-
-| Risk | What changes | Required evidence |
-|---|---|---|
-| **Green** | structural extraction with the same runtime behavior | CPU contract tests and wire/output equivalence |
-| **Yellow** | output-equivalent behavior through a new runtime path | accuracy gate plus targeted concurrency/failure tests |
-| **Red** | lifecycle semantics, batching, or resource behavior | accuracy plus throughput, latency, and RTF comparison |
-
-The migration order mattered. Low-risk contracts landed first and became test infrastructure for later lifecycle changes. By the time we migrated streaming vocoders and a bespoke scheduler, the shared state, engine, and capability surfaces were already stable.
-
-### Discuss the Boundary, Then Test the Hardest Consumer
-
-Higgs and MOSS-TTS-Local both stream audio, but their internal requirements are very different. Higgs uses windowed chunking with overlap and crossfade. MOSS-TTS-Local maintains a persistent causal-transformer codec session across chunks, allocates per-request CUDA Graph slots, coalesces requests into one decode step, isolates failures, and latches stream metadata once generation begins.
-
-We first reviewed the boundary against both backends: which control flow was stable, which fields varied, and who owned cleanup after failure. [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) was then tested against the harder MOSS-TTS-Local lifecycle. The shared layer owns participant selection, plan/execution sequencing, per-request state, completion, and failure isolation; MOSS-TTS-Local keeps its persistent session and graph mechanics behind hooks. Once that worked, the [Higgs migration](https://github.com/sgl-project/sglang-omni/pull/939) needed only a subset of the surface.
-
-This was validated with 18 CPU contract tests for the shared lifecycle and full SeedTTS runs where throughput, RTF, and time-to-first-audio remained flat within run noise.
-
-### Migrate, Then Delete
-
-We avoided `enable_legacy`, per-model escape branches, and “temporary” duplicate implementations. The old path was deleted in the migration PR. This made every shared contract real: production traffic had to exercise it, and reviewers never had to reason about two subtly different lifecycles indefinitely.
-
-## Three Counterintuitive Bugs the Refactor Had to Design Against
-
-The most useful bugs were not ordinary missing checks. They appeared where a model-specific assumption stopped being true after the behavior moved behind a shared cache or lifecycle. One was exposed by migration; the other two were contract holes closed during extraction before they became production incidents.
-
-### Identical Token IDs Can Still Mean Different Prefixes
-
-FishAudio S2-Pro reference audio contains multiple VQ codebooks, but only codebook 0 becomes prompt token IDs. The remaining codebooks enter the model as embeddings. Two references can therefore have identical scheduler-visible token IDs while carrying different acoustic information.
-
-With a normal radix cache, those requests appear to have the same prefix. Request B can reuse KV states computed from request A's embeddings, so the generated speech is conditioned partly on the wrong reference even though every token ID and cache lookup looks valid. Migrating Fish to `OmniScheduler` in [PR #937](https://github.com/sgl-project/sglang-omni/pull/937) exposed this mismatch. The fix hashes all reference VQ codebooks into `Req.extra_key`, making cache identity represent the full model input rather than only its token projection.
-
-Prefix-cache identity is therefore not necessarily token identity. Information injected through embeddings, side channels, or adapter state must participate in the cache key.
-
-### A Request Can Come Back to Life After Its Final Result
-
-Streaming pipelines do not guarantee that completion and chunk delivery are observed in the same order. Imagine that the vocoder emits the final result, clears request state, and then receives a delayed audio-code chunk already in transit. A naïve state registry sees an unknown request ID and creates a fresh stream.
-
-That “zombie” stream can emit audio after the client has already received the final result. For MOSS-TTS-Local it can also acquire a persistent codec/CUDA Graph slot that will never see another `done` event and therefore never be released. During the [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) extraction, completion became an explicit tombstone: late chunks for completed or aborted IDs are dropped and cannot recreate state. Tombstones are evicted oldest-first so a recently completed request is not accidentally forgotten before an older one.
-
-Deleting request state alone leaves this race open. In an asynchronous pipeline, “finished” must remain observable long enough to reject messages that were already in flight.
-
-### A Cache Can Permanently Poison a Key Without Storing Anything
-
-[`ReferenceEncodeService`](https://github.com/sgl-project/sglang-omni/pull/926) uses same-key single-flight: one leader encodes a reference while followers wait on its future. The subtle failure is after the expensive encode succeeds. Revalidation can fail because the source file changed during encoding, or cache insertion itself can raise.
-
-If that exception escapes without completing the future and deleting the in-flight entry, no bad value is cached—but the key is still poisoned. Every later request becomes a follower of a leader that no longer exists, waits for the full timeout, and repeats the same behavior indefinitely. The shared service now treats encode, revalidation, and cache insertion as one failure domain: any exception removes the in-flight key and wakes every follower with the same failure. A follower timing out, conversely, must not cancel or remove a still-valid leader.
-
-Single-flight must account for every leader exit path, including work after the nominal computation succeeds. Each exit resolves the rendezvous, while followers never own leader cleanup.
-
-These cases changed the abstraction boundary itself: cache keys include hidden conditioning, completion has durable negative state, and failure propagation covers work performed after the nominal computation succeeds.
-
-## What Fish Exposed During the OmniScheduler Migration
-
-FishAudio S2-Pro originally shipped with a bespoke scheduler because the shared scheduler could not express its requirements at the time. Once `OmniScheduler` had matured, [PR #937](https://github.com/sgl-project/sglang-omni/pull/937) removed the 591-line `FishScheduler`; the full PR landed at net −816 lines.
-
-The deletion was useful, but the migration also exposed framework assumptions beyond the cache-identity bug above.
-
-**Vocabulary bounds became an enforced contract.** Fish semantic tokens live in the tokenizer's added vocabulary. The shared scheduler validates sampled token IDs, which forced Fish to configure `Req.vocab_size` from the complete tokenizer rather than a smaller base vocabulary.
-
-**Impossible requests failed early and clearly.** The shared scheduler pre-validates request capacity. Fish therefore had to clamp the generation budget to the remaining context length instead of admitting a request that could never fit and relying on a later stop condition.
-
-Independent implementations can look correct because they never exercise the same invariants. Consolidation makes every model traverse the same framework checks and turns previously implicit assumptions into explicit fields.
-
-## Declarative State: Move Correctness Into the Structure
-
-State transport is especially dangerous in a multi-process pipeline. Before the refactor, each model maintained hand-written `to_dict` and `from_dict` methods. Adding a state field without updating both methods could silently drop data between stages.
-
-[PR #1050](https://github.com/sgl-project/sglang-omni/pull/1050) replaced six hand-written serializer pairs—313 lines in total—with `DeclarativeStateBase` and `wire(...)` field metadata. Emission policy and codec choice now live beside the field definition, while the framework derives both directions of transport.
-
-The validation was stronger than “the tests passed”:
-
-- rich and default-only states for all six models produced byte-identical normalized wire dumps before and after the change—12 out of 12 comparisons;
-- a field-complete round-trip contract test pins every transported attribute;
-- the change removed a net 116 non-test lines;
-- typed tensor transport records bytes, wire dtype, and shape under one codec rather than forcing every model to invent an encoding.
-
-Later, [Ming-Omni-TTS adopted the same surface](https://github.com/sgl-project/sglang-omni/pull/1103). Its continuous acoustic latents required floating-point tensor transport, so the shared typed-tensor primitive gained an explicit float32 wire policy and the model-local encode/decode helper pairs were deleted. New requirements improved the common primitive instead of spawning another private protocol.
-
-## New Models Became the Acceptance Test
-
-A framework refactor is not proven by how elegantly it rewrites old code. It is proven when unfamiliar models arrive and do not need to fork the framework.
-
-### Ming-Omni-TTS: A Continuous-Latent Outlier
-
-Ming-Omni-TTS is not a conventional logits-to-codebook pipeline. A BailingMoE autoregressive backbone emits hidden states; a FlowLoss/CFM tail samples continuous acoustic latents; those latents feed the next autoregressive step; an AudioVAE later decodes the latent sequence.
-
-That architecture kept its feedback loop, tensor-parallel behavior, tail graphs, and model math local. It still reused the shared engine builder, reference-encode service, capability metadata, checkpoint resolution, declarative state, and typed-tensor transport. The framework handled lifecycle; the model kept the algorithm.
-
-### ZONOS2: Shared Surfaces Without Hiding Complexity
-
-ZONOS2 combines a MoE autoregressive backbone, reference-speaker encoding, delayed DAC codebooks, and streaming waveform decode. Its integration adopted `TtsEngineBuilder`, `ReferenceEncodeService`, `StreamingVocoderBase`, model capabilities, declarative state, shared checkpoint resolution, and the keyed tensor reference-encode hook.
-
-The code that remained model-local is equally important: the MoE backbone, DAC vocoder mechanics, sampler, radix fingerprinting, decode-state pool, and text normalization. A good abstraction reduces duplicated ownership without erasing legitimate differences.
-
-### Audar-TTS: A Controlled Comparison
-
-Audar-TTS provided the cleanest experiment because the same model was implemented twice: once against a pre-refactor stack and once against the shared framework.
-
-| Metric | Without shared framework | With shared framework | Change |
-|---|---:|---:|---:|
-| Minimal integration, non-test/non-doc LOC | 575 | 542 | −5.7% |
-| Production-equivalent integration LOC | 797 | 619 | −22.3% |
-| **Production capability premium** | **222** | **77** | **−65.3%** |
-
-The *production capability premium* is the code added after a minimal demo to make the backend production-ready: reference caching, lifecycle safety, error handling, and contract coverage. The shared framework reduced that premium by almost two thirds.
-
-<div align="center">
-  <img src="images/tts-refactor-audar-validation.svg" alt="Audar TTS controlled comparison showing lower production integration code and production capability premium with identical outputs and performance parity" width="88%">
-  <p><em>Figure 4. Less model-owned production glue, with unchanged output and performance.</em></p>
-</div>
-
-The equivalence checks were unusually strict. All 28 paired requests produced identical 285-code sequences and identical 24 kHz waveforms. A separate 50-sentence Arabic run produced 50 out of 50 identical acoustic-code, float-waveform, and PCM-WAV hashes. On H100, stage-sum latency changed by −0.13%, RTF by −0.13%, and engine throughput by +0.16%—performance parity, not a claimed speedup.
-
-That distinction matters. The framework did not make Audar's model math faster. It made production-grade serving behavior substantially cheaper to integrate without changing the result.
-
-## What We Deliberately Did Not Abstract
-
-Completing the roadmap did not mean turning every recurring noun into a base class.
-
-- **Model math stays local:** sampling, codec sessions, latent feedback, MoE layers, codebook layout, and waveform post-processing.
-- **A shared surface needs evidence:** batch reference encoding remained profile-gated rather than becoming a framework feature without a demonstrated bottleneck.
-- **Model-specific resource pools stay model-specific until their invariants converge:** decode-state pooling was not forced into a premature universal API.
-- **Capabilities describe differences; conditionals do not hide them:** the framework can discover whether a model supports reference audio, batch vocoding, streaming, CUDA Graphs, or compilation without branching on model names.
-
-This restraint is part of the refactor. The goal was not maximal inheritance. It was minimal, enforceable contracts around mechanics that were genuinely shared.
-
-## Takeaways
-
-**Look for duplicated lifecycle, not only duplicated computation.** The six backends had different algorithms but repeated the same bootstrap, transport, cache, scheduler, and vocoder control flows. Changing the question from “what does this function compute?” to “what lifecycle does it manage?” revealed the framework boundary.
-
-**A shared framework earns its existence by enforcing invariants.** Fish gained vocabulary checks, correct cache identity, and early capacity validation. Declarative state gained field-complete round-trip contracts. Streaming gained explicit completion and failure semantics.
-
-**New-model onboarding is the final benchmark.** Ming and ZONOS2 showed that the contracts can support architectures outside the original design center. Audar quantified the result: less production integration code, dramatically less capability glue, identical outputs, and performance parity.
-
----
-
-The completed roadmap and full PR history are tracked in [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985). Current line-count progress and the exact allowlisted commits are published on the [TTS Refactor Progress](https://luojiaxuan.github.io/sglang-omni/tts-refactor/) page. The linked PRs preserve authorship, reviews, benchmark artifacts, and the detailed behavior class for each migration.
+The complete pull-request history, review discussions, and abandoned design explorations are preserved in [issue #985](https://github.com/sgl-project/sglang-omni/issues/985).
