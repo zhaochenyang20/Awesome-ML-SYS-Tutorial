@@ -1,0 +1,135 @@
+<svg viewBox="0 0 1400 820" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+      .title { font-size: 25px; font-weight: 700; letter-spacing: 3px; fill: #111827; }
+      .section { font-size: 17px; font-weight: 700; letter-spacing: 2px; fill: #334155; }
+      .card-title { font-size: 17px; font-weight: 700; fill: #111827; }
+      .small { font-size: 14px; fill: #475569; }
+      .tiny { font-size: 12px; fill: #64748b; }
+      .pill { font-size: 12px; font-weight: 600; fill: #334155; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#7a97d4"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="820" fill="#fafbfd"/>
+  <text x="700" y="42" text-anchor="middle" class="title mono">FROM MODEL SILOS TO SHARED CONTRACTS</text>
+  <line x1="54" y1="66" x2="1346" y2="66" stroke="#d3dcef"/>
+
+  <text x="336" y="102" text-anchor="middle" class="section mono">BEFORE</text>
+  <text x="1064" y="102" text-anchor="middle" class="section mono">AFTER</text>
+
+  <rect x="52" y="124" width="568" height="620" rx="14" fill="#ffffff" stroke="#d3dcef"/>
+  <text x="336" y="158" text-anchor="middle" class="small">Six model directories each own a complete serving stack</text>
+
+  <!-- Before: six duplicated stacks -->
+  <g>
+    <rect x="82" y="190" width="158" height="226" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="161" y="220" text-anchor="middle" class="card-title">Higgs</text>
+    <rect x="98" y="241" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="260" text-anchor="middle" class="pill">bootstrap</text>
+    <rect x="98" y="278" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="297" text-anchor="middle" class="pill">state transport</text>
+    <rect x="98" y="315" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="334" text-anchor="middle" class="pill">cache policy</text>
+    <rect x="98" y="352" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="371" text-anchor="middle" class="pill">vocoder loop</text>
+
+    <rect x="257" y="190" width="158" height="226" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="336" y="220" text-anchor="middle" class="card-title">MOSS</text>
+    <rect x="273" y="241" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="260" text-anchor="middle" class="pill">bootstrap</text>
+    <rect x="273" y="278" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="297" text-anchor="middle" class="pill">state transport</text>
+    <rect x="273" y="315" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="334" text-anchor="middle" class="pill">cache policy</text>
+    <rect x="273" y="352" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="371" text-anchor="middle" class="pill">vocoder loop</text>
+
+    <rect x="432" y="190" width="158" height="226" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="511" y="220" text-anchor="middle" class="card-title">MOSS Local</text>
+    <rect x="448" y="241" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="260" text-anchor="middle" class="pill">bootstrap</text>
+    <rect x="448" y="278" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="297" text-anchor="middle" class="pill">state transport</text>
+    <rect x="448" y="315" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="334" text-anchor="middle" class="pill">cache policy</text>
+    <rect x="448" y="352" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="371" text-anchor="middle" class="pill">stream loop</text>
+
+    <rect x="82" y="444" width="158" height="226" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="161" y="474" text-anchor="middle" class="card-title">Qwen3-TTS</text>
+    <rect x="98" y="495" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="514" text-anchor="middle" class="pill">bootstrap</text>
+    <rect x="98" y="532" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="551" text-anchor="middle" class="pill">state transport</text>
+    <rect x="98" y="569" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="588" text-anchor="middle" class="pill">cache policy</text>
+    <rect x="98" y="606" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="161" y="625" text-anchor="middle" class="pill">vocoder loop</text>
+
+    <rect x="257" y="444" width="158" height="226" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="336" y="474" text-anchor="middle" class="card-title">Fish S2-Pro</text>
+    <rect x="273" y="495" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="514" text-anchor="middle" class="pill">bootstrap</text>
+    <rect x="273" y="532" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="551" text-anchor="middle" class="pill">state transport</text>
+    <rect x="273" y="569" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="588" text-anchor="middle" class="pill">cache policy</text>
+    <rect x="273" y="606" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="336" y="625" text-anchor="middle" class="pill">own scheduler</text>
+
+    <rect x="432" y="444" width="158" height="226" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="511" y="474" text-anchor="middle" class="card-title">Voxtral</text>
+    <rect x="448" y="495" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="514" text-anchor="middle" class="pill">bootstrap</text>
+    <rect x="448" y="532" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="551" text-anchor="middle" class="pill">state transport</text>
+    <rect x="448" y="569" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="588" text-anchor="middle" class="pill">cache policy</text>
+    <rect x="448" y="606" width="126" height="28" rx="14" fill="#f1f5f9"/><text x="511" y="625" text-anchor="middle" class="pill">vocoder loop</text>
+  </g>
+
+  <text x="336" y="710" text-anchor="middle" class="small">Different math, duplicated lifecycle</text>
+
+  <!-- Transition -->
+  <line x1="645" y1="430" x2="748" y2="430" stroke="#7a97d4" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="696" y="405" text-anchor="middle" class="small mono">EXTRACT</text>
+  <text x="696" y="466" text-anchor="middle" class="tiny">hooks + contracts</text>
+
+  <!-- After -->
+  <rect x="780" y="124" width="568" height="620" rx="14" fill="#ffffff" stroke="#d3dcef"/>
+  <text x="1064" y="158" text-anchor="middle" class="small">Models keep semantics; the framework owns mechanics</text>
+
+  <text x="820" y="205" class="section mono">MODEL SEMANTICS</text>
+  <g>
+    <rect x="820" y="226" width="154" height="72" rx="9" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="897" y="254" text-anchor="middle" class="card-title">Higgs / MOSS</text>
+    <text x="897" y="277" text-anchor="middle" class="tiny">codec math + hooks</text>
+
+    <rect x="987" y="226" width="154" height="72" rx="9" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="1064" y="254" text-anchor="middle" class="card-title">Fish / Qwen3</text>
+    <text x="1064" y="277" text-anchor="middle" class="tiny">sampling + layouts</text>
+
+    <rect x="1154" y="226" width="154" height="72" rx="9" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="1231" y="254" text-anchor="middle" class="card-title">Voxtral / New</text>
+    <text x="1231" y="277" text-anchor="middle" class="tiny">model-specific state</text>
+  </g>
+
+  <line x1="1064" y1="307" x2="1064" y2="342" stroke="#7a97d4" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="820" y="372" class="section mono">SHARED TTS CONTRACTS</text>
+  <rect x="820" y="394" width="488" height="188" rx="12" fill="#d8e6fb" stroke="#b7caec"/>
+  <g>
+    <rect x="842" y="417" width="139" height="48" rx="8" fill="#ffffff"/>
+    <text x="911" y="438" text-anchor="middle" class="card-title">Engine</text>
+    <text x="911" y="456" text-anchor="middle" class="tiny">bootstrap order</text>
+
+    <rect x="994" y="417" width="139" height="48" rx="8" fill="#ffffff"/>
+    <text x="1064" y="438" text-anchor="middle" class="card-title">State</text>
+    <text x="1064" y="456" text-anchor="middle" class="tiny">wire transport</text>
+
+    <rect x="1146" y="417" width="139" height="48" rx="8" fill="#ffffff"/>
+    <text x="1216" y="438" text-anchor="middle" class="card-title">Reference</text>
+    <text x="1216" y="456" text-anchor="middle" class="tiny">LRU + single-flight</text>
+
+    <rect x="842" y="482" width="139" height="64" rx="8" fill="#ffffff"/>
+    <text x="911" y="505" text-anchor="middle" class="card-title">Batch Vocoder</text>
+    <text x="911" y="525" text-anchor="middle" class="tiny">prepare / decode / store</text>
+
+    <rect x="994" y="482" width="139" height="64" rx="8" fill="#ffffff"/>
+    <text x="1064" y="505" text-anchor="middle" class="card-title">Streaming</text>
+    <text x="1064" y="525" text-anchor="middle" class="tiny">state / flush / abort</text>
+
+    <rect x="1146" y="482" width="139" height="64" rx="8" fill="#ffffff"/>
+    <text x="1216" y="505" text-anchor="middle" class="card-title">Capabilities</text>
+    <text x="1216" y="525" text-anchor="middle" class="tiny">declarative differences</text>
+  </g>
+
+  <line x1="1064" y1="590" x2="1064" y2="620" stroke="#7a97d4" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="820" y="632" width="488" height="70" rx="10" fill="#e8f0fc" stroke="#c5d6f2"/>
+  <text x="1064" y="660" text-anchor="middle" class="card-title">SGLang Omni Pipeline + OmniScheduler</text>
+  <text x="1064" y="683" text-anchor="middle" class="small">common request, batching, KV-cache, communication, and failure lifecycles</text>
+
+  <text x="1064" y="724" text-anchor="middle" class="small">Framework mechanics are reviewed once and reused by every backend</text>
+</svg>
