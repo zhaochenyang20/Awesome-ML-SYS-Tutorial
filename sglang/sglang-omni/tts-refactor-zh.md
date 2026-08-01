@@ -59,11 +59,11 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 ### 请求已经结束，音频分片还在路上
 
-这件事乍看不太可能：既然终止结果都发出去了，怎么还会有更晚到达的分片？对于正常结束的请求，确实不会。引擎会先发送完残留的音频分片，再发出终止结果；流水线也会在单个请求内串行投递结果，顺序是有保障的。
+流式 vocoder 会根据 request ID 保存每条请求的解码状态，并在请求完成或中断时清理。正常完成的请求会先处理完音频分片再结束；但请求被中断时，上游此前生成的某个音频分片可能仍在传输，并在状态清理后才抵达 vocoder。
 
-真正的问题出现在请求被中断时。中止信号会在各个阶段之间传播；与此同时，上游产生的某个音频分片可能已经在传输途中，并在请求状态清理后抵达。如果此时把它当作新请求处理，系统就会意外恢复一条已经结束的流。对 MOSS-TTS-Local 来说，这条无效请求甚至会永远占住 codec session 和 CUDA Graph slot。
+旧逻辑看到一个不在状态表里的 request ID，会把这个分片当作新请求的第一块数据，重新创建解码状态。此时原请求的中止信号已经传播完毕，被“复活”的请求再也等不到清理通知，新建的状态也就无法正常清理。对于 MOSS-TTS-Local，这还会让无效请求一直占着 codec session 和 CUDA Graph slot。
 
-**解法：** [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) 引入了 Tombstone（墓碑）机制。系统会为已完成或中断的请求保留 Tombstone；晚到的 chunk 一旦匹配到 Tombstone，便会被直接丢弃。这些 Tombstone 最后再根据时间统一淘汰。
+**解法：** [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) 引入了 Tombstone（墓碑）机制。系统会为已完成或中断的请求保留 Tombstone；晚到的音频分片一旦匹配到 Tombstone，便会被直接丢弃。这些 Tombstone 最后再根据时间统一淘汰。
 
 ### Single-flight 异常路径的“死锁”
 
@@ -77,9 +77,11 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 以 Ming-Omni-TTS 为例，它的自回归 backbone 输出 hidden state，再由 FlowLoss/CFM tail 采样得到 continuous acoustic latent，最后交给 AudioVAE 解码。这条路径复用了同一套 engine、reference encode 和 state transport 接口。
 
-另一个例子是 Audar-TTS，这是一个阿拉伯语 TTS 模型。我们在重构前为它完成了一版可运行的实现，重构后用统一抽象重新接入，然后在相同输入上对两版做逐位对拍。结果显示：28 组配对请求生成了完全一致的 285-code 序列和 24 kHz 波形；另一组 50 句阿拉伯语测试中，acoustic code、float waveform 以及 PCM-WAV hash 也全部一致。
+另一个例子是 Audar-TTS，这是一个阿拉伯语 TTS 模型。为了直接衡量新框架是否降低了模型接入成本，我们让 Audar-TTS 在两套框架上各实现了一次。重构前，我们以旧框架为基线，增加了一版生产级模型支持；重构后，又以共享框架为基线，实现了完全相同的模型能力。
 
-性能方面，在 H100 上，重构版本的 stage-sum latency、RTF 和 engine throughput 相对旧版本的变化分别为 −0.13%、−0.13% 和 +0.16%，均在测量波动范围内，说明两版性能持平。此外，接入统一框架后，从 Demo 走向生产级可用实现所需的额外代码由 222 行缩减至 77 行（减少了 **65.3%**），代码结构也更加清晰、易于维护。
+在旧框架上，接入 Audar-TTS 需要增加 797 行代码（不含测试和文档）；使用新框架后，这个数字降到 619 行，减少了 22.3%。其中，从模型“能跑”到生产级可用所需的额外代码由 222 行降到 77 行，减少了 65.3%。减少的主要是参考音频缓存、错误处理和请求清理等重复的 Serving 机制，它们现在由框架统一提供，代码结构更加清晰、易于维护。
+
+代码减少以后，模型计算逻辑和性能没有改变。两版实现使用同一批输入逐项对拍：28 组配对请求生成的 285-code 序列和 24 kHz 波形完全一致；另一组 50 句阿拉伯语测试中，acoustic code、float waveform 和 PCM-WAV hash 也全部一致。H100 上的 stage-sum latency、RTF 和 engine throughput 分别变化 −0.13%、−0.13% 和 +0.16%，均在测量波动范围内。
 
 <div align="center">
   <img src="images/tts-refactor-audar-validation.svg" alt="Audar-TTS 新旧实现的代码量、输出一致性与性能对照" width="88%">
@@ -104,8 +106,8 @@ FishAudio S2-Pro 的参考音频包含多个 VQ codebook，只有 codebook 0 会
 
 ## 致谢
 
-这次重构由 [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 统一追踪。感谢核心 Roadmap、关联 PR 以及探索 PR 的所有贡献者：
+感谢核心 Roadmap、关联 PR 以及探索 PR 的所有贡献者：
 
 [Yuhao Chen](https://github.com/AkazaAkane), [Jiaxin Deng](https://github.com/JiaxinD), [Jingwen Gu](https://github.com/JingwenGu0829), [Chenchen Hong](https://github.com/Hayden727), [Yizhuo Huang](https://github.com/YzXiao101), [Xiangrui Ke](https://github.com/keke0315), [Xinyu Lu](https://github.com/SandyLuXY), [Jiaxuan Luo](https://github.com/luojiaxuan), [Ratish P](https://github.com/Ratish1), [Xinhao Tan](https://github.com/XinhaoTheo), [Xuesong Ye](https://github.com/yxs), [Yue Yin](https://github.com/MelodyyyYin), [Gaokai Zhang](https://github.com/GaokaiZhang), [Yichi Zhang](https://github.com/Ccyest), [Chenyang Zhao](https://github.com/zhaochenyang20)
 
-完整的 PR 历史、评审讨论和废弃方案都保留在 [issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 中。
+完整的 PR 历史和评审讨论记录在 [issue #985](https://github.com/sgl-project/sglang-omni/issues/985) 里。

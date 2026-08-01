@@ -85,13 +85,11 @@ This creates a subtle failure mode. Two requests may contain different acoustic 
 
 **Solution:** As part of the migration to [`OmniScheduler`](https://github.com/sgl-project/sglang-omni/pull/937), we established an explicit rule: every input or piece of state that can affect the KV state—such as embeddings or adapters—must contribute a fingerprint to `Req.extra_key`.
 
-### The Request Has Ended, but an Audio Chunk Is Still in Flight
+### Late Chunks After Request Cleanup
 
-This sounds impossible. If a termination result has already been emitted, how can another audio chunk arrive afterward?
+A streaming vocoder keeps decoding state for each request ID and clears it when the request completes or is aborted. A normally completed request processes all of its audio chunks before terminating. When a request is aborted, however, an audio chunk produced earlier by an upstream stage may still be in flight and reach the vocoder only after that state has been cleared.
 
-For requests that complete normally, it cannot. The engine sends any remaining audio chunks before sending the final result, and the pipeline preserves per-request delivery order.
-
-The problematic case is request cancellation. An abort signal propagates asynchronously across pipeline stages. At the same time, an audio chunk produced by an upstream stage may already be in transit. That chunk can arrive after the request state has been removed. If the vocoder treats the late chunk as the beginning of a new request, it can unintentionally resurrect a stream that has already terminated. For MOSS-TTS-Local, such a phantom request may permanently occupy both a codec session and a CUDA Graph slot.
+The old logic treated a request ID missing from the state table as the first chunk of a new request and created fresh decoding state. By then, the original abort signal had already propagated through the pipeline. The “resurrected” request would never receive another cleanup signal, so its new state could never be released. For MOSS-TTS-Local, this invalid request could permanently occupy both a codec session and a CUDA Graph slot.
 
 **Solution:** [`StreamingVocoderBase`](https://github.com/sgl-project/sglang-omni/pull/936) introduces a tombstone mechanism. When a request completes or is aborted, the system temporarily retains a tombstone for its request ID. Any late-arriving chunk that matches the tombstone is discarded immediately. Tombstones are then evicted after a configured retention period.
 
@@ -114,16 +112,11 @@ To test that, we integrated three additional TTS models: Ming-Omni-TTS, ZONOS2, 
 
 Ming-Omni-TTS provides one example of a substantially different generation path. Its autoregressive backbone produces hidden states, which are passed to a FlowLoss/CFM tail to sample continuous acoustic latents. An AudioVAE then decodes those latents into waveforms. Despite these architectural differences, the model was able to reuse the same engine, reference-encoding, and state-transport interfaces.
 
-Audar-TTS provides another useful case study. Audar-TTS is an Arabic text-to-speech model. Before the refactor, we had already built a working implementation. We then reimplemented it using the unified framework and compared the two versions on identical inputs.
+Audar-TTS provides another useful case study. It is an Arabic text-to-speech model. To measure directly whether the new framework reduced integration costs, we implemented Audar-TTS twice, once against each framework. Before the refactor, we used the old framework as the baseline and added production-ready model support. After the refactor, we used the shared framework as the baseline and implemented exactly the same capabilities.
 
-The results were bit-for-bit consistent:
+On the old framework, integrating Audar-TTS required 797 lines of code, excluding tests and documentation. With the new framework, that number fell to 619 lines, a reduction of 22.3%. Within those totals, the additional code required to take the model from “it runs” to production-ready fell from 222 lines to 77 lines, a reduction of 65.3%. The difference came primarily from repeated serving mechanisms such as reference-audio caching, error handling, and request cleanup, which the framework now provides. The resulting model-side code is also clearer and easier to maintain.
 
-- Across 28 paired requests, both implementations produced exactly the same 285-code sequences and identical 24 kHz waveforms.
-- On a separate set of 50 Arabic sentences, the acoustic codes, floating-point waveforms, and PCM-WAV hashes all matched.
-
-Performance was also unchanged. On an H100, the refactored implementation differed from the original by: **−0.13%** in stage-sum latency, **−0.13%** in real-time factor, and **+0.16%** in engine throughput. All three differences were within normal measurement variance.
-
-At the same time, the amount of additional model-side code required to turn a demo into a production-ready serving implementation fell from 222 lines to 77 lines—a reduction of **65.3%**. The resulting code was also easier to understand and maintain.
+This reduction in integration code did not change the model’s computation, and performance remained effectively unchanged. We compared the two implementations on the same inputs: across 28 paired requests, they produced exactly the same 285-code sequences and identical 24 kHz waveforms; on a separate set of 50 Arabic sentences, their acoustic codes, floating-point waveforms, and PCM-WAV hashes all matched. On an H100, stage-sum latency, real-time factor, and engine throughput changed by −0.13%, −0.13%, and +0.16%, respectively, all within normal measurement variance.
 
 <div align="center">
   <img src="images/tts-refactor-audar-validation.svg" alt="Comparison of the original and refactored Audar-TTS implementations across code size, output consistency, and performance" width="88%">
@@ -159,10 +152,8 @@ Future progress, updated statistics, and a commit-by-commit breakdown will conti
 
 ## Acknowledgments
 
-The refactor is tracked in [SGLang Omni issue #985](https://github.com/sgl-project/sglang-omni/issues/985).
-
-We would like to thank everyone who contributed to the core roadmap, related pull requests, and exploratory implementations:
+We would like to thank everyone who contributed to the core roadmap and its related or exploratory pull requests:
 
 [Yuhao Chen](https://github.com/AkazaAkane), [Jiaxin Deng](https://github.com/JiaxinD), [Jingwen Gu](https://github.com/JingwenGu0829), [Chenchen Hong](https://github.com/Hayden727), [Yizhuo Huang](https://github.com/YzXiao101), [Xiangrui Ke](https://github.com/keke0315), [Xinyu Lu](https://github.com/SandyLuXY), [Jiaxuan Luo](https://github.com/luojiaxuan), [Ratish P](https://github.com/Ratish1), [Xinhao Tan](https://github.com/XinhaoTheo), [Xuesong Ye](https://github.com/yxs), [Yue Yin](https://github.com/MelodyyyYin), [Gaokai Zhang](https://github.com/GaokaiZhang), [Yichi Zhang](https://github.com/Ccyest), and [Chenyang Zhao](https://github.com/zhaochenyang20).
 
-The complete pull-request history, review discussions, and abandoned design explorations are preserved in [issue #985](https://github.com/sgl-project/sglang-omni/issues/985).
+The complete pull-request history and review discussions are recorded in [issue #985](https://github.com/sgl-project/sglang-omni/issues/985).
