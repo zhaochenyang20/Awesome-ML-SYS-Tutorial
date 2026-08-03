@@ -26,11 +26,9 @@
 
 我们从 Shape-Stride 模型开始，然后把同一套记号扩展到 TMEM、register fragment 和多 GPU layout。最后我们讨论 swizzling，通过重排地址，让对同一个 tile 的行方向访问和列方向访问都能得到改善。
 
-【TODO】
-
 ## Shape-Stride 模型
 
-在引入 GPU 专有的 layout 之前，我们先从 Shape-Stride 模型入手。**shape** 给出 tensor 每个维度的大小。对应的 **stride** 说明当某个维度的逻辑下标增加 1 时，物理上需要移动多少个元素。我们把这一对写作 `S[(shape) : (strides)]`。一个逻辑下标的物理位置就是该下标与 stride 的点积。例如，一个 row-major 的 `4×4` 矩阵是：
+为了分析 GPU 专有的 layout，我们先从 Shape-Stride 模型入手。对于一个 tensor，其 `shape` 给出每个维度的大小。对应的 `stride` 则说明当某个维度的逻辑下标增加 1 时，物理上需要移动多少个元素。我们把这一对写作 `S[(shape) : (strides)]`。一个逻辑下标的物理位置就是该下标与 stride 的点积。例如，一个 row-major 的 `4 × 4` 矩阵是：
 
 ```
 S[(4, 4) : (4, 1)]
@@ -48,7 +46,7 @@ t.shape        # torch.Size([3, 4])
 t.stride()     # (4, 1)        ← 正是 S[(3, 4) : (4, 1)]
 ```
 
-`t` 的底层 storage 仍然是一维的：
+`t` 的底层 storage 仍然是一维的（地址空间是一维的，而不是硅片上的物理结构）：
 
 ```
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
@@ -66,15 +64,9 @@ tt.untyped_storage().data_ptr() == t.untyped_storage().data_ptr()
 
 转置后的 view 用的是 `S[(4, 3) : (1, 4)]`，所以 `tt[i, j]` 的地址偏移是 `i·1 + j·4`，正好就是 `t[j, i]` 所在的位置。对 contiguous tensor 调用 `view`，或者在现有 layout 兼容时调用 `reshape`，原理相同。NumPy 遵循同一个模型，区别只是它的 `.strides` 以字节而非元素为单位。
 
----
+## Tile And Its Layout
 
-## Tile Layout
-
-GPU kernel 很少一次处理一整个矩阵，通常会把它划分成更小的 tile。例如，我们可以把一个 `8×8` 矩阵划分成 `2×4` 的 tile，tile 之间按 row-major 存放，每个 tile 内部的元素也按 row-major 存放。
-
-> 📊 *原文此处配交互图，展示这种排布在逻辑矩阵中和在物理内存中的样子。*
-
-划分结果如下（格子里是逻辑编号 `i·8+j`）：
+GPU kernel 很少一次处理一整个矩阵，通常会把它划分成更小的 tile。例如，我们可以把一个 `8×8` 矩阵划分成 `2×4` 的 tile，tile 之间按 row-major 存放，每个 tile 内部的元素也按 row-major 存放。划分结果如下（格子里是逻辑编号 `i·8+j`）：
 
 ```
      c0 c1 c2 c3 │ c4 c5 c6 c7
@@ -92,6 +84,27 @@ r7   56 57 58 59 │ 60 61 62 63
 ```
 
 共 `4 × 2 = 8` 个 tile，每个 tile 含 8 个元素。
+
+注意到，tile 这个定义会在各个层级会反复出现，含义略有区别。总体上，tile 都是指从一个更大的 tensor 中切出的矩形子块，由一个 tile shape 描述（如 `2×4`、`128×64`），沿每个维度对原 tensor 做整齐划分。原 tensor 因此被覆盖为一个 tile 的网格：`8×8` 矩阵按 `2×4` 划分得到 `4 × 2 = 8` 个 tile。
+
+举一些例子：
+
+1. 工作分配单位：一个 CTA（或 warpgroup）负责计算一个 output tile。GEMM 里"每个 CTA 算 C 的一个 `128×128` 块"说的就是这个。
+2. 数据搬运单位：一次 TMA / `cp.async.bulk.tensor` 的粒度就是一个 tile；tensor map descriptor 里的 tile shape 字段直接编码它。
+3. layout 的分解单位：shape 里多出来的那几个坐标（`tile_row`/`row_in_tile`/…）正是 tiling 在 layout 记号中的痕迹。
+
+tile 是嵌套的，比如说：
+
+CTA tile          128×128     ← 一个 CTA 的输出范围，受 SMEM / accumulator 容量约束
+warp tile      64×64       ← warpgroup 内的划分
+instruction tile        ← MMA 指令的固有形状，如 m16n8k16 / tcgen05 的 MMA shape
+
+tile 尺寸是不自由的。上界由容量决定（SMEM 大小、寄存器 / TMEM 预算）；下界与对齐由硬件粒度决定（cache line 128 B、swizzle atom 行宽、MMA instruction shape 必须整除）。所谓"调 tile size"实际是在这两组约束的交集里选点。
+
+本章后面 swizzle 一节出现的 atom（如 `8 × 128 B`）是地址置换的最小重复单元，属于 layout 层面的概念，与这里作为计算/搬运单位的 tile 不是一回事。文献中 block、partition、fragment 也常与 tile 混用，读时需按上下文判断指的是哪一层。
+
+
+【TODO】
 
 ### 把 tiling 表达为 layout function
 
