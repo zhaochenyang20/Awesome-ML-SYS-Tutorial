@@ -108,17 +108,9 @@ tile 尺寸是不自由的。上界由容量决定（SMEM 大小、寄存器 / T
 
 ### 把 tiling 表达为 layout function
 
-要描述上面这种排布，需要同时给出 tile 在矩阵中的位置和元素在该 tile 内的位置。从逻辑矩阵坐标 `(i, j)` 出发，按原始的 `8×8` shape 把它拍平：
+有了 tile 这一层级的抽象后，一个数据想要描述这种排布，需要同时给出 tile 在矩阵中的位置和元素在该 tile 内的位置。我们可以用一个 `8*8` 的矩阵来举个例子。从逻辑矩阵坐标 `(i, j)` 出发，按原始的 `8×8` shape 把它拍平, `addr(i, j) = i·8 + j`。把矩阵划分成 `2×4` 的 tile 之后，行坐标拆分成在四行 tile 中的行序号和在每个 tile 内的行序号；列坐标拆分成在两个 tile 列中的列序号和每个 tile 内的列序号。因此，用来分解 `x` 的 shape 是 `(4, 2, 2, 4)`，也即 `(tile_row_index, inside_tile_row_index, tile_col_index, inside_tile_col_index)`。
 
-```
-x = i·8 + j
-```
-
-把矩阵划分成 `2×4` 的 tile 之后，行坐标拆分成四个 tile 行和每个 tile 内的两行；列坐标拆分成两个 tile 列和每个 tile 内的四列。因此，用来分解 `x` 的 shape 是：
-
-```
-(4, 2, 2, 4)
-```
+【TODO】
 
 layout 按这个 shape 对 `x` 做 unflatten：
 
