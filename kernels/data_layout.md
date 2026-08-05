@@ -103,16 +103,12 @@ tile 尺寸是不自由的。上界由容量决定（SMEM 大小、寄存器 / T
 
 本章后面 swizzle 一节出现的 atom（如 `8 × 128 B`）是地址置换的最小重复单元，属于 layout 层面的概念，与这里作为计算/搬运单位的 tile 不是一回事。文献中 block、partition、fragment 也常与 tile 混用，读时需按上下文判断指的是哪一层。
 
+### 考虑到 tiling 的 layout function
 
-【TODO】
+有了 tile 这一层级的抽象后，一个数据想要进一步描述这种排布，需要同时给出 tile 在矩阵中的位置和元素在该 tile 内的位置。我们可以用一个 `8*8` 的矩阵来举个例子。从逻辑矩阵坐标 `(i, j)` 出发，按原始的 `8×8` shape 把它拍平, `addr(i, j) = i·8 + j`。把矩阵划分成 `2×4` 的 tile 之后，行坐标拆分成在四行 tile 中的行序号和在每个 tile 内的行序号；列坐标拆分成在两个 tile 列中的列序号和每个 tile 内的列序号。因此，用来分解 `x` 的 shape 是 `(4, 2, 2, 4)`，也即 `(tile_row_index, inside_tile_row_index, tile_col_index, inside_tile_col_index)`。
 
-### 把 tiling 表达为 layout function
 
-有了 tile 这一层级的抽象后，一个数据想要描述这种排布，需要同时给出 tile 在矩阵中的位置和元素在该 tile 内的位置。我们可以用一个 `8*8` 的矩阵来举个例子。从逻辑矩阵坐标 `(i, j)` 出发，按原始的 `8×8` shape 把它拍平, `addr(i, j) = i·8 + j`。把矩阵划分成 `2×4` 的 tile 之后，行坐标拆分成在四行 tile 中的行序号和在每个 tile 内的行序号；列坐标拆分成在两个 tile 列中的列序号和每个 tile 内的列序号。因此，用来分解 `x` 的 shape 是 `(4, 2, 2, 4)`，也即 `(tile_row_index, inside_tile_row_index, tile_col_index, inside_tile_col_index)`。
-
-【TODO】
-
-layout 按这个 shape 对 `x` 做 unflatten：
+layout 按这个 shape 对 `x` 做 unflatten（把一维的 addr 映射回逻辑坐标）：
 
 ```
 (c0, c1, c2, c3) = unflatten(x; 4, 2, 2, 4)
@@ -126,10 +122,10 @@ c3 = x % 4
 代入 `x = i·8 + j` 得到：
 
 ```
-c0 = i // 2    = tile_row
-c1 = i % 2     = row_in_tile
-c2 = j // 4    = tile_col
-c3 = j % 4     = col_in_tile
+c0 = i // 2    = tile_row_index
+c1 = i % 2     = inside_tile_row_index
+c2 = j // 4    = tile_col_index
+c3 = j % 4     = inside_tile_col_index
 ```
 
 接下来我们把这四个坐标映射到一个物理地址。每个 tile 含 `2×4=8` 个元素，每个 tile 行含两个 tile，每个 tile 内的每一行含四个连续元素。因此：
@@ -147,9 +143,8 @@ $$
 S[(4, 2, 2, 4) : (16, 4, 8, 1)]
 ```
 
-> 📊 *在原文的交互图中点击任意一个 cell，可以把它的 tile 坐标和物理地址与 unflatten 过程及 $f_D(x)$ 对照起来看。*
 
-**手算示例**（`x = 11`，即逻辑位置 r1c3）：
+可以来举个例子，对着逻辑顺序 `x = 11`：
 
 ```
 c0 = 11//16    = 0    tile_row
@@ -162,35 +157,11 @@ f_D = 0·16 + 1·4 + 0·8 + 3·1 = 7
 
 逻辑下标 11 → 物理地址 7。注意 `c1 = 1` 贡献的 `1·4` 正是"跳过 tile 内第 0 行的 4 个元素"。逻辑上 `11` 与 `3` 相差 8（隔一整行），物理上只差 4——因为中间的 `4,5,6,7` 属于隔壁 tile，被挪走了。
 
-物理内存的完整排布（每行恰好是一个 tile）：
+<img src="pics/tile_layout_function.svg" alt="tile layout" width="500">
 
-```
-地址 0..7:    0  1  2  3   8  9 10 11     ← tile(0,0)
-地址 8..15:   4  5  6  7  12 13 14 15     ← tile(0,1)
-地址 16..23: 16 17 18 19  24 25 26 27     ← tile(1,0)
-地址 24..31: 20 21 22 23  28 29 30 31     ← tile(1,1)
-...
-```
+上面这个图极好，从中能够看出为了满足逐个 tile 的 loading，物理排布和逻辑排布的错位关系。
 
-### 一般的 layout function
-
-同样的计算可以推广到一般的 Shape-Stride layout：
-
-```
-S[(e0, e1, ..., en-1) : (s0, s1, ..., sn-1)]
-```
-
-对一个扁平的逻辑下标 $x$，首先按 shape 对它做 unflatten：
-
-$$(c_0, c_1, \ldots, c_{n-1}) = \operatorname{unflatten}(x; e_0, e_1, \ldots, e_{n-1})$$
-
-然后取这些坐标与 stride 的点积：
-
-$$f_D(x) = \sum_{k=0}^{n-1} c_k s_k$$
-
-shape 决定 $x$ 如何被分解成坐标，而 stride 决定这些坐标如何映射到物理位置。上面那个 tile layout，就是选取 shape `(4, 2, 2, 4)` 和 stride `(16, 4, 8, 1)` 的结果。
-
----
+【TODO】
 
 ## Named Axes：从线性地址到物理坐标
 
