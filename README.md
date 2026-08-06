@@ -110,6 +110,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 - [Pending Review] [Online Update Weights](./sglang/online-update-weights/readme.md): Introduction to the implementation of the `online_update_weights` interface in SGLang. Unlike `update_weights` which reads weights from the disk, this interface broadcasts new weights directly from the training engine via NCCL.
 - [Pending Review] [SGLang Verl Engine Optimization Analysis](./sglang/sglang-verl-engine/readme.md): Analysis of optimizations in the SGLang verl engine, including the implementation of interfaces like `update_weights_from_tensor`.
 - [Latency Accelerate For Weight Updates](./sglang/latency-accelerate-for-weight-updates/readme-CN.md)
+- [FlashOffload: 7x Cheaper Prefills with Offloading](https://blog.doubleword.ai/flashoffload): Extends SGLang's offloading engine with double-buffered CPU offloading that hides weight-transfer latency behind GPU compute, delivering cheaper prefills for compute-bound workloads on Grace Hopper.
 
 ### Usage and Practice
 
