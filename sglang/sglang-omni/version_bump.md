@@ -9,7 +9,7 @@ The upgrade PR's diff was enormous. As I said above, SGLang Omni can hardly be j
 
 These issues made up the nightmare of this upgrade, and they are why we are reflecting here in the hope that future upgrades can be lighter.
 
-## Why This Bump Reached Further
+## Why This Upgrade Was More Than an API Change
 
 The previous pinned upgrade, [PR #698](https://github.com/sgl-project/sglang-omni/pull/698), moved SGLang from `0.5.8` to `0.5.12.post1`. It was not a small change: it updated Transformers and PyTorch, repaired model-specific assumptions, and adapted request-pool, sampling, output-type, device, and CUDA dependencies. Its center of gravity, however, remained at the integration edges. It did not materially rewrite Omni's scheduler or its base model-runner execution path.
 
@@ -17,7 +17,7 @@ The previous pinned upgrade, [PR #698](https://github.com/sgl-project/sglang-omn
 
 That distinction matters more than the raw diff size. PR #698 mostly repaired callers after upstream interfaces moved. PR #1183 had to re-establish an execution protocol that Omni partially implements itself. The numerical, lifecycle, and memory-accounting failures later in this article are different forms of the same underlying problem: the integration depends on behavior that is real and necessary, but not expressed through one stable interface.
 
-## How the Next Token Changed Hands
+## How SGLang 0.5.16 Changed the Decode-Step Handoff
 
 The clearest way to understand the scheduler change is to follow one `ScheduleBatch` across two decode iterations.
 
@@ -29,7 +29,7 @@ SGLang `0.5.16` uses a different ownership model. `get_next_batch_to_run(running
 
 The sampled token no longer travels through `ScheduleBatch.output_ids`. Before a forward, `resolve_forward_inputs()` materializes the current input from scheduler staging or from a `FutureMap`. After sampling, the next device token is stashed in that map under the request-pool rows. The live batch clears `input_ids`, and the following iteration resolves those rows back into its input.
 
-![How the next token changed hands between SGLang 0.5.12 and 0.5.16](images/sglang-v0516-scheduler-token-relay.png)
+![How SGLang 0.5.16 changed the decode-step handoff](images/sglang-v0516-scheduler-token-relay.png)
 
 `FutureMap` is not carrying speculative-decoding state in this Omni path. The bridge rejects speculative decoding and creates the map with the non-speculative algorithm. Here, the map is the ordinary device-token relay used by SGLang's `0.5.16` non-overlap execution path; only its speculative extras remain unused.
 
