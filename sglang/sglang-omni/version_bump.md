@@ -9,15 +9,35 @@ The upgrade PR's diff was enormous. As I said above, SGLang Omni can hardly be j
 
 These issues made up the nightmare of this upgrade, and they are why we are reflecting here in the hope that future upgrades can be lighter.
 
-## Changes to the Scheduler API
+## Why This Bump Reached Further
 
-SGLang `0.5.16` changed the boundary between scheduling and model execution. Batch selection now returns a `NextBatchPlan`, `ForwardBatch` is initialized from the live `ScheduleBatch`, and output processing consumes a `GenerationBatchResult`. Omni could not absorb those changes by calling SGLang's scheduler loop directly, because it has its own multi-stage event loop, model-specific runners, streaming behavior, and result-plumbing paths.
+The previous pinned upgrade, [PR #698](https://github.com/sgl-project/sglang-omni/pull/698), moved SGLang from `0.5.8` to `0.5.12.post1`. It was not a small change: it updated Transformers and PyTorch, repaired model-specific assumptions, and adapted request-pool, sampling, output-type, device, and CUDA dependencies. Its center of gravity, however, remained at the integration edges. It did not materially rewrite Omni's scheduler or its base model-runner execution path.
 
-The difficult part was not converting one result type into another. The scheduler can filter, merge, retract, or reuse requests between iterations, so state attached to an earlier view of a batch may no longer describe the batch that actually executes next. At the same time, the device-side result needed by the following model step and the host-side result used for finish detection, streaming, and response construction have different lifetimes. Treating them as one interchangeable object is equivalent to keeping the old integration's assumptions under new method names.
+[PR #1183](https://github.com/sgl-project/sglang-omni/pull/1183) crossed a different boundary. SGLang `0.5.16` changed how a batch is selected, how the live scheduler batch becomes a model input, and how a sampled token reaches the next iteration. Because Omni owns the surrounding event loop instead of calling SGLang's scheduler unchanged, those were not implementation details hidden behind an API. They were part of Omni's execution path.
 
-The final implementation keeps that adaptation in one narrow execution boundary, removes the obsolete `0.5.12` `output_ids` side channel, and removes an unreachable fallback through upstream `run_batch`. Model-specific runners now enter through the same batch-construction and result-publication path instead of carrying parallel compatibility behavior. The lesson here is more precise than “upstream APIs can change”: when a framework changes who owns mutable execution state and when that state may be consumed, matching the new signatures while preserving the old dataflow is still incorrect.
+That distinction matters more than the raw diff size. PR #698 mostly repaired callers after upstream interfaces moved. PR #1183 had to re-establish an execution protocol that Omni partially implements itself. The numerical, lifecycle, and memory-accounting failures later in this article are different forms of the same underlying problem: the integration depends on behavior that is real and necessary, but not expressed through one stable interface.
 
-[TODO: I feel this section is not clear enough and could be written in more detail—after reading it, the reader does not seem to have learned much. One possible writing angle: describe how a particular scheduler object was operated on in 0.5.12, then what that object became in 0.5.16, and therefore what changes SGLang Omni had to make. Writing it that way might let readers learn more.]
+## How the Next Token Changed Hands
+
+The clearest way to understand the scheduler change is to follow one `ScheduleBatch` across two decode iterations.
+
+In SGLang `0.5.12`, `Scheduler.get_next_batch_to_run()` read and mutated scheduler-owned fields such as `self.running_batch` and `self.last_batch`, then returned the `ScheduleBatch` to execute. Before the model forward, that scheduler batch was converted into a separate `ModelWorkerBatch`, which `ForwardBatch.init_new()` consumed.
+
+After sampling, the scheduler wrote the device-side token tensor back onto the live scheduler batch as `batch.output_ids`. When the batch entered its next decode iteration, `ScheduleBatch.prepare_for_decode()` moved that tensor into `batch.input_ids` and cleared `output_ids`.
+
+SGLang `0.5.16` uses a different ownership model. `get_next_batch_to_run(running_batch, last_batch)` returns a `NextBatchPlan`, and the caller explicitly replaces its running batch with the plan's result. `ForwardBatch.init_new()` consumes the live `ScheduleBatch` directly rather than receiving a detached `ModelWorkerBatch`.
+
+The sampled token no longer travels through `ScheduleBatch.output_ids`. Before a forward, `resolve_forward_inputs()` materializes the current input from scheduler staging or from a `FutureMap`. After sampling, the next device token is stashed in that map under the request-pool rows. The live batch clears `input_ids`, and the following iteration resolves those rows back into its input.
+
+![How the next token changed hands between SGLang 0.5.12 and 0.5.16](images/sglang-v0516-scheduler-token-relay.png)
+
+`FutureMap` is not carrying speculative-decoding state in this Omni path. The bridge rejects speculative decoding and creates the map with the non-speculative algorithm. Here, the map is the ordinary device-token relay used by SGLang's `0.5.16` non-overlap execution path; only its speculative extras remain unused.
+
+This split also separates two results that used to appear interchangeable. The device token needed by the next forward remains on the GPU relay, while the CPU-visible values used for finish detection, logprobs, streaming, and responses stay in `GenerationBatchResult`. Filtering or retracting a live batch can change its request rows before the next iteration, so retaining the old `output_ids → input_ids` shortcut would attach token state to a stale view of the batch.
+
+SGLang's own `Scheduler.run_batch()` performs this protocol, but Omni does not call that loop unchanged. It has a multi-stage event loop and model-specific runners around the forward. The upgrade therefore introduced one `SGLangExecutionBridge` that resolves current inputs, enters the required forward context, publishes the next tokens, and records completion. Model runners use that bridge instead of maintaining separate copies of the old scheduler contract.
+
+The compatibility problem was therefore not a set of renamed classes. SGLang changed who owns the live batch, where the next token resides between iterations, and when forward inputs may be reconstructed. Omni had to adopt that dataflow, not merely its method signatures.
 
 ## A Few Floating-Point Operations Changed Qwen3-Omni
 
@@ -33,6 +53,8 @@ result = corners[0] + corners[1] + corners[2] + corners[3]
 ```
 
 Transformers `5.12` moved the calculation into a shared path. It generated the interpolation state differently, retained FP32 weights during multiplication, and reduced the four corners with a sum. Both implementations describe the same bilinear interpolation mathematically, but BF16 multiplication and addition are not associative. Changing the intermediate dtype and accumulation order changed the positional embeddings seen by the pretrained vision tower.
+
+![How equivalent interpolation formulas became different floating-point programs](images/sglang-v0516-qwen-floating-point-program.png)
 
 The fix was deliberately local. [`Qwen3OmniMoeVisionEncoderCompat`](https://github.com/sgl-project/sglang-omni/blob/a8d3dd14a2784cea51937936301043f1735bfda7/sglang_omni/models/qwen3_omni/components/vision_compat.py#L13-L146) retains the Transformers `5.12.1` encoder structure, decorators, output type, vision blocks, and deepstack behavior. It replaces only the interpolation arithmetic with the `5.6` sequence used by the checkpoint's original stack. After that change, preprocessing tensors, captured intermediate vision tensors, final embeddings, and deepstack embeddings were bit-identical to the reference; the 50-sample MMMU gate recovered to 31/50, or 62%.
 
@@ -51,6 +73,8 @@ For TTS and omni models, the request data can retain reference audio, input embe
 An autoregressive request can finish while an upstream stage still has a stream chunk in flight. The same request may remain visible through the running batch, the just-completed batch, an asynchronous pending step, and a stream-ingress buffer. If request data is detached before the model runner flushes its final buffered audio, the final chunk can be lost. If it is detached before in-flight stream ingress settles, a late chunk can be mistaken for pre-admission data and retained in a pending structure. If an abort arrives while normal terminalization is already cleaning the request, both sides can either run the model cleanup or assume the other side will do it.
 
 The final scheduler code treats terminalization as an ownership handoff rather than a pointer clear. Under the request-admission lock, normal completion claims the request so that only one path performs terminal output. It then asks the model runner to flush remaining stream state, constructs the terminal result, runs the model-specific finish callback, and only then detaches the Omni request data and records the request as completed. Stream chunks arriving after that boundary are dropped instead of recreating pending state. Abort uses the same lock: if it arrives before detach, terminalization observes it and completes abort cleanup; if it arrives after detach, the abort path knows there is no terminal owner left and performs the cleanup itself.
+
+![Terminal ownership across normal completion, abort, and late stream ingress](images/sglang-v0516-terminal-ownership.png)
 
 The important property is not that every terminal path calls the same helper. It is that the lock and the data attachment together identify exactly one cleanup owner for both possible interleavings. This is visible in the final [`stream_output`](https://github.com/sgl-project/sglang-omni/blob/a8d3dd14a2784cea51937936301043f1735bfda7/sglang_omni/scheduling/omni_scheduler.py#L1326-L1424) path: final stream data is drained before detachment, while completion recording closes the request against later ingress.
 
@@ -80,8 +104,16 @@ This issue is easy to describe as “reserve memory for the vocoder,” but that
 
 These problems needed different forms of proof because they failed in different ways. The scheduler bridge was checked against the actual `0.5.16` execution path rather than inferred from renamed methods. The Qwen fix required bit-identical intermediate and final tensors, because an end-to-end accuracy score could show the regression but could not localize it. The lifecycle change required exercising abort and stream interleavings while watching memory settle after requests. The MOSS fix required reading GPU memory at the exact startup phase where the KV decision was made.
 
+One follow-up exposed a different layer of the effective runtime environment. PR #1183 did not change the CI setup, so this was not a CI regression introduced by the bump itself. However, validation after the bump exposed an existing mismatch: the container provided Python `3.12`, while CI created a Python `3.11` virtual environment. FlashInfer's generated build metadata contained interpreter-specific include and package paths, so the mismatch invalidated objects prebuilt by the image and triggered repeated 30–60 minute compilations. [PR #1343](https://github.com/sgl-project/sglang-omni/pull/1343) aligned the interpreter ABI and made the container digest and inherited packages part of the reusable CI environment's identity.
+
 That process also helped separate work that truly belonged in the pin bump from changes that merely happened to be nearby. The execution bridge and Qwen compatibility path were required by the new dependency stack. The request cycle was older, but touching terminal ownership without fixing it would have made the upgraded scheduler unsafe. The MOSS failure came from a topology and accounting interaction carried by the branch. Other performance ideas that did not have an equally clear compatibility argument were kept out of the final upgrade.
 
-In retrospect, the upgrade was difficult for a simple reason: SGLang Omni depends on more than SGLang's exported Python surface. It depends on when a batch may be mutated, how the next token is owned between iterations, which floating-point operations define a model, when a multi-stage request truly becomes unreachable, and which objects are resident when memory is profiled.
+The bump also affected work that was still open. [PR #1161](https://github.com/sgl-project/sglang-omni/pull/1161) retained fixtures using `req.is_chunked` after the upgraded runner had moved to `req.inflight_middle_chunks`; after merging main, those tests would fail before reaching the multimodal behavior they were meant to check. [PR #1204](https://github.com/sgl-project/sglang-omni/pull/1204) and [PR #1206](https://github.com/sgl-project/sglang-omni/pull/1206) also touched scheduler or request-lifecycle surfaces, although problems found later in those PRs should not automatically be attributed to the bump.
 
-A pinned runtime version is therefore not just a reproducible installation choice. It is a statement that these assumptions have been verified against one concrete runtime. Moving the pin means establishing them again.
+The next bump should evaluate open work as a set rather than wait for each author to merge main independently. We can construct synthetic merged trees with `git merge-tree` and run each affected PR's focused tests against the result. That separates textual conflicts, stale test doubles, changed semantics, and unrelated PR-local defects.
+
+In retrospect, the upgrade was difficult for a simple reason: SGLang Omni depends on more than SGLang's exported Python surface. It depends on when a batch may be mutated, how the next token is owned between iterations, which floating-point operations define a model, when a multi-stage request truly becomes unreachable, which objects are resident when memory is profiled, and which interpreter and container produced its compiled kernels.
+
+This gives the next bump a concrete starting inventory: scheduler planning and token relay, mirrored request and batch fields, Transformers model arithmetic, terminal request ownership, process-topology memory, CI build identity, and open PRs that depend on any of those surfaces. Most model- and pipeline-specific validation belongs in Omni. The scheduler relay is the narrower question that may justify an upstream contract test or RFC, because Omni currently has to reproduce that protocol outside SGLang's `Scheduler.run_batch()`.
+
+A pinned runtime version is therefore not just a reproducible installation choice. It is a statement that these assumptions have been verified against one concrete runtime. The goal for the next upgrade is not to eliminate that verification, but to begin with an explicit map of the assumptions instead of rediscovering them through failures.
