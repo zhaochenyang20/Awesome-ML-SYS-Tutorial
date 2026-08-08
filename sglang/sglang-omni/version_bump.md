@@ -29,7 +29,7 @@ SGLang `0.5.16` uses a different ownership model. `get_next_batch_to_run(running
 
 The sampled token no longer travels through `ScheduleBatch.output_ids`. Before a forward, `resolve_forward_inputs()` materializes the current input from scheduler staging or from a `FutureMap`. After sampling, the next device token is stashed in that map under the request-pool rows. The live batch clears `input_ids`, and the following iteration resolves those rows back into its input.
 
-![How SGLang 0.5.16 changed the decode-step handoff](images/sglang-v0516-scheduler-token-relay.png)
+![How SGLang 0.5.16 changed the decode-step handoff](images/sglang-v0516-scheduler-token-relay.svg)
 
 `FutureMap` is not carrying speculative-decoding state in this Omni path. The bridge rejects speculative decoding and creates the map with the non-speculative algorithm. Here, the map is the ordinary device-token relay used by SGLang's `0.5.16` non-overlap execution path; only its speculative extras remain unused.
 
@@ -54,7 +54,7 @@ result = corners[0] + corners[1] + corners[2] + corners[3]
 
 Transformers `5.12` moved the calculation into a shared path. It generated the interpolation state differently, retained FP32 weights during multiplication, and reduced the four corners with a sum. Both implementations describe the same bilinear interpolation mathematically, but BF16 multiplication and addition are not associative. Changing the intermediate dtype and accumulation order changed the positional embeddings seen by the pretrained vision tower.
 
-![How equivalent interpolation formulas became different floating-point programs](images/sglang-v0516-qwen-floating-point-program.png)
+![How equivalent interpolation formulas became different floating-point programs](images/sglang-v0516-qwen-floating-point-program.svg)
 
 The fix was deliberately local. [`Qwen3OmniMoeVisionEncoderCompat`](https://github.com/sgl-project/sglang-omni/blob/a8d3dd14a2784cea51937936301043f1735bfda7/sglang_omni/models/qwen3_omni/components/vision_compat.py#L13-L146) retains the Transformers `5.12.1` encoder structure, decorators, output type, vision blocks, and deepstack behavior. It replaces only the interpolation arithmetic with the `5.6` sequence used by the checkpoint's original stack. After that change, preprocessing tensors, captured intermediate vision tensors, final embeddings, and deepstack embeddings were bit-identical to the reference; the 50-sample MMMU gate recovered to 31/50, or 62%.
 
@@ -74,7 +74,7 @@ An autoregressive request can finish while an upstream stage still has a stream 
 
 The final scheduler code treats terminalization as an ownership handoff rather than a pointer clear. Under the request-admission lock, normal completion claims the request so that only one path performs terminal output. It then asks the model runner to flush remaining stream state, constructs the terminal result, runs the model-specific finish callback, and only then detaches the Omni request data and records the request as completed. Stream chunks arriving after that boundary are dropped instead of recreating pending state. Abort uses the same lock: if it arrives before detach, terminalization observes it and completes abort cleanup; if it arrives after detach, the abort path knows there is no terminal owner left and performs the cleanup itself.
 
-![Terminal ownership across normal completion, abort, and late stream ingress](images/sglang-v0516-terminal-ownership.png)
+![Terminal ownership across normal completion, abort, and late stream ingress](images/sglang-v0516-terminal-ownership.svg)
 
 The important property is not that every terminal path calls the same helper. It is that the lock and the data attachment together identify exactly one cleanup owner for both possible interleavings. This is visible in the final [`stream_output`](https://github.com/sgl-project/sglang-omni/blob/a8d3dd14a2784cea51937936301043f1735bfda7/sglang_omni/scheduling/omni_scheduler.py#L1326-L1424) path: final stream data is drained before detachment, while completion recording closes the request against later ingress.
 
