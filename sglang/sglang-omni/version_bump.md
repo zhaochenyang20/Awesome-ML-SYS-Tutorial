@@ -65,7 +65,7 @@ This was the clearest result of the entire upgrade. **For a pretrained model, co
 The scheduler review also surfaced a pre-existing lifecycle problem. It was not caused by SGLang `0.5.16`, but the scheduler rewrite made it impossible to ignore safely. Omni attached model-specific request data to the SGLang request, while that request data held a reference back to the request:
 
 ```text
-Req → Omni request data → Req
+Req → Omni Request Data → Req
 ```
 
 For TTS and omni models, the request data can retain reference audio, input embeddings, hidden states, streaming buffers, and model-specific decode state. Leaving the cycle intact means ordinary reference counting cannot release it at terminal time; Python's cyclic collector must discover it later. Clearing the link sounds trivial until we consider what “terminal” means in a multi-stage pipeline.
