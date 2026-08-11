@@ -131,3 +131,9 @@ Those boundaries should determine the landing gates. Open PRs that touch one of 
 PR #1183 began as a version-pin change and ended by explaining why the pin exists. SGLang Omni is not only a caller of SGLang's Python APIs. It participates in the scheduler's token handoff, inherits the floating-point program of its model dependencies, and owns request and memory lifecycles that span several stages. The upgrade became correct only when each of those boundaries was made explicit and checked where its behavior first diverged.
 
 That did not mean every failure observed on the branch belonged to the bump. Higgs had already regressed before the branch existed. The upgrade was simply the work that exposed it. Moving to SGLang `0.5.16` changed the pin once. Knowing which behavior belongs to SGLang, which belongs to Omni, and where to tell the difference is what should make the next change less mysterious.
+
+## Acknowledgments
+
+We would like to thank everyone who helped implement, debug, benchmark, and review this upgrade:
+
+Yuhao Chen, Jiaxin Deng, Jingwen Gu, Chenchen Hong, Xiangxiang Chicken, Kaige Li, Jun Liu, Ratish P, Xuesong Ye, and Chenyang Zhao.
