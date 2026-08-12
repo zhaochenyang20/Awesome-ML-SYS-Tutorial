@@ -136,4 +136,4 @@ That did not mean every failure observed on the branch belonged to the bump. Hig
 
 We would like to thank everyone who helped implement, debug, benchmark, and review this upgrade:
 
-Yuhao Chen, Jiaxin Deng, Jingwen Gu, Chenchen Hong, Xiangxiang Chicken, Kaige Li, Jun Liu, Ratish P, Xuesong Ye, and Chenyang Zhao.
+Yuhao Chen, Jiaxin Deng, Jingwen Gu, Chenchen Hong, Xuehao Yang, Kaige Li, Jun Liu, Ratish P, Xuesong Ye, and Chenyang Zhao.
