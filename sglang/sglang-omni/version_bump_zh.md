@@ -13,7 +13,7 @@
 
 上一次固定版本的升级是 [PR #698](https://github.com/sgl-project/sglang-omni/pull/698)，把 SGLang 从 `0.5.8` 升到了 `0.5.12.post1`。那次改动也不小：更新了 Transformers 和 PyTorch，修了模型专属的假设，适配了 request pool、sampling、output type、device 和 CUDA 依赖。但它的重心仍在集成的边界上，没有实质性地重写 Omni 的 scheduler 或基础的 model runner 执行路径。
 
-[PR #1183](https://github.com/sgl-project/sglang-omni/pull/1183) 跨过了另一条边界。SGLang `0.5.16` 改变了三件事：batch 怎么选出来、活的 scheduler batch 怎么变成模型输入、采样出的 token 怎么进入下一轮。因为 Omni 有自己的外围的事件循环而不是原样调用 SGLang 的 scheduler，所以不能把这些变化当作封装在 API 后面的实现细节。PR #698 主要是在上游接口移动之后修调用方。PR #1183 则必须重新建立一套 Omni 自身参与实现的执行协议。后文中出现的数值问题、生命周期问题和显存计账问题，是同一个底层困难的不同表现形式：Omni 依赖的是 SGLang 的具体行为，而接口并没有把这些行为定义下来。
+[PR #1183](https://github.com/sgl-project/sglang-omni/pull/1183) 跨过了另一条边界。SGLang `0.5.16`  改变了 batch 的选择方式、scheduler 当前维护的 `ScheduleBatch` 转换为模型输入的方式，以及采样结果传递到下一轮迭代的方式。因为 Omni 有自己的外围的事件循环而不是原样调用 SGLang 的 scheduler，所以不能把这些变化当作封装在 API 后面的实现细节。PR #698 主要是在上游接口移动之后修调用方。PR #1183 则必须重新建立一套 Omni 自身参与实现的执行协议。后文中出现的数值问题、生命周期问题和显存计账问题，是同一个底层困难的不同表现形式：Omni 依赖的是 SGLang 的具体行为，而接口并没有把这些行为定义下来。
 
 ## SGLang 0.5.16 如何改变了 decode step 的交接
 
@@ -29,7 +29,7 @@ SGLang `0.5.16` 对于执行状态的保持和修改归属权有一套新的规�
 
 在每次 forward 之前，`resolve_forward_inputs()` 从 scheduler 的暂存区或从 `FutureMap` 中 materialize 当前输入，也就是把还不在位的值落实成 device 上真实存在的张量。采样之后，下一个 device token 被存进这个 map，以 request pool 的行号为 key。实时 batch 清空 `input_ids`，下一轮迭代再把那些行号解析回输入。
 
-Omni 不做投机解码，配置了投机算法会直接报错。所以这里的 `FutureMap` 只做一件事：在 device 上把上一轮采样出的 token 传给下一轮。它为投机解码准备的字段一直是空的。
+在 SGLang 中，普通解码会使用 `FutureMap` 把本轮采样出的 token 交给下一轮；投机解码则还会通过它传递 top-k 结果、hidden states 和 draft probabilities 等额外数据。Omni 不做投机解码，配置了投机算法会直接报错。所以这里的 `FutureMap` 只做一件事：在 device 上把上一轮采样出的 token 传给下一轮。它为投机解码准备的字段保持为空。
 
 新的 token 处理路径也把以前看起来可以互换的两种结果分开了。在 `0.5.12` 里，这两者都挂在同一个 `batch.output_ids` 上：要 device 上的张量就直接读它，要 CPU 侧的值就对它 `.tolist()`，所以它们看起来只是同一份数据的两种读法。现在两者分开存放：下一次 forward 需要的 device token 留在 GPU 中继上，而用于结束判定、logprobs、流式输出和构造响应的 CPU 可见值则留在 `GenerationBatchResult` 中。过滤或 retract 一个实时 batch 可能会在下一次迭代之前改变它的请求行，所以保留旧的 `output_ids → input_ids` 快捷方式会把 token 状态挂在 batch 的一个过时视图上。
 
