@@ -1,0 +1,449 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 920" width="1600" height="920" font-family="Inter, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif">
+<style>
+  .bg   { fill: #ffffff; }
+  .panel{ fill: #ffffff; stroke: #ecedf1; stroke-width: 1.5; }
+  .title{ font-size: 30px; font-weight: 700; fill: #111827; }
+  .sub  { font-size: 16px; fill: #9ca3af;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .ptitle { font-size: 19px; font-weight: 700; fill: #111827; }
+  .hdr  { font-size: 14px; fill: #9aa1ab;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .cell-dim { fill: #f5f6f9; }
+  .cell-hi  { fill: #dbeafe; }
+  .cell-sel { fill: #ffffff; stroke: #111827; stroke-width: 3; }
+  .n-dim { font-size: 20px; fill: #ccd2da; }
+  .n-hi  { font-size: 20px; font-weight: 700; fill: #1d4ed8; }
+  .s-dim { fill: #f2f4f8; }
+  .s-hi  { fill: #dbeafe; }
+  .s-sel { fill: #ffffff; stroke: #2563eb; stroke-width: 2; }
+  .s-txt { font-size: 11px; font-weight: 700; fill: #2563eb; }
+  .arrow { fill: none; stroke: #111827; stroke-width: 2.5; }
+</style>
+<defs><marker id="ah" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 L12 5 L0 10 Z" fill="#111827"/></marker></defs>
+<rect class="bg" x="0" y="0" width="1600" height="920"/>
+<text class="title" x="800.0" y="52" text-anchor="middle">S[(4, 2, 2, 4) : (16, 4, 8, 1)]</text>
+<text class="sub" x="800.0" y="87" text-anchor="middle">Logical view vs Physical memory  |  click cell to see mapping</text>
+<rect class="panel" x="40" y="112" width="740" height="776" rx="18"/>
+<rect class="panel" x="820" y="112" width="740" height="776" rx="18"/>
+<text class="ptitle" x="410.0" y="153" text-anchor="middle">Logical Matrix</text>
+<text class="ptitle" x="1190.0" y="153" text-anchor="middle">Physical Memory (tiled 2×4)</text>
+<text class="hdr" x="156.0" y="194" text-anchor="middle">c0</text>
+<text class="hdr" x="236.0" y="194" text-anchor="middle">c1</text>
+<text class="hdr" x="316.0" y="194" text-anchor="middle">c2</text>
+<text class="hdr" x="396.0" y="194" text-anchor="middle">c3</text>
+<text class="hdr" x="476.0" y="194" text-anchor="middle">c4</text>
+<text class="hdr" x="556.0" y="194" text-anchor="middle">c5</text>
+<text class="hdr" x="636.0" y="194" text-anchor="middle">c6</text>
+<text class="hdr" x="716.0" y="194" text-anchor="middle">c7</text>
+<text class="hdr" x="84" y="244.0" text-anchor="middle">r0</text>
+<rect class="cell-hi" x="120" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="156.0" y="246.0" text-anchor="middle">0</text>
+<rect class="cell-hi" x="200" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="236.0" y="246.0" text-anchor="middle">1</text>
+<rect class="cell-hi" x="280" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="316.0" y="246.0" text-anchor="middle">2</text>
+<rect class="cell-hi" x="360" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="396.0" y="246.0" text-anchor="middle">3</text>
+<rect class="cell-dim" x="440" y="208" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="246.0" text-anchor="middle">4</text>
+<rect class="cell-dim" x="520" y="208" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="246.0" text-anchor="middle">5</text>
+<rect class="cell-dim" x="600" y="208" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="246.0" text-anchor="middle">6</text>
+<rect class="cell-dim" x="680" y="208" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="246.0" text-anchor="middle">7</text>
+<text class="hdr" x="84" y="314.0" text-anchor="middle">r1</text>
+<rect class="cell-hi" x="120" y="278" width="72" height="62" rx="9"/>
+<text class="n-hi" x="156.0" y="316.0" text-anchor="middle">8</text>
+<rect class="cell-hi" x="200" y="278" width="72" height="62" rx="9"/>
+<text class="n-hi" x="236.0" y="316.0" text-anchor="middle">9</text>
+<rect class="cell-hi" x="280" y="278" width="72" height="62" rx="9"/>
+<text class="n-hi" x="316.0" y="316.0" text-anchor="middle">10</text>
+<rect class="cell-sel" x="360" y="278" width="72" height="62" rx="10"/>
+<text class="n-hi" x="396.0" y="316.0" text-anchor="middle">11</text>
+<rect class="cell-dim" x="440" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="316.0" text-anchor="middle">12</text>
+<rect class="cell-dim" x="520" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="316.0" text-anchor="middle">13</text>
+<rect class="cell-dim" x="600" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="316.0" text-anchor="middle">14</text>
+<rect class="cell-dim" x="680" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="316.0" text-anchor="middle">15</text>
+<text class="hdr" x="84" y="384.0" text-anchor="middle">r2</text>
+<rect class="cell-dim" x="120" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="156.0" y="386.0" text-anchor="middle">16</text>
+<rect class="cell-dim" x="200" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="236.0" y="386.0" text-anchor="middle">17</text>
+<rect class="cell-dim" x="280" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="316.0" y="386.0" text-anchor="middle">18</text>
+<rect class="cell-dim" x="360" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="396.0" y="386.0" text-anchor="middle">19</text>
+<rect class="cell-dim" x="440" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="386.0" text-anchor="middle">20</text>
+<rect class="cell-dim" x="520" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="386.0" text-anchor="middle">21</text>
+<rect class="cell-dim" x="600" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="386.0" text-anchor="middle">22</text>
+<rect class="cell-dim" x="680" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="386.0" text-anchor="middle">23</text>
+<text class="hdr" x="84" y="454.0" text-anchor="middle">r3</text>
+<rect class="cell-dim" x="120" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="156.0" y="456.0" text-anchor="middle">24</text>
+<rect class="cell-dim" x="200" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="236.0" y="456.0" text-anchor="middle">25</text>
+<rect class="cell-dim" x="280" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="316.0" y="456.0" text-anchor="middle">26</text>
+<rect class="cell-dim" x="360" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="396.0" y="456.0" text-anchor="middle">27</text>
+<rect class="cell-dim" x="440" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="456.0" text-anchor="middle">28</text>
+<rect class="cell-dim" x="520" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="456.0" text-anchor="middle">29</text>
+<rect class="cell-dim" x="600" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="456.0" text-anchor="middle">30</text>
+<rect class="cell-dim" x="680" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="456.0" text-anchor="middle">31</text>
+<text class="hdr" x="84" y="524.0" text-anchor="middle">r4</text>
+<rect class="cell-dim" x="120" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="156.0" y="526.0" text-anchor="middle">32</text>
+<rect class="cell-dim" x="200" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="236.0" y="526.0" text-anchor="middle">33</text>
+<rect class="cell-dim" x="280" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="316.0" y="526.0" text-anchor="middle">34</text>
+<rect class="cell-dim" x="360" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="396.0" y="526.0" text-anchor="middle">35</text>
+<rect class="cell-dim" x="440" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="526.0" text-anchor="middle">36</text>
+<rect class="cell-dim" x="520" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="526.0" text-anchor="middle">37</text>
+<rect class="cell-dim" x="600" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="526.0" text-anchor="middle">38</text>
+<rect class="cell-dim" x="680" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="526.0" text-anchor="middle">39</text>
+<text class="hdr" x="84" y="594.0" text-anchor="middle">r5</text>
+<rect class="cell-dim" x="120" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="156.0" y="596.0" text-anchor="middle">40</text>
+<rect class="cell-dim" x="200" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="236.0" y="596.0" text-anchor="middle">41</text>
+<rect class="cell-dim" x="280" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="316.0" y="596.0" text-anchor="middle">42</text>
+<rect class="cell-dim" x="360" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="396.0" y="596.0" text-anchor="middle">43</text>
+<rect class="cell-dim" x="440" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="596.0" text-anchor="middle">44</text>
+<rect class="cell-dim" x="520" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="596.0" text-anchor="middle">45</text>
+<rect class="cell-dim" x="600" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="596.0" text-anchor="middle">46</text>
+<rect class="cell-dim" x="680" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="596.0" text-anchor="middle">47</text>
+<text class="hdr" x="84" y="664.0" text-anchor="middle">r6</text>
+<rect class="cell-dim" x="120" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="156.0" y="666.0" text-anchor="middle">48</text>
+<rect class="cell-dim" x="200" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="236.0" y="666.0" text-anchor="middle">49</text>
+<rect class="cell-dim" x="280" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="316.0" y="666.0" text-anchor="middle">50</text>
+<rect class="cell-dim" x="360" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="396.0" y="666.0" text-anchor="middle">51</text>
+<rect class="cell-dim" x="440" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="666.0" text-anchor="middle">52</text>
+<rect class="cell-dim" x="520" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="666.0" text-anchor="middle">53</text>
+<rect class="cell-dim" x="600" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="666.0" text-anchor="middle">54</text>
+<rect class="cell-dim" x="680" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="666.0" text-anchor="middle">55</text>
+<text class="hdr" x="84" y="734.0" text-anchor="middle">r7</text>
+<rect class="cell-dim" x="120" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="156.0" y="736.0" text-anchor="middle">56</text>
+<rect class="cell-dim" x="200" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="236.0" y="736.0" text-anchor="middle">57</text>
+<rect class="cell-dim" x="280" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="316.0" y="736.0" text-anchor="middle">58</text>
+<rect class="cell-dim" x="360" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="396.0" y="736.0" text-anchor="middle">59</text>
+<rect class="cell-dim" x="440" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="476.0" y="736.0" text-anchor="middle">60</text>
+<rect class="cell-dim" x="520" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="556.0" y="736.0" text-anchor="middle">61</text>
+<rect class="cell-dim" x="600" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="636.0" y="736.0" text-anchor="middle">62</text>
+<rect class="cell-dim" x="680" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="716.0" y="736.0" text-anchor="middle">63</text>
+<text class="hdr" x="936.0" y="194" text-anchor="middle">+0</text>
+<text class="hdr" x="1016.0" y="194" text-anchor="middle">+1</text>
+<text class="hdr" x="1096.0" y="194" text-anchor="middle">+2</text>
+<text class="hdr" x="1176.0" y="194" text-anchor="middle">+3</text>
+<text class="hdr" x="1256.0" y="194" text-anchor="middle">+4</text>
+<text class="hdr" x="1336.0" y="194" text-anchor="middle">+5</text>
+<text class="hdr" x="1416.0" y="194" text-anchor="middle">+6</text>
+<text class="hdr" x="1496.0" y="194" text-anchor="middle">+7</text>
+<text class="hdr" x="866" y="244.0" text-anchor="middle">0</text>
+<rect class="cell-hi" x="900" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="936.0" y="246.0" text-anchor="middle">0</text>
+<rect class="cell-hi" x="980" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="1016.0" y="246.0" text-anchor="middle">1</text>
+<rect class="cell-hi" x="1060" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="1096.0" y="246.0" text-anchor="middle">2</text>
+<rect class="cell-hi" x="1140" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="1176.0" y="246.0" text-anchor="middle">3</text>
+<rect class="cell-hi" x="1220" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="1256.0" y="246.0" text-anchor="middle">8</text>
+<rect class="cell-hi" x="1300" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="1336.0" y="246.0" text-anchor="middle">9</text>
+<rect class="cell-hi" x="1380" y="208" width="72" height="62" rx="9"/>
+<text class="n-hi" x="1416.0" y="246.0" text-anchor="middle">10</text>
+<rect class="cell-sel" x="1460" y="208" width="72" height="62" rx="10"/>
+<text class="n-hi" x="1496.0" y="246.0" text-anchor="middle">11</text>
+<text class="hdr" x="866" y="314.0" text-anchor="middle">8</text>
+<rect class="cell-dim" x="900" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="316.0" text-anchor="middle">4</text>
+<rect class="cell-dim" x="980" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="316.0" text-anchor="middle">5</text>
+<rect class="cell-dim" x="1060" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="316.0" text-anchor="middle">6</text>
+<rect class="cell-dim" x="1140" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="316.0" text-anchor="middle">7</text>
+<rect class="cell-dim" x="1220" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="316.0" text-anchor="middle">12</text>
+<rect class="cell-dim" x="1300" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="316.0" text-anchor="middle">13</text>
+<rect class="cell-dim" x="1380" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="316.0" text-anchor="middle">14</text>
+<rect class="cell-dim" x="1460" y="278" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="316.0" text-anchor="middle">15</text>
+<text class="hdr" x="866" y="384.0" text-anchor="middle">16</text>
+<rect class="cell-dim" x="900" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="386.0" text-anchor="middle">16</text>
+<rect class="cell-dim" x="980" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="386.0" text-anchor="middle">17</text>
+<rect class="cell-dim" x="1060" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="386.0" text-anchor="middle">18</text>
+<rect class="cell-dim" x="1140" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="386.0" text-anchor="middle">19</text>
+<rect class="cell-dim" x="1220" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="386.0" text-anchor="middle">24</text>
+<rect class="cell-dim" x="1300" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="386.0" text-anchor="middle">25</text>
+<rect class="cell-dim" x="1380" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="386.0" text-anchor="middle">26</text>
+<rect class="cell-dim" x="1460" y="348" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="386.0" text-anchor="middle">27</text>
+<text class="hdr" x="866" y="454.0" text-anchor="middle">24</text>
+<rect class="cell-dim" x="900" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="456.0" text-anchor="middle">20</text>
+<rect class="cell-dim" x="980" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="456.0" text-anchor="middle">21</text>
+<rect class="cell-dim" x="1060" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="456.0" text-anchor="middle">22</text>
+<rect class="cell-dim" x="1140" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="456.0" text-anchor="middle">23</text>
+<rect class="cell-dim" x="1220" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="456.0" text-anchor="middle">28</text>
+<rect class="cell-dim" x="1300" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="456.0" text-anchor="middle">29</text>
+<rect class="cell-dim" x="1380" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="456.0" text-anchor="middle">30</text>
+<rect class="cell-dim" x="1460" y="418" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="456.0" text-anchor="middle">31</text>
+<text class="hdr" x="866" y="524.0" text-anchor="middle">32</text>
+<rect class="cell-dim" x="900" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="526.0" text-anchor="middle">32</text>
+<rect class="cell-dim" x="980" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="526.0" text-anchor="middle">33</text>
+<rect class="cell-dim" x="1060" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="526.0" text-anchor="middle">34</text>
+<rect class="cell-dim" x="1140" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="526.0" text-anchor="middle">35</text>
+<rect class="cell-dim" x="1220" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="526.0" text-anchor="middle">40</text>
+<rect class="cell-dim" x="1300" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="526.0" text-anchor="middle">41</text>
+<rect class="cell-dim" x="1380" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="526.0" text-anchor="middle">42</text>
+<rect class="cell-dim" x="1460" y="488" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="526.0" text-anchor="middle">43</text>
+<text class="hdr" x="866" y="594.0" text-anchor="middle">40</text>
+<rect class="cell-dim" x="900" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="596.0" text-anchor="middle">36</text>
+<rect class="cell-dim" x="980" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="596.0" text-anchor="middle">37</text>
+<rect class="cell-dim" x="1060" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="596.0" text-anchor="middle">38</text>
+<rect class="cell-dim" x="1140" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="596.0" text-anchor="middle">39</text>
+<rect class="cell-dim" x="1220" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="596.0" text-anchor="middle">44</text>
+<rect class="cell-dim" x="1300" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="596.0" text-anchor="middle">45</text>
+<rect class="cell-dim" x="1380" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="596.0" text-anchor="middle">46</text>
+<rect class="cell-dim" x="1460" y="558" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="596.0" text-anchor="middle">47</text>
+<text class="hdr" x="866" y="664.0" text-anchor="middle">48</text>
+<rect class="cell-dim" x="900" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="666.0" text-anchor="middle">48</text>
+<rect class="cell-dim" x="980" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="666.0" text-anchor="middle">49</text>
+<rect class="cell-dim" x="1060" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="666.0" text-anchor="middle">50</text>
+<rect class="cell-dim" x="1140" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="666.0" text-anchor="middle">51</text>
+<rect class="cell-dim" x="1220" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="666.0" text-anchor="middle">56</text>
+<rect class="cell-dim" x="1300" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="666.0" text-anchor="middle">57</text>
+<rect class="cell-dim" x="1380" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="666.0" text-anchor="middle">58</text>
+<rect class="cell-dim" x="1460" y="628" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="666.0" text-anchor="middle">59</text>
+<text class="hdr" x="866" y="734.0" text-anchor="middle">56</text>
+<rect class="cell-dim" x="900" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="936.0" y="736.0" text-anchor="middle">52</text>
+<rect class="cell-dim" x="980" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1016.0" y="736.0" text-anchor="middle">53</text>
+<rect class="cell-dim" x="1060" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1096.0" y="736.0" text-anchor="middle">54</text>
+<rect class="cell-dim" x="1140" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1176.0" y="736.0" text-anchor="middle">55</text>
+<rect class="cell-dim" x="1220" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1256.0" y="736.0" text-anchor="middle">60</text>
+<rect class="cell-dim" x="1300" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1336.0" y="736.0" text-anchor="middle">61</text>
+<rect class="cell-dim" x="1380" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1416.0" y="736.0" text-anchor="middle">62</text>
+<rect class="cell-dim" x="1460" y="698" width="72" height="62" rx="9"/>
+<text class="n-dim" x="1496.0" y="736.0" text-anchor="middle">63</text>
+<rect class="s-hi" x="120" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="138" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="156" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="174" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="192" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="210" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="228" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="246" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="264" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="282" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="300" y="800" width="13" height="24" rx="3"/>
+<rect class="s-sel" x="314.5" y="798" width="20" height="28" rx="4"/>
+<text class="s-txt" x="324.5" y="816.0" text-anchor="middle">11</text>
+<rect class="s-dim" x="336" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="354" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="372" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="390" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="408" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="426" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="444" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="462" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="480" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="498" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="516" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="534" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="552" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="570" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="588" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="606" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="624" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="642" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="660" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="678" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="120" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="138" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="156" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="174" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="192" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="210" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="228" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="246" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="264" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="282" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="300" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="318" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="336" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="354" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="372" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="390" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="408" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="426" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="444" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="462" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="480" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="498" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="516" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="534" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="552" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="570" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="588" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="606" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="624" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="642" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="660" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="678" y="828" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="900" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="918" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="936" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="954" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="972" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="990" y="800" width="13" height="24" rx="3"/>
+<rect class="s-hi" x="1008" y="800" width="13" height="24" rx="3"/>
+<rect class="s-sel" x="1022.5" y="798" width="20" height="28" rx="4"/>
+<text class="s-txt" x="1032.5" y="816.0" text-anchor="middle">7</text>
+<rect class="s-dim" x="1044" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1062" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1080" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1098" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1116" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1134" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1152" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1170" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1188" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1206" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1224" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1242" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1260" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1278" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1296" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1314" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1332" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1350" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1368" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1386" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1404" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1422" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1440" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1458" y="800" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="900" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="918" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="936" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="954" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="972" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="990" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1008" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1026" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1044" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1062" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1080" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1098" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1116" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1134" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1152" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1170" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1188" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1206" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1224" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1242" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1260" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1278" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1296" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1314" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1332" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1350" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1368" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1386" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1404" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1422" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1440" y="828" width="13" height="24" rx="3"/>
+<rect class="s-dim" x="1458" y="828" width="13" height="24" rx="3"/>
+<path class="arrow" marker-end="url(#ah)" d="M 434 284 C 654 194 1122 138 1452 198"/>
+</svg>
