@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 700" font-family="Inter, &#39;Helvetica Neue&#39;, Arial, sans-serif">
+  <rect x="565" y="20" width="30" height="30" rx="5" fill="#F3F4F6" stroke="#374151" stroke-width="1.4"></rect>
+  <line x1="580" y1="50" x2="580" y2="105" stroke="#374151" stroke-width="1.3"></line>
+  <text x="598" y="83" font-size="13.5" fill="#111827">System: Proof / Verify / Refine harness rules</text>
+  <rect x="565" y="105" width="30" height="30" rx="5" fill="#F3F4F6" stroke="#374151" stroke-width="1.4"></rect>
+  <line x1="580" y1="135" x2="580" y2="190" stroke="#374151" stroke-width="1.3"></line>
+  <text x="598" y="168" font-size="13.5" fill="#111827">Problem: original IMO statement (LaTeX)</text>
+  <rect x="565" y="190" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+
+  <line x1="580" y1="220" x2="580" y2="255" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="60" y1="255" x2="780" y2="255" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="780" y1="255" x2="1060" y2="255" stroke="#6C8EBF" stroke-width="1.3" stroke-dasharray="5 4"></line>
+  <line x1="60" y1="255" x2="60" y2="290" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="420" y1="255" x2="420" y2="290" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="780" y1="255" x2="780" y2="290" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="1060" y1="255" x2="1060" y2="290" stroke="#6C8EBF" stroke-width="1.3" stroke-dasharray="5 4"></line>
+
+  <rect x="45" y="290" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+  <text x="86" y="308" font-size="13.5" fill="#111827">Proof A: induction on n</text>
+  <text x="86" y="326" font-size="12.5" fill="#6B7280">Assume true for n−1 …</text>
+  <rect x="405" y="290" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+  <text x="446" y="308" font-size="13.5" fill="#111827">Proof B: convexity bound</text>
+  <text x="446" y="326" font-size="12.5" fill="#6B7280">By Jensen, f(x) ≤ …</text>
+  <rect x="765" y="290" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+  <text x="806" y="308" font-size="13.5" fill="#111827">Proof C: extremal argument</text>
+  <text x="806" y="326" font-size="12.5" fill="#6B7280">Take the largest aᵢ …</text>
+  <rect x="1045" y="290" width="30" height="30" rx="5" fill="#EFF6FF" stroke="#6C8EBF" stroke-width="1.4" stroke-dasharray="5 4"></rect>
+  <text x="1060" y="311" font-size="13" font-weight="600" fill="#6C8EBF" text-anchor="middle">X</text>
+  <text x="1060" y="345" font-size="13" fill="#6C8EBF" text-anchor="middle">evicted</text>
+
+  <path d="M60 320 V365 H260" fill="none" stroke="#374151" stroke-width="1.3"></path>
+  <line x1="60" y1="365" x2="60" y2="400" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="260" y1="365" x2="260" y2="400" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="420" y1="320" x2="420" y2="400" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="780" y1="320" x2="780" y2="400" stroke="#374151" stroke-width="1.3"></line>
+
+  <rect x="45" y="400" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+  <text x="86" y="418" font-size="13.5" fill="#111827">Verify: gap in step 4</text>
+  <text x="86" y="436" font-size="12.5" fill="#6B7280">inequality flips …</text>
+  <rect x="245" y="400" width="30" height="30" rx="5" fill="#F3F4F6" stroke="#374151" stroke-width="1.4"></rect>
+  <text x="286" y="418" font-size="13.5" fill="#111827">Verify: accepts</text>
+  <rect x="405" y="400" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+  <text x="446" y="418" font-size="13.5" fill="#111827">Verify: base case missing</text>
+  <rect x="765" y="400" width="30" height="30" rx="5" fill="#F3F4F6" stroke="#374151" stroke-width="1.4"></rect>
+  <text x="806" y="418" font-size="13.5" fill="#111827">Verify: accepts</text>
+
+  <line x1="60" y1="430" x2="60" y2="490" stroke="#374151" stroke-width="1.3"></line>
+  <line x1="420" y1="430" x2="420" y2="490" stroke="#374151" stroke-width="1.3"></line>
+
+  <rect x="45" y="490" width="30" height="30" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+  <text x="86" y="508" font-size="13.5" fill="#111827">Refine: patch step 4</text>
+  <text x="86" y="526" font-size="12.5" fill="#6B7280">cite AM–GM instead …</text>
+  <rect x="405" y="490" width="30" height="30" rx="5" fill="#6C8EBF" stroke="#4A688C" stroke-width="1.4"></rect>
+  <text x="446" y="508" font-size="13.5" fill="#111827">Refine: add the base case</text>
+
+  <line x1="60" y1="520" x2="60" y2="580" stroke="#374151" stroke-width="1.3"></line>
+
+  <rect x="45" y="580" width="30" height="30" rx="5" fill="#6C8EBF" stroke="#4A688C" stroke-width="1.4"></rect>
+  <text x="86" y="600" font-size="13.5" fill="#111827">Verify: accepts</text>
+
+  <g font-size="12.5" fill="#4B5563">
+    <rect x="45" y="655" width="18" height="18" rx="5" fill="#F3F4F6" stroke="#374151" stroke-width="1.4"></rect>
+    <text x="71" y="669">Cached</text>
+    <rect x="145" y="655" width="18" height="18" rx="5" fill="#DAE8FC" stroke="#6C8EBF" stroke-width="1.4"></rect>
+    <text x="171" y="669">Shared prefix</text>
+    <rect x="285" y="655" width="18" height="18" rx="5" fill="#6C8EBF" stroke="#4A688C" stroke-width="1.4"></rect>
+    <text x="311" y="669">Decoding now</text>
+    <rect x="430" y="655" width="18" height="18" rx="5" fill="#EFF6FF" stroke="#6C8EBF" stroke-width="1.4" stroke-dasharray="5 4"></rect>
+    <text x="456" y="669">Evicted</text>
+  </g>
+</svg>
