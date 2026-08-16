@@ -14,7 +14,9 @@ dots 这次则完全绕开了形式化，模型直接读取组委会提供的原
 
 这套 harness 的负载形状其实对 inference 反而是友好的，至少和 RadixTree 的目标非常契合：同一道题会派生出大量并行分支，而分支之间共享着系统提示、题面、乃至前若干版证明；Verify 环节要把一整份证明读进上下文才能产出一段 critique；Refine 环节又把 proof 和 critique 一起带上继续生成。换言之，这是一个树状展开、前缀高度共享、prefill 占比极高的负载。举一个不严谨的比方，这套 harness 是对 Tree of Thought 的现代复刻。
 
-<img src="radix-tree.svg" style="display: block; margin: 0 auto;" alt="Radix Tree" width="500">
+<div align="center">
+  <img src="radix-tree.svg" alt="Radix Tree" width="75%">
+</div>
 
 
 ## TEMPO：把自我评价变成 RL 目标
