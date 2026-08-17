@@ -769,7 +769,9 @@
       "status": "published",
       "language": "cn",
       "references_to": [],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/dots3-note/readme.md"
+      ],
       "series": null,
       "series_order": null,
       "prerequisites": [],
@@ -884,7 +886,8 @@
       "language": "bilingual",
       "references_to": [],
       "referenced_by": [
-        "sglang/sglang-omni/why-sglang-omni.md"
+        "sglang/sglang-omni/why-sglang-omni.md",
+        "sglang/dots3-note/readme.md"
       ],
       "series": null,
       "series_order": null,
@@ -1256,6 +1259,50 @@
       ],
       "external_links": {
         "github_cn": "sglang/sglang-omni/tts-optimization-zh.md"
+      }
+    },
+    {
+      "id": "dots3-note",
+      "path": "sglang/dots3-note/readme.md",
+      "title": "dots3-note Preview：为了挑战 IMO，LLM 选手做了什么",
+      "topics": [
+        "dots3-note",
+        "IMO",
+        "ARC-AGI-3",
+        "TEMPO",
+        "macro-step",
+        "generative-critic",
+        "value-estimation",
+        "long-horizon-agent",
+        "agentic-rl",
+        "partial-rollout",
+        "reinforcement-learning",
+        "MLA",
+        "DSA",
+        "sliding-window-attention",
+        "KV-cache",
+        "context-compaction",
+        "re-prefill",
+        "SGLang",
+        "paper-reading"
+      ],
+      "depth": "summary",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "rlhf/partial-rollout/readme.md",
+        "sglang/kvcache-code-walk-through/mem-fraction-static.md"
+      ],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "rlhf/partial-rollout/readme.md",
+        "sglang/kvcache-code-walk-through/mem-fraction-static.md"
+      ],
+      "external_links": {
+        "zhihu": "https://zhuanlan.zhihu.com/p/2072662462084731844",
+        "github_en": "sglang/dots3-note/readme-en.md"
       }
     }
   ],
