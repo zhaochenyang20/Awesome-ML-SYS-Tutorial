@@ -1,10 +1,21 @@
-# CPU 启示录：重新审视 CPU 资源作为语音模型 Serving 过程的一等公民
+# 重新审视 CPU 资源作为语音模型 Serving 过程的一等公民
 
-不知不觉到了 8 月，感觉时间过得飞快。似乎很长时间没写文章了。我们最近做了很多的重构来保持我们的系统的可维护性，然后 SGL 版本也进行了升级。但是在这次升级以后，我们又发现了一些非常有意思的现象，让我们对语音模型的本质和特性又有了更深的认知。
+从 2023 年 SGLang 项目启动开始，我们一直对于 long context inference 有非常大的投入。最初的时候，我们讨论的 long context 可能是类似于 Llama 3.1 这种 16K 或者 32K 的上下文长度。而后，到了 2025 年 1 月，DeepSeek R1 的出现，将 context length 以及对 context 的真实需求，推向了新的高度。而到了今年，coding agent 的爆发，让 context length 的需求进一步猛增，在之前我们团队的播客当中，也分享过 K3 和 DeepSeek V4 这样的 1M context window 的恐怖模型。
 
-## 再次从 CI 出发
+PS：欢迎收听播客[《详解 Kimi K3：强到冲击 Anthropic 估值的模型什么样？》](https://mp.weixin.qq.com/s/KydWDORAkByannmR9jt5ZQ)与[《详解DeepSeekV4：Infra巨鲸、百万上下文走进现实、极致效率优化》](https://www.xiaoyuzhoufm.com/episode/69f2e8ef0694c843e7cd91b6?s=eyJ1IjogIjYyNDkxYjY4ZWRjZTY3MTA0YTk0MzljNSJ9)
 
-不得不感叹 CI 确实是一个系统的风向仪，在上次 CI 机器的更换中，我们发现了语音模型的 CPU host bounded 特性，从而带出了 DP+MPS/IPC 等一系列优化。而这次更进一步，我们又从 CI 中发现了新的问题和优化。在更新 SGL 版本后，因为性能的大幅提升，我们给 CI 做了一轮严格的性能校准。Fun-ASR 的吞吐下限定在 128 到 139 req/s。但是令人意外的是，校准合入没几天 CI 就开始大面积报吞吐不达标。同一个 commit，CI 只跑出约 92 req/s。后来重新校准 12 轮，低的一轮只有 36 req/s。代码依赖、GPU 和压测脚本全都相同，跨轮吞吐差了接近 4 倍。这是非常令人震惊的。如晨阳一直所说，“任何反常的现象背后，要么是很严重的 bug，要么就是很本质的优化点”。我们当然不会放过这个机会:)
+
+做 long context 的 inference，我们采用的方法有非常多，这里不再详细展开，但是欢迎大家阅读我们的相关博客。但是今天讨论的主题和 long context 并无关系，反而我们是想要来分享因为长期工作内容而带来的一些思维误区。具体来说，我们绝大多数的时间都在优化 GPU 效率，特别是 long context 下，需要做恐怖的 long prefill 和 long decoding。这导致我们对于 ASR/TTS 这种短请求，高频率的推理场景产生了先入为主的优化目标，对着 GPU Runtime 做疯狂优化，反而忽略在推理过程中同样至关重要的 CPU 计算资源。基于此，本文将会回顾 SGLang Omni 项目组在 CI 运行过程中发现的 CPU 瓶颈，以及我们做出的相应实验观察和最终的优化成果，希望能够引起大家对 CPU 资源的重新审视。
+
+## CI 运行过程中的 CPU 瓶颈
+
+在 SGLang Omni 项目的 [V1 重构](https://github.com/sgl-project/sglang-omni/issues/188)之初，我们就制定了极为严苛的 CI 策略。简单来说，我们的 CI 要求性能和正确性都只进不退。举个具体的例子，假设 Qwen3 ASR 在 Seed TTS 逆转录这个任务上，在 commit A 拿到了 108 requests per second 的成绩，那么在 commit A 之后的所有 commit 只能把这个成绩推向更好的高度，不能发生任何回退，且正确性不能有任何损失。这个事情听上去非常的 trivial，但是如何让我们的 CI 抓住每一次可能的回退呢？举一个例子，假设在 commit A，Qwen3 ASR 就拿到了 108 requests per second，然后到了 commit B，拿到了 130 requests per second，然后下一个 commit C 略微降低了性能，让 Qwen3 ASR 回到了 120 requests per second 这个水平。如果我们不再 commit B，就将 CI 的 threshold 升级到 130，却还是出于惯性保留着 commit A 108 的这个 threshold，那么 commit B 到 commit C 出现的性能回退，我们是很难自动察觉到的。为此，我们的办法其实很简单，在每一个 commit 产生了性能提升之后，我们会立刻进行 5 次重复，然后取 5 次重复的最低值作为更新之后的 CI threshold。我们将这个过程称为 calibration。因此，回到我之前举的 A B C 这个例子，如果 B 就已经将 C 的 threshold 提升到 130，那么 calibration 就能够把 threshold 提上来，一定能够抓住 B 到 C 这个过程产生的回退。这个过程听上去非常简单，但实际上要求每一个性能有提高的 PR 都要做 calibration，是对开发者而言非常痛苦的一件事情。不过我们一贯的观点都是认为，宁愿苦一苦开发者，也要让我们的用户享受到最好的框架。至于具体的 calibration 如何进行，可以参考我们的 calibration skills `.claude/skills/tune-ci-thresholds`。
+
+考虑到我们 CI 的如此设定，基本上，我们的 CI 能够敏锐地抓到主要模型在我们关注任务上面的精确回退。反过来，如果出现了回退，也能够第一时间引起我们团队的警觉，并且研究回退原因。这里就有一个非常有趣的例子，在 2 个月之前，我们将 CI 从 H20 迁移到 H100，就发生了性能超出预期的回退（参考 [Issue 907](https://github.com/sgl-project/sglang-omni/issues/907)）。可以说，对 CI 近乎病态的执着，让我们能够对性能有最为直接的观测。
+
+同样的，对 CPU 问题的发觉也来自于一次 CI 回退。具体来说，在 [PR 1183](https://github.com/sgl-project/sglang-omni/pull/1183) 更新 SGL 版本后，我们给 CI 做了一轮全量 calibration。Fun-ASR 的 throughput threshold 从 128 提升到了 139 req/s。但是接下来几天，CI 就开始大面积出现 throughput 不达标，而这些 PR 看上去对 ASR 本身没有任何影响。更夸张的情况是，同一个 commit，某个 run 只跑出约 92 req/s。而后，我们连续重新测试该 PR 的 CI 12 轮，最低的一轮只有 36 req/s。代码依赖、GPU 和压测脚本全都相同，跨轮吞吐差了接近 4 倍。
+
+一贯以来，我们对自身的要求都是：任何反常的现象，要么是我们的认知不够，要么是出现了奇怪的 bug。如果现在不解决，一定会在将来导致更大的问题。观察到 CI 不同的 run 之间出现如此夸张的吞吐差距后，我们下定决心要来研究原因。
 
 ### 唯一的变量：CPU 负载
 
@@ -163,7 +174,3 @@ PR #1463 在 1× H200、每模型一条 16 物理核 lane 上，用闭式循环�
 1. **把串行拆开，用上多核。**单条 host 链吃不满一个核，多开几条链才用得上多核。同卡 DP + MPS 已经验证过这条路，Stage Level DP 是它的下一步。
 2. **让每个环节变快。**编排是每个请求都要付的固定成本（Fun-ASR 约 45 ms，Qwen3-ASR 约 35 ms），把它降下来，吞吐和抗争用能力同时受益。
 3. **外部争用放在部署层防。**CI 的教训依然成立：真正打垮服务的是同机的外部任务。要解决这个问题需要从容器部署和任务管理的角度出发，估算好 CPU 负载，确保 CPU 环境的干净，而不是依赖框架内的细粒度管控。
-
-## 致谢
-
-感谢 [Jiaxin Deng](https://github.com/JiaxinD) 撰写本文。
