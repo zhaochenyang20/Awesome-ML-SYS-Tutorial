@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1200" height="620" fill="#ffffff"/>
+  <text x="48" y="56" font-size="26" font-weight="700" fill="#1F2430">Limit one resource at a time</text>
+  <text x="48" y="88" font-size="15" fill="#6B7280">Higgs TTS, single instance at saturation. Bars show what remains of the resource vs how much throughput survives.</text>
+
+  <!-- legend -->
+  <rect x="836" y="112" width="14" height="14" fill="#9AA1AB"/>
+  <text x="858" y="124" font-size="14" fill="#1F2430">resource remaining</text>
+  <rect x="1016" y="112" width="14" height="14" fill="#3E6DB5"/>
+  <text x="1038" y="124" font-size="14" fill="#1F2430">throughput kept</text>
+
+  <!-- gridlines: x = 340 + 6.4 * pct -->
+  <g stroke="#E8EAED" stroke-width="1">
+    <line x1="340" y1="150" x2="340" y2="556"/>
+    <line x1="500" y1="150" x2="500" y2="556"/>
+    <line x1="660" y1="150" x2="660" y2="556"/>
+    <line x1="820" y1="150" x2="820" y2="556"/>
+    <line x1="980" y1="150" x2="980" y2="556"/>
+  </g>
+  <g font-size="13" fill="#6B7280" text-anchor="middle">
+    <text x="340" y="580">0</text>
+    <text x="500" y="580">25</text>
+    <text x="660" y="580">50</text>
+    <text x="820" y="580">75</text>
+    <text x="980" y="580">100%</text>
+  </g>
+
+  <!-- row 1: GPU clock, remaining 46, kept 80 -->
+  <text x="320" y="196" font-size="16" font-weight="600" fill="#1F2430" text-anchor="end">GPU clock</text>
+  <text x="320" y="216" font-size="13" fill="#6B7280" text-anchor="end">capped to 46%</text>
+  <rect x="340" y="168" width="294" height="30" fill="#9AA1AB"/>
+  <text x="642" y="189" font-size="13" fill="#6B7280">46% left</text>
+  <rect x="340" y="206" width="512" height="30" fill="#3E6DB5"/>
+  <text x="860" y="227" font-size="15" font-weight="700" fill="#1F2430">80% kept</text>
+
+  <!-- row 2: CPU time, remaining 25, kept 16 -->
+  <text x="320" y="332" font-size="16" font-weight="600" fill="#1F2430" text-anchor="end">CPU time (cgroup quota)</text>
+  <text x="320" y="352" font-size="13" fill="#6B7280" text-anchor="end">capped to 25%</text>
+  <rect x="340" y="304" width="160" height="30" fill="#9AA1AB"/>
+  <text x="508" y="325" font-size="13" fill="#6B7280">25% left</text>
+  <rect x="340" y="342" width="102" height="30" fill="#C2492F"/>
+  <text x="450" y="363" font-size="15" font-weight="700" fill="#C2492F">16% kept</text>
+
+  <!-- row 3: CPU cores, remaining 6, kept 98 -->
+  <text x="320" y="468" font-size="16" font-weight="600" fill="#1F2430" text-anchor="end">CPU cores, 32 &#8594; 2</text>
+  <text x="320" y="488" font-size="13" fill="#6B7280" text-anchor="end">capped to 6%</text>
+  <rect x="340" y="440" width="38" height="30" fill="#9AA1AB"/>
+  <text x="386" y="461" font-size="13" fill="#6B7280">6% left</text>
+  <rect x="340" y="478" width="627" height="30" fill="#3E6DB5"/>
+  <text x="975" y="499" font-size="15" font-weight="700" fill="#1F2430">98% kept</text>
+
+  <text x="48" y="608" font-size="14" fill="#6B7280">The serving chain is serial: hundreds of threads use about one core in total. It needs undisturbed CPU time, not more cores.</text>
+</svg>
