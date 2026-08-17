@@ -93,6 +93,7 @@ $$
 
 ### 算法与理论
 
+- [dots3-note Preview：为了挑战 IMO，LLM 选手做了什么](./sglang/dots3-note/readme.md)：TEMPO 的 macro-step 与生成式 critic 如何重塑超长程 agentic RL，以及 40 到 50 小时、数千轮交互的 agent 给 inference 带来的新问题——512K 窗口下 MLA 与 hybrid SWA 的 KV 显存账、上下文裁剪导致的 cache 失效与周期性 re-prefill，以及 DSA indexer 在重算中的开销占比。同样刊载于[英文版本](./sglang/dots3-note/readme-en.md)和[知乎](https://zhuanlan.zhihu.com/p/2072662462084731844)。
 - [Kimi K1.5: Long Context RL 的成功实践](./rlhf/partial-rollout/readme.md)：Long Context RLHF 的工业级实现，一直很喜欢 kimi 团队的技术报告，同样刊载于 [Kimi K1.5: Long Context RL 的成功实践](https://zhuanlan.zhihu.com/p/1894282607325344277)。
 - [Rule-based Reward](https://zhuanlan.zhihu.com/p/13211508979)：这篇只有知乎，浅浅写了写，老实说原文写的我并不太喜欢，但是 determined reward 确实 charming。
 - [SWE-Bench：如何构造 LLM 时代的优秀 Benchmark](https://zhuanlan.zhihu.com/p/16292266518)，基于 SWE-Bench 的论文阅读笔记，如何构造好的 benchmark 以为 post-training 提供细粒度 reward，是永恒且美妙的话题。

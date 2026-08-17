@@ -80,6 +80,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 
 ### Algorithms and Theory
 
+- [dots3-note Preview: What Does an LLM Contestant Do to Take On the IMO?](./sglang/dots3-note/readme-en.md): How TEMPO's macro-step and generative critic reshape ultra-long-horizon agentic RL, and what a 40-to-50-hour agent with thousands of interaction rounds brings to inference — the KV memory arithmetic of MLA plus hybrid SWA under a 512K window, cache invalidation and periodic re-prefill caused by context truncation, and how much of the recomputation cost falls on the DSA indexer. Also available in [Chinese version](./sglang/dots3-note/readme.md) and [Zhihu](https://zhuanlan.zhihu.com/p/2072662462084731844).
 - [Kimi K1.5: Successful Practice of Long Context RL](./rlhf/partial-rollout/readme.md): Industrial implementation of Long Context RLHF. I have always liked the technical reports from the Kimi team. Also available on [Zhihu: Kimi K1.5: Successful Practice of Long Context RL](https://zhuanlan.zhihu.com/p/1894282607325344277).
 - [Rule-based Reward](https://zhuanlan.zhihu.com/p/13211508979): Only on Zhihu, a brief write-up. Honestly, I didn't particularly like the original paper, but determined reward is indeed charming.
 - [SWE-Bench: How to Construct an Excellent Benchmark in the LLM Era](https://zhuanlan.zhihu.com/p/16292266518): Reading notes on the SWE-Bench paper. How to construct a good benchmark to provide fine-grained reward for post-training is an eternal and beautiful topic.
