@@ -24,6 +24,8 @@ SGLang-Omni 的 CI 最初只是一个正确性门禁，我们关注的问题包�
 
 但是 [Issue #1308](https://github.com/sgl-project/sglang-omni/issues/1308) 指出了真正的问题所在：GPU 分区了，CPU 没分区。开发者在做开发调试的时候，会使用同一台机器上的 CPU 资源，而 CI 的基准测试也在用同一台机器的 CPU。这导致同一个模型、同一个 commit、同一份环境跑出来的吞吐量的差异完全取决于此刻 CPU 上还有什么其他工作在跑。这对于calibration来说也相同。
 
+<div align="center"><img src="images/ci-cpu-contention.png" width="780"/></div>
+
 语音模型对 CPU 的敏感度远高于典型的 LLM decode 循环，像Fun-ASR 这类流水线包含大量的 CPU 侧工作：音频预处理、tokenization、数据编排。它们的 GPU kernel 都很短，短到主机侧的调度抖动足以体现在端到端吞吐量里。[PR #1321](https://github.com/sgl-project/sglang-omni/pull/1321) 用一个受控实验证实了这一点。在人工 CPU 负载下，未绑核的基准测试吞吐量几乎减半。把基准测试进程绑定到一组保留的 CPU 核上之后，性能基本恢复。
 
 ## 从 CPU 绑核到测量契约
@@ -32,9 +34,7 @@ SGLang-Omni 的 CI 最初只是一个正确性门禁，我们关注的问题包�
 
 从 #1308 中涌现出来的核心思想可以用一句话概括：问题不在于阈值设错了，而在于我们在判定测量本身是否有效之前就在产出性能结论了。评估的流程需要改变：
 
-<p align="center">
-  <img src="images/ci-measurement-flow.svg" width="680" alt="测量流程对比：改变前直接测量模型并与阈值比较；改变后先验证环境有效性再测量模型"/>
-</p>
+<div align="center"><img src="images/ci-measurement-flow.svg" width="780"/></div>
 
 一个基准测试结果不仅仅是一个数字。它还需要附带证据，表明产出这个数字的环境是合格的。为了把这个"契约"转化为代码，我们做了一系列 PR，每一个都是因为发现上一个修复仍然不完整。这些工作围绕三个主题展开：
 
@@ -56,9 +56,7 @@ CPU 隔离修复了测量有效性，但暴露出了第二个问题：资源无�
 
 然后 [PR #1461](https://github.com/sgl-project/sglang-omni/pull/1461) 揭露了一个更深层的问题。此前我们的心智模型一直是：基准测试是没问题的，噪声来自其他共享主机的工作负载。这个PR发现，CI 自身的非基准测试工作——单元测试 pytest、依赖安装、环境验证、模型下载、清理——全都保留着全机 CPU 亲和性。一个并发的 pytest 进程被观察到平均消耗了约 7.2 个 CPU 核，漂移进了 calibration lane。同样的机制解释了 [PR #1379](https://github.com/sgl-project/sglang-omni/pull/1379) 在相邻性能 lane 上观察到的外来 CPU 峰值。PR #1461 把 CPU 绑核扩展到了单元测试、setup 阶段、依赖和模型准备、cleanup、runner 进程树以及系统守护进程的约束。但这一轮扩展提出了一个追加多少绑核都无法回答的问题：如果这台机器上的每一个 CPU 密集型进程最终都需要被考虑隔离，那么隔离的边界到底应该画在哪里？关于这一序列的完整技术细节，可以参考[这篇文章](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/sglang-omni/cpu-first-class-citizen-zh.md)。
 
-<p align="center">
-  <img src="images/ci-isolation-boundary-expansion.svg" width="680" alt="隔离边界的逐步扩张：从基准测试进程到容器到 CPU lane 到整个 CI 工作负载，最终边界等于机器本身"/>
-</p>
+<div align="center"><img src="images/ci-isolation-boundary-expansion.svg" width="780"/></div>
 
 ## 为什么我们最终迁移到了CI专用机器
 
