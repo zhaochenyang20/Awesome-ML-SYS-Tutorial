@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B7280"/>
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#C2492F"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="640" fill="#ffffff"/>
+  <text x="48" y="56" font-size="26" font-weight="700" fill="#1F2430">Where the CPU allocator sits</text>
+  <text x="48" y="88" font-size="15" fill="#6B7280">Runs once at startup, after process topology is known and before any stage process exists. Request path untouched. Off by default.</text>
+
+  <!-- startup chain -->
+  <g font-size="14.5" fill="#1F2430" text-anchor="middle">
+    <rect x="48"  y="140" width="150" height="72" rx="10" fill="#ffffff" stroke="#C9CDD4" stroke-width="1.6"/>
+    <text x="123" y="182">Parse CLI</text>
+
+    <rect x="238" y="140" width="150" height="72" rx="10" fill="#ffffff" stroke="#C9CDD4" stroke-width="1.6"/>
+    <text x="313" y="174">Load pipeline</text>
+    <text x="313" y="194">config</text>
+
+    <rect x="428" y="140" width="180" height="72" rx="10" fill="#ffffff" stroke="#C9CDD4" stroke-width="1.6"/>
+    <text x="518" y="174">Resolve topology</text>
+    <text x="518" y="194" font-size="12.5" fill="#6B7280">stage &#8594; OS process</text>
+
+    <rect x="648" y="140" width="170" height="72" rx="10" fill="#C2492F"/>
+    <text x="733" y="183" font-size="17" font-weight="700" fill="#ffffff">Allocate CPUs</text>
+
+    <rect x="858" y="140" width="160" height="72" rx="10" fill="#ffffff" stroke="#C9CDD4" stroke-width="1.6"/>
+    <text x="938" y="174">Spawn stage</text>
+    <text x="938" y="194">processes</text>
+
+    <rect x="1058" y="140" width="94" height="72" rx="10" fill="#ffffff" stroke="#C9CDD4" stroke-width="1.6"/>
+    <text x="1105" y="182">Serve</text>
+  </g>
+  <g stroke="#6B7280" stroke-width="1.8" marker-end="url(#arr)">
+    <line x1="198" y1="176" x2="232" y2="176"/>
+    <line x1="388" y1="176" x2="422" y2="176"/>
+    <line x1="608" y1="176" x2="642" y2="176"/>
+    <line x1="818" y1="176" x2="852" y2="176"/>
+    <line x1="1018" y1="176" x2="1052" y2="176"/>
+  </g>
+
+  <!-- down arrow from allocator -->
+  <line x1="733" y1="212" x2="733" y2="268" stroke="#C2492F" stroke-width="2" marker-end="url(#arrRed)"/>
+  <text x="48" y="296" font-size="16" font-weight="700" fill="#1F2430">Emits one auditable plan with two pools:</text>
+
+  <!-- exclusive pool -->
+  <rect x="48" y="320" width="640" height="200" rx="12" fill="#F4F7FC" stroke="#3E6DB5" stroke-width="1.6"/>
+  <text x="76" y="356" font-size="16" font-weight="700" fill="#1F2430">Exclusive pool</text>
+  <text x="76" y="380" font-size="13.5" fill="#4B5563">Whole physical cores, both SMT siblings taken together,</text>
+  <text x="76" y="399" font-size="13.5" fill="#4B5563">granted to declared serial dispatch loops.</text>
+  <!-- core pairs -->
+  <g>
+    <rect x="76"  y="424" width="46" height="56" fill="#3E6DB5"/>
+    <rect x="126" y="424" width="46" height="56" fill="#A9C3E8"/>
+    <rect x="196" y="424" width="46" height="56" fill="#3E6DB5"/>
+    <rect x="246" y="424" width="46" height="56" fill="#A9C3E8"/>
+    <rect x="316" y="424" width="46" height="56" fill="#3E6DB5"/>
+    <rect x="366" y="424" width="46" height="56" fill="#A9C3E8"/>
+    <rect x="436" y="424" width="46" height="56" fill="#3E6DB5"/>
+    <rect x="486" y="424" width="46" height="56" fill="#A9C3E8"/>
+  </g>
+  <text x="556" y="456" font-size="13" fill="#6B7280">one physical core</text>
+  <text x="556" y="474" font-size="13" fill="#6B7280">= two hyperthreads</text>
+
+  <!-- shared pool -->
+  <rect x="720" y="320" width="432" height="200" rx="12" fill="#F7F7F8" stroke="#9AA1AB" stroke-width="1.6"/>
+  <text x="748" y="356" font-size="16" font-weight="700" fill="#1F2430">Shared pool</text>
+  <text x="748" y="380" font-size="13.5" fill="#4B5563">Every other process in the serve tree,</text>
+  <text x="748" y="399" font-size="13.5" fill="#4B5563">free to float inside the pool.</text>
+  <g fill="#9AA1AB">
+    <rect x="748" y="424" width="46" height="56"/>
+    <rect x="806" y="424" width="46" height="56"/>
+    <rect x="864" y="424" width="46" height="56"/>
+    <rect x="922" y="424" width="46" height="56"/>
+    <rect x="980" y="424" width="46" height="56"/>
+  </g>
+
+  <text x="48" y="568" font-size="14" fill="#6B7280">If capacity runs short, a whole group degrades to the shared pool. Physical cores are never split between owners.</text>
+  <text x="48" y="592" font-size="14" fill="#6B7280">Undeclared models are a no-op even with the flag on.</text>
+</svg>
