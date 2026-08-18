@@ -1,6 +1,6 @@
-# SGLang backbone 升级实操指南
+# SGLang Omni 的 backbone 升级实操指南
 
-英文版本见 [A Practical Guide to Upgrading the SGLang Backbone](./version_bump_guide.md)。
+英文版本见 [A Practical Guide to Upgrading SGLang Omni's Backbone](./version_bump_guide.md)。
 
 SGLang Omni 并非将 SGLang 作为库使用，而是作为框架使用：约 512 个 Python 文件中有 68 个直接导入 `sglang.srt.*` 之下的内部模块。上游将这些模块视为内部实现，可以不经废弃周期直接变更。因此每次 backbone 版本升级在形式上是一次依赖更新，实质上是一次针对私有接口变更的移植工作。
 

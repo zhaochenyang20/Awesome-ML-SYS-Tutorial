@@ -1,6 +1,6 @@
-# A Practical Guide to Upgrading the SGLang Backbone
+# A Practical Guide to Upgrading SGLang Omni's Backbone
 
-A Chinese version is available at [SGLang backbone 升级实操指南](./version_bump_guide_zh.md).
+A Chinese version is available at [SGLang Omni 的 backbone 升级实操指南](./version_bump_guide_zh.md).
 
 SGLang Omni does not consume SGLang as a library; it consumes it as a framework. Roughly 68 of its ~512 Python files import internal modules from under `sglang.srt.*`, which upstream treats as implementation detail and changes without a deprecation cycle. Every backbone version bump is therefore a dependency update in form and a port across private interfaces in substance.
 
