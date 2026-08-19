@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cosmos 3 Omni · Decoding Mechanism & Architecture Breakdown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F6F9; --panel:#FFFFFF; --panel-2:#EEF1F5; --raise:#E5E9F0;
+    --ink:#1A1F2B; --ink-dim:#565E70; --ink-faint:#8892A3;
+    --hair:rgba(26,31,43,.14); --hair-2:rgba(26,31,43,.07);
+    --ar:#5E4FCE; --ar-deep:#4A3AA8; --ar-soft:rgba(94,79,206,.10);
+    --diff:#0E9384; --diff-deep:#0B7A6E; --diff-soft:rgba(14,147,132,.10);
+    --act:#B87514; --act-deep:#96600F; --act-soft:rgba(184,117,20,.12);
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --body:'IBM Plex Sans','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',sans-serif;
+    --disp:'Space Grotesk','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--body); font-size:16.5px; line-height:1.78; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;}
+  ::selection{background:var(--ar-soft)}
+  .wrap{max-width:940px; margin:0 auto; padding:0 24px}
+
+  header.hero{padding:84px 0 40px; border-bottom:1px solid var(--hair);
+    background:radial-gradient(60% 120% at 20% -10%, rgba(94,79,206,.11), transparent 60%),radial-gradient(60% 120% at 84% -10%, rgba(14,147,132,.10), transparent 60%);}
+  .eyebrow{font-family:var(--mono); font-size:12.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:20px;}
+  h1{font-family:var(--disp); font-weight:700; font-size:clamp(38px,7vw,66px); line-height:1.04; margin:0 0 8px; letter-spacing:-.02em;}
+  h1 .g{background:linear-gradient(100deg,var(--ar) 0%,var(--diff) 100%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;}
+  .tagline{font-family:var(--disp); font-weight:500; font-size:clamp(18px,3vw,23px); margin:14px 0 24px; letter-spacing:-.01em;}
+  .thesis{font-size:17px; color:var(--ink-dim); max-width:72ch}
+  .thesis b{color:var(--ink); font-weight:600}
+  .toc{margin:30px 0 4px; font-family:var(--mono); font-size:13px; color:var(--ink-dim); columns:2; column-gap:36px}
+  .toc a{color:var(--ink-dim); text-decoration:none; display:block; padding:3px 0; border-bottom:1px solid transparent}
+  .toc a:hover{color:var(--ar); border-color:var(--ar-soft)}
+  .legend{display:flex; gap:18px; flex-wrap:wrap; margin:24px 0 4px; font-family:var(--mono); font-size:12.5px}
+  .chip{display:inline-flex; align-items:center; gap:8px; color:var(--ink-dim)}
+  .dot{width:11px; height:11px; border-radius:3px; display:inline-block}
+
+  section{padding:58px 0; border-bottom:1px solid var(--hair-2)}
+  .snum{font-family:var(--mono); font-size:13px; color:var(--ink-faint); letter-spacing:.06em; display:inline-block; margin-bottom:10px;}
+  h2{font-family:var(--disp); font-weight:600; font-size:clamp(24px,4vw,31px); line-height:1.15; margin:0 0 18px; letter-spacing:-.015em;}
+  h3{font-family:var(--disp); font-weight:600; font-size:19px; margin:32px 0 10px}
+  p{margin:0 0 15px; max-width:74ch}
+  .lead{font-size:18px; color:var(--ink); max-width:72ch}
+  a{color:var(--diff); text-decoration:none; border-bottom:1px solid rgba(14,147,132,.35)}
+  a:hover{border-color:var(--diff)}
+  strong{font-weight:600; color:#0A0D14}
+  code{font-family:var(--mono); font-size:.87em; background:var(--panel-2); padding:2px 6px; border-radius:5px; color:#39414F; border:1px solid var(--hair-2);}
+  .ar-mark{color:var(--ar); font-weight:600}
+  .diff-mark{color:var(--diff); font-weight:600}
+  .act-mark{color:var(--act); font-weight:600}
+
+  figure{margin:32px 0 12px}
+  figure svg{width:100%; height:auto; display:block}
+  figcaption{font-family:var(--mono); font-size:12.5px; color:var(--ink-faint); margin-top:12px; padding-left:14px; border-left:2px solid var(--hair); line-height:1.6;}
+
+  .formula{background:var(--panel-2); border:1px solid var(--hair); border-radius:10px; padding:16px 22px; margin:18px 0; font-family:var(--mono); font-size:15px; line-height:2.05; overflow-x:auto; color:var(--ink);}
+  .formula .c{color:var(--ink-faint)}
+  .formula b.ar{color:var(--ar); font-weight:500}
+  .formula b.df{color:var(--diff); font-weight:500}
+  sub,sup{font-size:.72em}
+
+  pre{background:#0E1320; border:1px solid var(--hair); border-radius:12px; padding:18px 20px; overflow-x:auto; margin:20px 0; font-family:var(--mono); font-size:13px; line-height:1.62; color:#c7cede;}
+  pre .c{color:#6b7385}
+  pre .k{color:#b4a9f0}
+  pre .s{color:#5dcaa5}
+  pre .n{color:#e7a84e}
+
+  .tbl-wrap{margin:26px 0; overflow-x:auto; border:1px solid var(--hair); border-radius:12px; background:var(--panel)}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:600px}
+  th,td{padding:12px 15px; text-align:left; border-bottom:1px solid var(--hair-2); vertical-align:top}
+  thead th{font-family:var(--mono); font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); background:var(--panel-2)}
+  tbody th{font-family:var(--body); font-weight:500; color:var(--ink-dim); white-space:nowrap}
+  .cell-ar{border-left:2px solid var(--ar)}
+  .cell-diff{border-left:2px solid var(--diff)}
+  tr:last-child td,tr:last-child th{border-bottom:none}
+
+  .judge{background:var(--panel); border:1px solid var(--hair); border-radius:14px; padding:22px 24px; margin:18px 0; box-shadow:0 1px 2px rgba(26,31,43,.05), 0 8px 24px -18px rgba(26,31,43,.25);}
+  .judge .jtag{font-family:var(--mono); font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--diff); margin-bottom:9px; display:block;}
+  .judge h3{margin:0 0 8px; font-size:18px}
+  .judge p:last-child{margin-bottom:0}
+  .prim{background:var(--panel); border:1px solid var(--hair); border-radius:12px; padding:18px 20px; margin:14px 0}
+  .prim .ptag{font-family:var(--mono); font-size:12px; font-weight:500; display:inline-block; padding:2px 9px; border-radius:20px; margin-bottom:8px}
+  .prim.a .ptag{background:var(--ar-soft); color:var(--ar-deep)}
+  .prim.d .ptag{background:var(--diff-soft); color:var(--diff-deep)}
+  .prim p:last-child{margin-bottom:0}
+
+  .note{background:var(--act-soft); border:1px solid rgba(184,117,20,.28); border-radius:12px; padding:16px 20px; margin:22px 0; font-size:15px; color:var(--ink-dim);}
+  .note b{color:var(--act-deep)}
+  .kv{color:var(--act-deep); font-weight:600}
+
+  footer{padding:48px 0 80px; color:var(--ink-faint); font-family:var(--mono); font-size:12.5px}
+  @media (max-width:640px){ body{font-size:15.5px} section{padding:44px 0} .toc{columns:1} }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Internal Reading Material · Cosmos 3 Omni Mechanism & Architecture</div>
+    <h1>One Set of Weights, <span class="g">Two Kinds of Decoding</span></h1>
+    <div class="tagline">MoT's modality decoupling, AR + diffusion joint attention, and what it means for the Omni serving abstraction</div>
+    <p class="thesis">Cosmos 3 uses <b>Mixture-of-Transformers</b> to pack two decoding modes with completely different runtime characteristics — the autoregressive decode of text and the diffusion denoising of the other modalities — into the same set of weights, the same sequence, and the same single attention. This material breaks it down from the low-level mechanism all the way up to the serving abstraction: first making clear what the "mixture" actually mixes, then giving the math of the three kinds of attention, the complete decode process with pseudocode, the nature of the latent, and finally landing on the abstraction orientation of our SGLang Omni.</p>
+    <div class="legend">
+      <span class="chip"><span class="dot" style="background:var(--ar)"></span>AR / discrete / text / token-by-token</span>
+      <span class="chip"><span class="dot" style="background:var(--diff)"></span>diffusion / continuous / latent / denoise</span>
+      <span class="chip"><span class="dot" style="background:var(--act)"></span>action / KV / points to note</span>
+    </div>
+    <nav class="toc">
+      <a href="#s1">01 · Architecture Overview: MoT Dual-Tower</a>
+      <a href="#s2">02 · What Exactly Is Being "Mixed"</a>
+      <a href="#s3">03 · The Difference from Ming-Omni</a>
+      <a href="#s4">04 · The Math of Three Kinds of Attention</a>
+      <a href="#s5">05 · Why Diffusion Can't KV-cache</a>
+      <a href="#s6">06 · The Complete Decode Process</a>
+      <a href="#s7">07 · Reasoner vs Generator</a>
+      <a href="#s8">08 · Per-Modality Request Examples</a>
+      <a href="#s9">09 · The Nature of Latents & Reconstruction</a>
+      <a href="#s10">10 · Abstraction Implications for SGLang Omni</a>
+      <a href="#s11">11 · Honest Boundaries</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ============ 01 ============ -->
+<section id="s1">
+  <span class="snum">01 — Architecture Overview</span>
+  <h2>MoT Dual-Tower: 5 Modality-Separated Weight Sets, Sharing One Attention</h2>
+  <p class="lead">Cosmos 3 is a Mixture-of-Transformers. It is not a "universal brain," but rather separates each modality's weights and then stitches them together with one shared attention. Text goes through the autoregressive tower; image / video / audio / action go through the diffusion tower.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MoT end-to-end: inputs are encoded into the L-layer trunk, text goes AR, latents go diffusion then are reconstructed to output via a decoder">
+      <defs><marker id="o1" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.t{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .d{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .h{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+
+      <!-- INPUT -->
+      <text x="76" y="46" text-anchor="middle" class="h d" fill="#1A1F2B" font-size="13">Input</text>
+      <g><rect x="24" y="62" width="104" height="30" rx="7" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="76" y="81" text-anchor="middle" class="t" fill="#5E4FCE">text</text></g>
+      <g><rect x="24" y="98" width="104" height="30" rx="7" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="76" y="117" text-anchor="middle" class="t" fill="#0E9384">image</text></g>
+      <g><rect x="24" y="134" width="104" height="30" rx="7" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="76" y="153" text-anchor="middle" class="t" fill="#0E9384">video</text></g>
+      <g><rect x="24" y="170" width="104" height="30" rx="7" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="76" y="189" text-anchor="middle" class="t" fill="#0E9384">audio</text></g>
+      <g><rect x="24" y="206" width="104" height="30" rx="7" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="76" y="225" text-anchor="middle" class="t" fill="#96600F">action</text></g>
+      <line x1="128" y1="149" x2="150" y2="149" stroke="#8892A3" marker-end="url(#o1)"/>
+
+      <!-- ENCODER -->
+      <rect x="152" y="84" width="172" height="160" rx="11" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="238" y="108" text-anchor="middle" class="h" fill="#1A1F2B" font-size="13">Modality Encoders</text>
+      <text x="238" y="134" text-anchor="middle" class="d">text &#8594; embed table</text>
+      <text x="238" y="156" text-anchor="middle" class="d">image / video &#8594; VAE</text>
+      <text x="238" y="178" text-anchor="middle" class="d">audio &#8594; audio encode</text>
+      <text x="238" y="200" text-anchor="middle" class="d">action &#8594; trajectory encode</text>
+      <text x="238" y="226" text-anchor="middle" class="d" fill="#8892A3" font-size="10">&#8594; condition tokens (local)</text>
+      <line x1="324" y1="185" x2="344" y2="185" stroke="#8892A3" marker-end="url(#o1)"/>
+
+      <!-- MoT TRUNK -->
+      <rect x="346" y="70" width="290" height="230" rx="14" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="491" y="96" text-anchor="middle" class="h" fill="#1A1F2B" font-size="14">MoT Trunk · &#215; L layers</text>
+      <text x="491" y="116" text-anchor="middle" class="d">1 checkpoint · 5 weight sets · 1 shared attn</text>
+      <g><rect x="358" y="134" width="82" height="34" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="399" y="155" text-anchor="middle" class="d" fill="#1A1F2B" font-size="10">proj QKV</text></g>
+      <g><rect x="450" y="134" width="82" height="34" rx="8" fill="#FFFFFF" stroke="#4A3AA8" stroke-dasharray="3 3"/><text x="491" y="155" text-anchor="middle" class="d" fill="#1A1F2B" font-size="10">shared attn</text></g>
+      <g><rect x="542" y="134" width="82" height="34" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="583" y="155" text-anchor="middle" class="d" fill="#1A1F2B" font-size="10">mod FFN</text></g>
+      <line x1="440" y1="151" x2="450" y2="151" stroke="#8892A3" marker-end="url(#o1)"/>
+      <line x1="532" y1="151" x2="542" y2="151" stroke="#8892A3" marker-end="url(#o1)"/>
+      <text x="491" y="188" text-anchor="middle" class="d" fill="#8892A3">every layer like this · repeat &#215; L</text>
+      <text x="491" y="210" text-anchor="middle" class="d">condition tokens frozen as prefix;</text>
+      <text x="491" y="226" text-anchor="middle" class="d">positions-to-generate produced here</text>
+      <text x="491" y="248" text-anchor="middle" class="d">text pos &#8594; upper path　latent pos &#8594; lower path</text>
+
+      <line x1="636" y1="120" x2="648" y2="120" stroke="#4A3AA8" marker-end="url(#o1)"/>
+      <line x1="636" y1="250" x2="648" y2="250" stroke="#0B7A6E" marker-end="url(#o1)"/>
+
+      <!-- OUTPUT top: text via AR -->
+      <rect x="650" y="97" width="176" height="46" rx="10" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="738" y="116" text-anchor="middle" class="h" fill="#5E4FCE" font-size="11">AR token-by-token decode</text>
+      <text x="738" y="133" text-anchor="middle" class="d">text positions · KV-cache</text>
+      <text x="842" y="90" text-anchor="middle" class="d" fill="#8892A3">detokenize</text>
+      <line x1="826" y1="120" x2="858" y2="120" stroke="#8892A3" marker-end="url(#o1)"/>
+      <rect x="860" y="99" width="118" height="42" rx="9" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="919" y="116" text-anchor="middle" class="t" fill="#5E4FCE">text</text>
+      <text x="919" y="132" text-anchor="middle" class="d" fill="#5E4FCE">Output</text>
+
+      <!-- OUTPUT bottom: latent via diffusion -->
+      <rect x="650" y="227" width="176" height="46" rx="10" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="738" y="246" text-anchor="middle" class="h" fill="#0E9384" font-size="12.5">diffusion denoise &#215; T</text>
+      <text x="738" y="263" text-anchor="middle" class="d">latent positions · no KV-cache</text>
+      <text x="842" y="220" text-anchor="middle" class="d" fill="#8892A3">VAE / vocoder</text>
+      <line x1="826" y1="250" x2="858" y2="250" stroke="#8892A3" marker-end="url(#o1)"/>
+      <rect x="860" y="229" width="118" height="42" rx="9" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="919" y="246" text-anchor="middle" class="t" fill="#0E9384" font-size="12">img/vid/aud/act</text>
+      <text x="919" y="262" text-anchor="middle" class="d" fill="#0E9384">Output</text>
+
+      <!-- FOOTER -->
+      <rect x="24" y="448" width="954" height="56" rx="12" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="44" y="472" class="d">Encoders and the VAE / vocoder stage usually sit outside the MoT trunk; each can be its own stage (relay carries token / latent).</text>
+      <text x="44" y="491" class="d">The MoT trunk itself = one checkpoint (64B · BF16 · 5 modality weight sets + 1 parameter-free shared attention).</text>
+    </svg>
+    <figcaption>How to read it end-to-end (left→right): the 5 kinds of input each pass through <strong>their own encoder</strong> to become condition tokens → enter the <strong>MoT trunk (× L layers, 5 weight sets sharing one attention)</strong> → at generation time they split into two paths by the modality of the output position: <strong>text positions</strong> are autoregressively decoded then detokenized into text, and <strong>latent positions</strong> go through T diffusion denoise steps then are reconstructed by <strong>VAE/vocoder</strong> into image/video/audio/action. Encoders and the reconstruction stage usually sit outside the trunk and can be their own stages; <strong>the MoT trunk itself is that checkpoint</strong>.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 02 ============ -->
+<section id="s2">
+  <span class="snum">02 — Concept Clarification</span>
+  <h2>What Exactly Is Being "Mixed"</h2>
+  <p class="lead">The most common misconception: thinking there's some parameter that sometimes denoises and sometimes decodes. <strong>There is no such parameter.</strong> MoT's "mixture" refers to a single transformer that simultaneously holds several modality-separated weight sets; one mixed sequence flows through, and each token is routed by modality to its own set.</p>
+
+  <p>The <a href="https://arxiv.org/abs/2411.04996">MoT paper</a> puts it very cleanly: it decouples all non-embedding parameters by modality — feed-forward, attention projection matrices, layer normalization — one set per modality, with only self-attention shared across the full sequence as a single operation. So text weights only ever process text tokens, image weights only ever process image latents, and they <strong>never switch posts</strong>.</p>
+
+  <h3>Why "Not Sharing Parameters" and "The Same Attention" Aren't Contradictory</h3>
+  <p>The key point in one sentence: <strong>the "mixing" operation of attention itself has no learnable parameters.</strong> The parameters are all in the projections on both sides (Q/K/V/O) and the FFN, and those are one set per modality. The softmax(QK<sup>⊤</sup>)V in the middle that stitches them together is parameter-free — it merely mixes together the q/k/v that each side has already computed. Unfolding a single layer:</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="One MoT layer: separate weights, shared parameter-free attention">
+      <defs><marker id="o2" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.t2{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .d2{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11.5px} .h2t{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+
+      <text x="500" y="28" text-anchor="middle" class="d2">One mixed sequence (text tokens and image latents interleaved)</text>
+      <g><rect x="300" y="42" width="100" height="32" rx="6" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="350" y="63" text-anchor="middle" class="d2" fill="#5E4FCE">text</text></g>
+      <g><rect x="410" y="42" width="100" height="32" rx="6" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="460" y="63" text-anchor="middle" class="d2" fill="#5E4FCE">text</text></g>
+      <g><rect x="540" y="42" width="100" height="32" rx="6" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="590" y="63" text-anchor="middle" class="d2" fill="#0E9384">image~</text></g>
+      <g><rect x="650" y="42" width="100" height="32" rx="6" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="700" y="63" text-anchor="middle" class="d2" fill="#0E9384">image~</text></g>
+
+      <line x1="410" y1="74" x2="410" y2="116" stroke="#8892A3" marker-end="url(#o2)"/>
+      <line x1="645" y1="74" x2="645" y2="116" stroke="#8892A3" marker-end="url(#o2)"/>
+
+      <rect x="230" y="118" width="360" height="60" rx="10" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="410" y="142" text-anchor="middle" class="h2t" fill="#5E4FCE" font-size="14">text weight set</text>
+      <text x="410" y="163" text-anchor="middle" class="d2">LN · Wq/Wk/Wv · Wo · FFN</text>
+      <rect x="620" y="118" width="360" height="60" rx="10" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="800" y="142" text-anchor="middle" class="h2t" fill="#0E9384" font-size="14">image weight set</text>
+      <text x="800" y="163" text-anchor="middle" class="d2">LN · Wq/Wk/Wv · Wo · FFN</text>
+
+      <line x1="410" y1="178" x2="470" y2="236" stroke="#8892A3" marker-start="url(#o2)" marker-end="url(#o2)"/>
+      <line x1="800" y1="178" x2="620" y2="236" stroke="#8892A3" marker-start="url(#o2)" marker-end="url(#o2)"/>
+
+      <rect x="330" y="238" width="360" height="62" rx="10" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="510" y="263" text-anchor="middle" class="h2t t2" font-size="14">self-attention</text>
+      <text x="510" y="284" text-anchor="middle" class="d2">mixes all tokens · softmax(QK<tspan baseline-shift="super" font-size="8">⊤</tspan>)V · no learnable parameters</text>
+    </svg>
+    <figcaption>Within one layer: each token first passes through its own modality's LN and Q/K/V projections (separate weights), then all tokens' q/k/v are thrown into the same softmax(QK<sup>⊤</sup>)V (a parameter-free mix), and finally each passes through its own Wo/FFN. The parameters are all on the two sides, and the mix in the middle is parameter-free — this is the exact meaning of "neither sharing parameters, yet in the same attention."</figcaption>
+  </figure>
+
+  <h3>Sparse Activation: Not Every Forward Uses All Parameters</h3>
+  <p>Because parameters are decoupled by modality, <strong>what a single forward truly activates is only "the weight sets of the few modalities that appear in this sequence"</strong>; it doesn't touch the FFN / projections of any other modality. This is why MoT is called "sparse" (in the paper, speech uses only about 37% of the FLOPs of the dense baseline, and about 56% in the Chameleon setting). Two things need to be distinguished:</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Dimension</th><th>Sparse?</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><th>Active parameters per forward (FLOPs)</th><td class="cell-diff">Sparse</td><td>Only computes the sets of modalities that appear; "all are used" is wrong</td></tr>
+      <tr><th>Parameters that must reside in VRAM (loading)</th><td class="cell-ar">Not necessarily</td><td>A general any-to-any service doesn't know in advance what modalities the next request carries, so it often still needs them all resident; saving VRAM relies on <strong>single-purpose deployment loading only the slice it needs</strong> (this is exactly the point of the separate <code>Cosmos3ReasonerForConditionalGeneration</code> arch class)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============ 03 ============ -->
+<section id="s3">
+  <span class="snum">03 — Comparison</span>
+  <h2>The Difference from Ming-Omni: Joint Attention vs Baton-Passing</h2>
+  <p>Intuitively, Cosmos and Ming-Omni look very similar — both are "one AR part + one diffusion part, with separate parameters." At that level it's right. The difference lies in <strong>the tightness of the coupling</strong>.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th></th><th>Ming-Omni</th><th>Cosmos MoT</th></tr></thead>
+    <tbody>
+      <tr><th>Structure</th><td class="cell-ar">dedicated encoders → Ling (MoE) understands + emits text → <strong>passes the baton</strong> to a separate audio decoder / diffusion model</td><td class="cell-diff">just one stack of layers; text tokens and latents are in the <strong>same sequence</strong> from start to finish</td></tr>
+      <tr><th>Attention</th><td class="cell-ar">two sets: one for the backbone, one for the diffusion, each independent</td><td class="cell-diff">one shared attention per layer, cross-modality mutual visibility</td></tr>
+      <tr><th>How the condition enters generation</th><td class="cell-ar">the backbone produces conditioning, fed to the downstream network all at once</td><td class="cell-diff">latents read the condition within the same attention at every layer (deep, bidirectional, layer-by-layer)</td></tr>
+      <tr><th>Can it be cleanly split into two stages</th><td class="cell-ar">yes (thinker → diffusion, relay carries the hidden state)</td><td class="cell-diff">hard — there's no "baton-passing point," the whole generation is one fused forward</td></tr>
+    </tbody>
+  </table></div>
+  <p>The analogy, used just once: Ming is two meetings — meeting A writes the minutes, meeting B opens by reading them aloud; MoT is everyone sitting at the same table, conversing in real time at every layer — each speaking their own language (their own weights), but in the same conversation (the same attention). This difference has direct consequences for how we carve Stages; see <a href="#s10">Section 10</a>.</p>
+</section>
+
+<!-- ============ 04 ============ -->
+<section id="s4">
+  <span class="snum">04 — Math</span>
+  <h2>The Math of Three Kinds of Attention</h2>
+  <p class="lead">The difference among the three is almost entirely in the <strong>mask</strong> and <strong>how many projection sets are used</strong>; the core formula is the same softmax. Notation: the hidden state h<sub>p</sub> at position <code>p</code>, projected into q/k/v, head dimension d.</p>
+
+  <h3>① Traditional Autoregressive (Causal Mask)</h3>
+  <p>One weight set, shared by all tokens:</p>
+  <div class="formula">
+    q<sub>i</sub> = W<sub>Q</sub> h<sub>i</sub> ，  k<sub>i</sub> = W<sub>K</sub> h<sub>i</sub> ，  v<sub>i</sub> = W<sub>V</sub> h<sub>i</sub><br>
+    α<sub>ij</sub> = softmax<sub>j</sub>( q<sub>i</sub> · k<sub>j</sub> / √d ) ， <b class="ar">only j ≤ i (causal / lower-triangular)</b><br>
+    o<sub>i</sub> = Σ<sub>j≤i</sub> α<sub>ij</sub> v<sub>j</sub>
+  </div>
+  <p>Each token sees only itself and the past. Generation is serial token-by-token, and past k/v go into the KV-cache. Objective: next-token cross-entropy.</p>
+
+  <h3>② Traditional Diffusion (DiT, Fully-Connected)</h3>
+  <p>latent tokens z<sub>1..m</sub> = the representation of the whole (noisy) image/video at noise level t, with t injected via AdaLN or embedding. One weight set:</p>
+  <div class="formula">
+    q<sub>i</sub> = W<sub>Q</sub> z<sub>i</sub> ， …(z<sub>i</sub> depends on noise level t)<br>
+    α<sub>ij</sub> = softmax<sub>j</sub>( q<sub>i</sub> · k<sub>j</sub> / √d ) ， <b class="df">all j (fully-connected / bidirectional)</b><br>
+    o<sub>i</sub> = Σ<sub>j</sub> α<sub>ij</sub> v<sub>j</sub> <span class="c">, the network predicts ε<sub>θ</sub>(z<sub>t</sub>, t, c), running T steps</span>
+  </div>
+  <p>Each patch sees all patches, with no causal structure. One forward = one denoise step; z changes entirely between steps, so <strong>there is no KV-cache</strong>.</p>
+
+  <h3>③ Cosmos (MoT + Transfusion-Style Joint)</h3>
+  <p>One sequence mixes text tokens and latents, with the modality m(p) of position p. <strong>Projections are separated by modality</strong>; the mask is a block-causal mix:</p>
+  <div class="formula">
+    q<sub>p</sub> = W<sub>Q</sub><sup>m(p)</sup> h<sub>p</sub> ，  k<sub>p</sub> = W<sub>K</sub><sup>m(p)</sup> h<sub>p</sub> ，  v<sub>p</sub> = W<sub>V</sub><sup>m(p)</sup> h<sub>p</sub><br>
+    α<sub>pq</sub> = softmax<sub>q</sub>( q<sub>p</sub> · k<sub>q</sub> / √d <b class="ar">+ M<sub>pq</sub></b> ) ，  o<sub>p</sub> = Σ<sub>q</sub> α<sub>pq</sub> v<sub>q</sub><br>
+    <span class="c">M<sub>pq</sub> = 0 (visible) / −∞ (invisible)</span><br>
+    <span class="c">text p: causal (q in an earlier block, or q ≤ p)　　image p∈block B: {everything before B} ∪ {everything inside B, bidirectional}</span>
+  </div>
+  <p>Key: no matter which set of W, q<sub>p</sub> and k<sub>q</sub> both land in the same ℝ<sup>d</sup>, so the cross-modality q<sub>p</sub>·k<sub>q</sub> is a well-defined real number — this is the mathematical entry point for text and image "being able to converse." The three masks drawn as matrices:</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Comparison of three attention masks">
+      <style>.mt{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:12px} .ml{font-family:'Space Grotesk',sans-serif; font-weight:600; fill:#1A1F2B; font-size:13px}</style>
+      <!-- panel A: AR -->
+      <text x="200" y="42" text-anchor="middle" class="ml">autoregressive</text>
+      <text x="140" y="60" text-anchor="middle" class="mt">t1</text><text x="176" y="60" text-anchor="middle" class="mt">t2</text><text x="212" y="60" text-anchor="middle" class="mt">t3</text><text x="248" y="60" text-anchor="middle" class="mt">t4</text>
+      <!-- filled (causal) purple -->
+      <g fill="rgba(94,79,206,.20)" stroke="#4A3AA8" stroke-width="0.5">
+        <rect x="124" y="70" width="32" height="32"/>
+        <rect x="124" y="104" width="32" height="32"/><rect x="160" y="104" width="32" height="32"/>
+        <rect x="124" y="138" width="32" height="32"/><rect x="160" y="138" width="32" height="32"/><rect x="196" y="138" width="32" height="32"/>
+        <rect x="124" y="172" width="32" height="32"/><rect x="160" y="172" width="32" height="32"/><rect x="196" y="172" width="32" height="32"/><rect x="232" y="172" width="32" height="32"/>
+      </g>
+      <g stroke="rgba(26,31,43,.14)" stroke-width="0.5">
+        <line x1="124" y1="70" x2="124" y2="204"/><line x1="160" y1="70" x2="160" y2="204"/><line x1="196" y1="70" x2="196" y2="204"/><line x1="232" y1="70" x2="232" y2="204"/><line x1="268" y1="70" x2="268" y2="204"/>
+        <line x1="124" y1="70" x2="268" y2="70"/><line x1="124" y1="104" x2="268" y2="104"/><line x1="124" y1="138" x2="268" y2="138"/><line x1="124" y1="172" x2="268" y2="172"/><line x1="124" y1="204" x2="268" y2="204"/>
+      </g>
+      <text x="196" y="230" text-anchor="middle" class="mt">causal · lower-triangular</text>
+
+      <!-- panel B: diffusion -->
+      <text x="500" y="42" text-anchor="middle" class="ml">diffusion (DiT)</text>
+      <text x="440" y="60" text-anchor="middle" class="mt">i1</text><text x="476" y="60" text-anchor="middle" class="mt">i2</text><text x="512" y="60" text-anchor="middle" class="mt">i3</text><text x="548" y="60" text-anchor="middle" class="mt">i4</text>
+      <g fill="rgba(14,147,132,.20)" stroke="#0B7A6E" stroke-width="0.5">
+        <rect x="424" y="70" width="32" height="32"/><rect x="460" y="70" width="32" height="32"/><rect x="496" y="70" width="32" height="32"/><rect x="532" y="70" width="32" height="32"/>
+        <rect x="424" y="104" width="32" height="32"/><rect x="460" y="104" width="32" height="32"/><rect x="496" y="104" width="32" height="32"/><rect x="532" y="104" width="32" height="32"/>
+        <rect x="424" y="138" width="32" height="32"/><rect x="460" y="138" width="32" height="32"/><rect x="496" y="138" width="32" height="32"/><rect x="532" y="138" width="32" height="32"/>
+        <rect x="424" y="172" width="32" height="32"/><rect x="460" y="172" width="32" height="32"/><rect x="496" y="172" width="32" height="32"/><rect x="532" y="172" width="32" height="32"/>
+      </g>
+      <text x="496" y="230" text-anchor="middle" class="mt">fully-connected · bidirectional</text>
+
+      <!-- panel C: cosmos -->
+      <text x="800" y="42" text-anchor="middle" class="ml">cosmos (MoT)</text>
+      <text x="740" y="60" text-anchor="middle" class="mt">t1</text><text x="776" y="60" text-anchor="middle" class="mt">t2</text><text x="812" y="60" text-anchor="middle" class="mt">i1</text><text x="848" y="60" text-anchor="middle" class="mt">i2</text>
+      <!-- text-key attends: purple; image-key: teal -->
+      <g fill="rgba(94,79,206,.20)" stroke="#4A3AA8" stroke-width="0.5">
+        <rect x="724" y="70" width="32" height="32"/>
+        <rect x="724" y="104" width="32" height="32"/><rect x="760" y="104" width="32" height="32"/>
+        <rect x="724" y="138" width="32" height="32"/><rect x="760" y="138" width="32" height="32"/>
+        <rect x="724" y="172" width="32" height="32"/><rect x="760" y="172" width="32" height="32"/>
+      </g>
+      <g fill="rgba(14,147,132,.20)" stroke="#0B7A6E" stroke-width="0.5">
+        <rect x="796" y="138" width="32" height="32"/><rect x="832" y="138" width="32" height="32"/>
+        <rect x="796" y="172" width="32" height="32"/><rect x="832" y="172" width="32" height="32"/>
+      </g>
+      <g stroke="rgba(26,31,43,.14)" stroke-width="0.5">
+        <line x1="724" y1="70" x2="724" y2="204"/><line x1="760" y1="70" x2="760" y2="204"/><line x1="796" y1="70" x2="796" y2="204"/><line x1="832" y1="70" x2="832" y2="204"/><line x1="868" y1="70" x2="868" y2="204"/>
+        <line x1="724" y1="70" x2="868" y2="70"/><line x1="724" y1="104" x2="868" y2="104"/><line x1="724" y1="138" x2="868" y2="138"/><line x1="724" y1="172" x2="868" y2="172"/><line x1="724" y1="204" x2="868" y2="204"/>
+      </g>
+      <text x="796" y="230" text-anchor="middle" class="mt">block-causal · mixed</text>
+
+      <!-- legend -->
+      <rect x="220" y="256" width="14" height="14" fill="rgba(94,79,206,.20)" stroke="#4A3AA8" stroke-width="0.5"/>
+      <text x="242" y="268" class="mt">attends to text key</text>
+      <rect x="420" y="256" width="14" height="14" fill="rgba(14,147,132,.20)" stroke="#0B7A6E" stroke-width="0.5"/>
+      <text x="442" y="268" class="mt">attends to image key</text>
+      <rect x="620" y="256" width="14" height="14" fill="none" stroke="rgba(26,31,43,.14)" stroke-width="0.5"/>
+      <text x="642" y="268" class="mt">masked (−∞)</text>
+    </svg>
+    <figcaption>In the cosmos panel, the purple triangle at the top-left is text causal, the teal squares at the bottom-right are image intra-block bidirectional, and <strong>the purple block at the bottom-left (image rows × text columns) is "the image latent reading the text condition within the same attention"</strong> — this is "joint." Three axes: mask (triangular / full / block-mixed), projection weights (one set / one set / one per modality), objective (CE / denoise / both).</figcaption>
+  </figure>
+
+  <h3>Walking Through at the Index Level</h3>
+  <p>Minimal sequence <code>[t1, t2, i1, i2, i3]</code>, positions 1 and 2 are text, 3, 4, 5 are one image block. Take the image query i2 (pos 4); it can see {1,2,3,4,5}:</p>
+  <div class="formula">
+    s<sub>4,1</sub> = q<sub>4</sub>·k<sub>1</sub> / √d <span class="c">(q<sub>4</sub>=W<sub>Q</sub><sup>img</sup>h<sub>4</sub>, k<sub>1</sub>=W<sub>K</sub><sup>txt</sup>h<sub>1</sub>) ← image query · text key</span><br>
+    s<sub>4,2</sub> = q<sub>4</sub>·k<sub>2</sub> / √d <span class="c">← image query · text key</span><br>
+    s<sub>4,3</sub>, s<sub>4,4</sub>, s<sub>4,5</sub> <span class="c">← image · image (intra-block bidirectional, including the "later" i3)</span><br>
+    α<sub>4,·</sub> = softmax( {s<sub>4,1</sub> … s<sub>4,5</sub>} )<br>
+    o<sub>4</sub> = <b class="ar">α<sub>4,1</sub>v<sub>1</sub> + α<sub>4,2</sub>v<sub>2</sub></b> + <b class="df">α<sub>4,3</sub>v<sub>3</sub> + α<sub>4,4</sub>v<sub>4</sub> + α<sub>4,5</sub>v<sub>5</sub></b>
+  </div>
+  <p>o<sub>4</sub> is a convex combination spanning text values (purple, W<sub>V</sub><sup>txt</sup>) and image values (teal, W<sub>V</sub><sup>img</sup>). The text condition enters the image patch right within this one weighted sum — no second network, no baton-passing, just the same softmax's denominator containing both text keys and image keys. <strong>The mask decides which q this row sums over, the modality decides which set of W computes each position's q/k/v, and both are stuffed into the same softmax(QK<sup>⊤</sup>/√d + M)V.</strong></p>
+</section>
+
+<!-- ============ 05 ============ -->
+<section id="s5">
+  <span class="snum">05 — KV-cache</span>
+  <h2>Why Diffusion Latents Can't Be KV-cached</h2>
+  <p class="lead">The KV-cache is an optimization for "incremental sequence extension." For it to hold, two conditions must be met at once: the context is append-only (appended only at the tail), and the hidden states of existing positions are frozen (k/v fixed and reusable). The diffusion loop breaks both.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Premise</th><th>AR decode</th><th>diffusion denoise</th></tr></thead>
+    <tbody>
+      <tr><th>Is it append-only</th><td class="cell-ar">Yes, appended token-by-token at the tail</td><td class="cell-diff">No, the token count is always m, there are no "new positions"</td></tr>
+      <tr><th>Are existing positions' hidden states frozen</th><td class="cell-ar">Yes, x<sub>1..t</sub> never change again → k/v fixed</td><td class="cell-diff">No, denoising is by definition z<sup>(s−1)</sup> ≠ z<sup>(s)</sup>, h changes entirely each step → k/v differs each step</td></tr>
+    </tbody>
+  </table></div>
+  <div class="formula">
+    z<sup>(T)</sup> → z<sup>(T−1)</sup> → … → z<sup>(0)</sup> <span class="c">(fixed length of m latents, repeatedly refined, not extended)</span><br>
+    k<sub>j</sub><sup>(s−1)</sup> = W<sub>K</sub> h<sub>j</sub><sup>(s−1)</sup> ≠ W<sub>K</sub> h<sub>j</sub><sup>(s)</sup> = k<sub>j</sub><sup>(s)</sup> <span class="c">← the k/v cached from the previous step are wrong this step, must all be recomputed</span>
+  </div>
+  <div class="note"><b>Two boundaries (don't memorize rigidly):</b> ① The <strong>fixed condition</strong> (text prompt) does not change across the T steps, so its k/v can be computed once and reused for T steps — strictly speaking, what cannot be cached is <em>only the latents currently being denoised</em>. ② The DeepCache family of reusing features across adjacent steps is an <strong>approximation</strong> (features change slowly between adjacent steps), not exact KV reuse — don't conflate them.</div>
+</section>
+
+<!-- ============ 06 ============ -->
+<section id="s6">
+  <span class="snum">06 — The Full Decoding Process</span>
+  <h2>The Complete Decode Process</h2>
+  <p class="lead">At the bottom there are only two decoding primitives; a request of any modality combination is a sequence orchestrated from these two by control tokens.</p>
+
+  <div class="prim a"><span class="ptag">primitive · AR step</span>
+    <p>Append 1 discrete token at the tail, causal attention, k/v immediately enters the cache and is reused permanently. Text goes through this, growing token-by-token.</p></div>
+  <div class="prim d"><span class="ptag">primitive · denoise block</span>
+    <p>Append a fixed m of continuous latents at the tail, intra-block bidirectional + attend to the prefix, iteratively denoise in place for T steps, and when done the whole block's k/v enters the cache. image / video / audio / action go through this, with the block length fixed.</p></div>
+
+  <h3>Phase Model: Strictly Append-Only, Only One Region Active at a Time</h3>
+  <p>The whole sequence grows block by block from left to right. At any moment only one region is "active"; everything to its left is frozen, and nothing to its right exists yet. A text span and a latent block are <strong>never active simultaneously</strong> — this is why the contradictory scenario of "text growing from the middle while a latent moves at the same time" simply does not exist.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="decode phase timeline">
+      <defs><marker id="o6" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.t6{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:12.5px} .d6{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .h6{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+
+      <rect x="40" y="90" width="200" height="60" rx="9" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="140" y="112" text-anchor="middle" class="h6 t6" fill="#5E4FCE">text span</text>
+      <text x="140" y="130" text-anchor="middle" class="d6" font-size="9.5">AR · token-by-token</text>
+      <text x="140" y="142" text-anchor="middle" class="d6" font-size="9.5">incremental cache</text>
+
+      <rect x="255" y="90" width="230" height="60" rx="9" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="370" y="112" text-anchor="middle" class="h6 t6" fill="#0E9384">latent block (m) ↻</text>
+      <text x="370" y="130" text-anchor="middle" class="d6" font-size="9.5">denoise T steps · fixed len</text>
+      <text x="370" y="142" text-anchor="middle" class="d6" font-size="9.5">self recomputed each step</text>
+
+      <rect x="500" y="90" width="180" height="60" rx="9" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="590" y="114" text-anchor="middle" class="h6 t6" fill="#5E4FCE">text span</text>
+      <text x="590" y="134" text-anchor="middle" class="d6">AR</text>
+
+      <rect x="695" y="90" width="180" height="60" rx="9" fill="#FFFFFF" stroke="rgba(26,31,43,.14)" stroke-dasharray="4 4"/>
+      <text x="785" y="114" text-anchor="middle" class="d6">next block…</text>
+      <text x="785" y="134" text-anchor="middle" class="d6" fill="#8892A3">not yet generated</text>
+
+      <line x1="240" y1="120" x2="253" y2="120" stroke="#8892A3" marker-end="url(#o6)"/>
+      <line x1="485" y1="120" x2="498" y2="120" stroke="#8892A3" marker-end="url(#o6)"/>
+      <line x1="680" y1="120" x2="693" y2="120" stroke="#8892A3" marker-end="url(#o6)"/>
+
+      <line x1="40" y1="72" x2="485" y2="72" stroke="#4A3AA8" stroke-width="0.5"/>
+      <text x="262" y="60" text-anchor="middle" class="d6" fill="#4A3AA8">already finalized = frozen KV prefix (read cache, no recompute)</text>
+      <line x1="500" y1="176" x2="680" y2="176" stroke="#0B7A6E" stroke-width="0.5"/>
+      <text x="590" y="196" text-anchor="middle" class="d6" fill="#0B7A6E">currently active (going through the network)</text>
+      <text x="40" y="228" class="d6" fill="#8892A3">tail grows append-only → · H increases monotonically · prefix_kv only grows, never changes</text>
+    </svg>
+    <figcaption>Every finalized block is a frozen prefix; the currently active block is either an AR tail (append + fully cached) or a denoise block (fixed length + self recomputed each step + prefix reused). There is no case of two blocks moving at once, nor of inserting a position into the middle.</figcaption>
+  </figure>
+
+  <h3>Main Loop</h3>
+  <pre><span class="k">prefix_kv</span> = [ {"K": empty[0,d], "V": empty[0,d]} <span class="k">for</span> _ <span class="k">in</span> range(L) ]  <span class="c"># one per layer</span>
+H = 0; h_new = embed(BOS)
+<span class="k">while</span> not done:
+    <span class="c"># ===== AR text phase =====</span>
+    <span class="k">while</span> True:
+        x = decode_one_text_token(h_new, pos=H, prefix_kv); H += 1
+        <span class="k">if</span> x == <span class="n">&lt;EOS&gt;</span>: done = True; break
+        <span class="k">if</span> x == <span class="n">&lt;BOI&gt;</span>: break        <span class="c"># begin-image/audio/video/action</span>
+        h_new = embed(x)
+    <span class="k">if</span> done: break
+
+    <span class="c"># ===== denoise phase (block size m fixed at this moment) =====</span>
+    m = resolve_block_size(spec)              <span class="c"># image=#patches; video=frames×patch; audio=framerate×duration; action=#steps×D</span>
+    block_positions = range(H, H+m)           <span class="c"># position ids determined immediately, unchanged during denoise</span>
+    z = noise(m)                              <span class="c"># z^(T)</span>
+    <span class="k">for</span> s <span class="k">in</span> range(T, 0, -1):
+        eps = forward_denoise(z, s, block_positions, prefix_kv)  <span class="c"># only forward these m</span>
+        z   = sampler_update(z, eps, s)                          <span class="c"># z^(s)→z^(s-1), z modified outside the network</span>
+    finalize_block_into_cache(z, block_positions, prefix_kv); H += m  <span class="c"># clean K/V enters cache</span>
+    h_new = embed(<span class="n">&lt;EOI&gt;</span>)</pre>
+
+  <h3>Two Inner Loops: AR Single-Step and Denoise Single-Step (the difference is all here)</h3>
+  <pre><span class="c"># —— AR: add only 1 position, concat prefix KV, append after compute (append-only) ——</span>
+<span class="k">def</span> decode_one_text_token(h_new, pos, prefix_kv):
+    <span class="k">for</span> l <span class="k">in</span> range(L):
+        h = layernorm_txt[l](h_new)
+        q,k,v = W_Q_txt[l]@h, W_K_txt[l]@h, W_V_txt[l]@h      <span class="c"># text projection</span>
+        q,k = rope(q,pos), rope(k,pos)
+        K = concat(prefix_kv[l]["K"], k); V = concat(prefix_kv[l]["V"], v)   <span class="c"># [H+1, d]</span>
+        a = softmax(q@K.T / sqrt(d)); o = a@V                 <span class="c"># causal: the new token sees all H+1, no explicit mask needed</span>
+        h_new = h_new + W_O_txt[l]@o; h_new = h_new + FFN_txt[l](h_new)
+        prefix_kv[l]["K"], prefix_kv[l]["V"] = K, V           <span class="c"># append, never changed again</span>
+    <span class="k">return</span> sample(unembed(h_new))
+
+<span class="c"># —— denoise: only forward these m latents, read prefix KV but don't write; intra-block bidirectional ——</span>
+<span class="k">def</span> forward_denoise(z, s, block_positions, prefix_kv):
+    h = latent_in_proj(z) + timestep_embed(s)                 <span class="c"># [m, D], noise level injected</span>
+    <span class="k">for</span> l <span class="k">in</span> range(L):
+        hn = layernorm_img[l](h)
+        q,k,v = hn@W_Q_img[l].T, hn@W_K_img[l].T, hn@W_V_img[l].T   <span class="c"># [m,d] recomputed each step (z changed)</span>
+        q,k = rope(q,block_positions), rope(k,block_positions)      <span class="c"># position = constant</span>
+        Kp,Vp = prefix_kv[l]["K"], prefix_kv[l]["V"]          <span class="c"># [H,d] frozen, read cache no recompute</span>
+        K = concat(Kp,k); V = concat(Vp,v)                    <span class="c"># [H+m, d]</span>
+        a = softmax(q@K.T / sqrt(d))                          <span class="c"># [m, H+m], no lower-triangular inside block = bidirectional</span>
+        h = h + (a@V)@W_O_img[l].T; h = h + FFN_img[l](h)
+        <span class="c"># note: never write prefix_kv[l] here, no cache during denoise</span>
+    <span class="k">return</span> eps_head(h)                                        <span class="c"># [m, D_latent] predict noise/velocity</span></pre>
+
+  <h3>The Third Inner Loop: Block Finalize (denoise done → clean K/V enters cache)</h3>
+  <pre><span class="c"># —— after denoise, z is z^(0) (clean); append the whole block using the clean K/V, after which this block becomes a frozen prefix ——</span>
+<span class="k">def</span> finalize_block_into_cache(z0, block_positions, prefix_kv):
+    h0 = latent_in_proj(z0)                               <span class="c"># clean latent, no longer add the noise-level embedding</span>
+    <span class="k">for</span> l <span class="k">in</span> range(L):
+        hn = layernorm_img[l](h0)
+        k  = rope(hn@W_K_img[l].T, block_positions)        <span class="c"># position = the same batch of constants</span>
+        v  =      hn@W_V_img[l].T
+        prefix_kv[l]["K"] = concat(prefix_kv[l]["K"], k)   <span class="c"># H → H+m</span>
+        prefix_kv[l]["V"] = concat(prefix_kv[l]["V"], v)   <span class="c"># frozen thereafter, reusable by later text</span></pre>
+  <p>Note that what enters the cache is the <strong>clean z<sup>(0)</sup></strong>, not some intermediate denoise step: the semantics that later text tokens attend to must be "the picture already drawn." With this the trio is complete — the main loop orchestrates <code>decode_one_text_token</code> (AR step), <code>forward_denoise</code> (denoise block single-step), and <code>finalize_block_into_cache</code> (commit to cache); any modality request is a permutation of these three.</p>
+
+  <p><strong>The only source of the latent changing each step is the sampler, not the text</strong>: <code>sampler_update</code> is a closed-form update outside the network (DDIM/flow-matching) that advances the current noisy z and predicted eps by one notch to z<sup>(s−1)</sup>. z changed → in the next <code>forward_denoise</code>, h and q/k/v all change → so their KV cannot be reused across steps; whereas the prefix has never entered this update, stays perfectly still, and so can be reused.</p>
+
+  <h3>Per-Region KV Behavior</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Region</th><th>Length</th><th>Its own K/V while generating it</th><th>Prefix K/V meanwhile</th><th>After finalize</th></tr></thead>
+    <tbody>
+      <tr><th>text span</th><td>grows token-by-token</td><td class="cell-ar">computed once then cached, reused</td><td>reused</td><td>frozen into cache</td></tr>
+      <tr><th>latent block</th><td>fixed m</td><td class="cell-diff">fully recomputed each denoise step</td><td>reused (the prefix is frozen)</td><td>the whole block enters cache using clean z's K/V</td></tr>
+    </tbody>
+  </table></div>
+  <p>So within a single generation the KV is a third form — <span class="kv">"prefix cached, denoise block recomputed each step"</span> — neither pure AR's fully-cached, nor pure DiT's not-cached-at-all. This is a class the scheduler must handle separately. (Detail: what enters the cache is the K/V of the clean z<sup>(0)</sup>, because later text attends to "the picture already drawn.")</p>
+</section>
+
+<!-- ============ 07 ============ -->
+<section id="s7">
+  <span class="snum">07 — Paths</span>
+  <h2>Reasoner vs Generator</h2>
+  <p class="lead">The "AR + denoise alternation" hybrid decoding above is <strong>unique to the Generator</strong>; the Reasoner is its degenerate case — the sequence has no denoise block at all, only pure AR left. The criterion is the <strong>output modality</strong>, not the input.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th></th><th>Reasoner</th><th>Generator</th></tr></thead>
+    <tbody>
+      <tr><th>Trigger</th><td class="cell-ar">output = pure text</td><td class="cell-diff">output contains image/video/audio/action</td></tr>
+      <tr><th>Denoise blocks in the sequence</th><td class="cell-ar">none</td><td class="cell-diff">yes (one or more)</td></tr>
+      <tr><th>Phases</th><td class="cell-ar">one AR phase throughout</td><td class="cell-diff">AR text phase ↔ denoise phase, alternating</td></tr>
+      <tr><th>Weights used</th><td class="cell-ar">text weights + input-side encoding</td><td class="cell-diff">the above + target-modality diffusion weights</td></tr>
+      <tr><th>KV behavior</th><td class="cell-ar">token-by-token incremental cache throughout</td><td class="cell-diff">text spans incrementally cached; denoise blocks recompute themselves each step, reuse the prefix, and commit the whole block to cache when done</td></tr>
+      <tr><th>Can it be deployed separately</th><td class="cell-ar">yes (the arch class loads only the understanding side)</td><td class="cell-diff">needs the diffusion weight set</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The input modality only determines what condition tokens go into the prefix; the output modality determines which path is taken and whether there is a denoise phase.</strong> This is also the root of that CI blind spot: the same input combination (e.g. image+text) with different outputs (text vs video) → the code paths do not overlap at all. The first dimension of the coverage matrix must be the <code>(input set, output modality)</code> pair.</p>
+</section>
+
+<!-- ============ 08 ============ -->
+<section id="s8">
+  <span class="snum">08 — Examples</span>
+  <h2>Per-Modality Request Examples</h2>
+  <p class="lead">Notation: <code>[...]</code> is a span of tokens and its weights/role; <code>⟨denoise m⟩</code> means append m latents at the tail and denoise in place for T steps, entering the cache when done.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Token spans and weight routing for various request types">
+      <style>.rt{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .rd{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .rl{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:12.5px}</style>
+      <!-- helper: gray cond, purple AR, teal diffusion -->
+      <!-- row templates: label x=40; segs start x=250 -->
+      <!-- r1 -->
+      <text x="40" y="62" class="rl" dominant-baseline="central">text → text</text>
+      <rect x="250" y="42" width="150" height="40" rx="8" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="325" y="58" text-anchor="middle" class="rt" fill="#5E4FCE" dominant-baseline="central">text</text><text x="325" y="72" text-anchor="middle" class="rd" fill="#5E4FCE" dominant-baseline="central">AR continuation</text>
+      <!-- r2 -->
+      <text x="40" y="122" class="rl" dominant-baseline="central">img+text → text</text>
+      <rect x="250" y="102" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="118" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="132" text-anchor="middle" class="rd" dominant-baseline="central">input</text>
+      <rect x="410" y="102" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="485" y="118" text-anchor="middle" class="rt" dominant-baseline="central">text</text><text x="485" y="132" text-anchor="middle" class="rd" dominant-baseline="central">input</text>
+      <rect x="570" y="102" width="150" height="40" rx="8" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="645" y="118" text-anchor="middle" class="rt" fill="#5E4FCE" dominant-baseline="central">text</text><text x="645" y="132" text-anchor="middle" class="rd" fill="#5E4FCE" dominant-baseline="central">AR continuation</text>
+      <!-- r3 -->
+      <text x="40" y="182" class="rl" dominant-baseline="central">text → audio+text</text>
+      <rect x="250" y="162" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="178" text-anchor="middle" class="rt" dominant-baseline="central">text</text><text x="325" y="192" text-anchor="middle" class="rd" dominant-baseline="central">condition</text>
+      <rect x="410" y="162" width="150" height="40" rx="8" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="485" y="178" text-anchor="middle" class="rt" fill="#5E4FCE" dominant-baseline="central">text</text><text x="485" y="192" text-anchor="middle" class="rd" fill="#5E4FCE" dominant-baseline="central">AR transcript</text>
+      <rect x="570" y="162" width="150" height="40" rx="8" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="645" y="178" text-anchor="middle" class="rt" fill="#0E9384" dominant-baseline="central">audio</text><text x="645" y="192" text-anchor="middle" class="rd" fill="#0E9384" dominant-baseline="central">denoise</text>
+      <!-- r4 -->
+      <text x="40" y="242" class="rl" dominant-baseline="central">img+text → action</text>
+      <rect x="250" y="222" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="238" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="252" text-anchor="middle" class="rd" dominant-baseline="central">condition</text>
+      <rect x="410" y="222" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="485" y="238" text-anchor="middle" class="rt" dominant-baseline="central">text</text><text x="485" y="252" text-anchor="middle" class="rd" dominant-baseline="central">instruction condition</text>
+      <rect x="570" y="222" width="150" height="40" rx="8" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="645" y="238" text-anchor="middle" class="rt" fill="#96600F" dominant-baseline="central">action</text><text x="645" y="252" text-anchor="middle" class="rd" fill="#96600F" dominant-baseline="central">denoise</text>
+      <!-- r5 -->
+      <text x="40" y="302" class="rl" dominant-baseline="central">image → video (i2v)</text>
+      <rect x="250" y="282" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="298" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="312" text-anchor="middle" class="rd" dominant-baseline="central">first-frame condition</text>
+      <rect x="410" y="282" width="150" height="40" rx="8" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="485" y="298" text-anchor="middle" class="rt" fill="#0E9384" dominant-baseline="central">video</text><text x="485" y="312" text-anchor="middle" class="rd" fill="#0E9384" dominant-baseline="central">denoise</text>
+      <!-- r6 -->
+      <text x="40" y="362" class="rl" dominant-baseline="central">img+action → video ↻</text>
+      <rect x="250" y="342" width="150" height="40" rx="8" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="325" y="358" text-anchor="middle" class="rt" dominant-baseline="central">image</text><text x="325" y="372" text-anchor="middle" class="rd" dominant-baseline="central">first frame</text>
+      <rect x="410" y="342" width="150" height="40" rx="8" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="485" y="358" text-anchor="middle" class="rt" fill="#96600F" dominant-baseline="central">action</text><text x="485" y="372" text-anchor="middle" class="rd" fill="#96600F" dominant-baseline="central">chunk condition</text>
+      <rect x="570" y="342" width="150" height="40" rx="8" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="645" y="358" text-anchor="middle" class="rt" fill="#0E9384" dominant-baseline="central">video</text><text x="645" y="372" text-anchor="middle" class="rd" fill="#0E9384" dominant-baseline="central">denoise ↻</text>
+
+      <!-- legend -->
+      <rect x="250" y="400" width="14" height="14" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/><text x="272" y="407" class="rd" dominant-baseline="central">condition / input</text>
+      <rect x="400" y="400" width="14" height="14" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/><text x="422" y="407" class="rd" dominant-baseline="central">AR · has KV-cache</text>
+      <rect x="590" y="400" width="14" height="14" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/><text x="612" y="407" class="rd" dominant-baseline="central">diffusion denoise</text>
+      <rect x="760" y="400" width="14" height="14" fill="rgba(184,117,20,.14)" stroke="#96600F"/><text x="782" y="407" class="rd" dominant-baseline="central">action denoise</text>
+    </svg>
+    <figcaption>Gray = condition/input (read, not generated), purple = AR (text only), teal/yellow = diffusion denoise. Rows 1 and 2 are the Reasoner (no denoise block); the rest are the Generator. The last row, img+action→video, is a rollout: diffusion within a chunk, autoregressive across chunks (taking the last frame of the generated video as the first frame of the next chunk), two loops stacked.</figcaption>
+  </figure>
+
+  <p><strong>text → audio + text</strong> (e.g. "read this sentence aloud and give a transcript"): stuff the text condition into the prefix → AR emits the transcript up to <code>&lt;BOA&gt;</code> → ⟨denoise m<sub>a</sub> audio latents, attending to the prefix text that contains the just-written transcript — this is the source of "what is spoken matches what is written"⟩ → optionally continue text → <code>&lt;EOS&gt;</code>.</p>
+  <p><strong>img+text → action</strong>: prefix with image encoding + text instruction → directly ⟨denoise m<sub>act</sub> action latents; m<sub>act</sub> = #steps × embodiment dimension D (single-arm Franka 10D, Agibot 29D…)⟩. No AR text span.</p>
+  <p><strong>image → video (i2v)</strong>: prefix with the first-frame encoding → ⟨denoise m<sub>v</sub> video latents, spatiotemporal bidirectional + attend to the first frame⟩. The <strong>forward-dynamics rollout</strong> is its chunked-autoregressive version: <code>[first frame][action_chunk_0]⟨denoise chunk0⟩</code> → take the last frame of the generated video as the first frame of the next block → then another block.</p>
+</section>
+
+<!-- ============ 09 ============ -->
+<section id="s9">
+  <span class="snum">09 — latent</span>
+  <h2>The Nature of Latents, and How They Attend Together with Text</h2>
+  <p class="lead">A latent is not "a unified embedding across modalities." Quite the opposite: each modality's latent is an independent vector, not interchangeable with the others. What lets them attend in the same arena as text is not a unified representation, but being mapped by their respective projections into the same d-dimensional scoring space.</p>
+
+  <h3>A Latent Is a Modality-Local Continuous Tensor</h3>
+  <p>A latent is squeezed out by that modality's own encoder: image latent = a VAE compressing the image into an <code>[h×w, c]</code> patch grid; video latent = a spatiotemporal VAE's <code>[frames′×h′×w′, c]</code>; audio latent = an audio VAE's <code>[frames, c]</code>; action latent = a trajectory's <code>[T, D]</code>. <strong>There is no shared semantics among them</strong>, and even the dimension c may differ. Cosmos precisely does not stuff all modalities into one universal representation.</p>
+
+  <h3>What Is Unified Is the Post-Projection d-Dimensional Space, Not the Latent</h3>
+  <p>The text side is equally local (a table lookup yields <code>[D_text]</code>). What lets them "converse" is each modality's own input projection + Q/K/V projections, pulling the local representation to the same head dimension d:</p>
+  <div class="formula">
+    <b class="ar">text</b>:　e = embed_table[tok] <span class="c">[D_txt]</span> → h = in_proj_txt(e) <span class="c">[D]</span> → q = W<sub>Q</sub><sup>txt</sup>·LN(h) <span class="c">[d]</span><br>
+    <b class="df">image</b>: z = vae_encode(patch) <span class="c">[c_img]</span> → h = in_proj_img(z) <span class="c">[D]</span> → q = W<sub>Q</sub><sup>img</sup>·LN(h) <span class="c">[d]</span><br>
+    <span class="c">different starting points, different dimensions, but the two in_proj each pull to the same trunk width D, then each W pulls to the same d</span><br>
+    → q<sub>img</sub> · k<sub>txt</sub> / √d <span class="c">is the dot product of two same-dimensional real vectors = an ordinary scalar. Attention only does dot products on d-dimensional vectors and doesn't care about the origin.</span>
+  </div>
+  <p>The analogy in one line: different currencies, each converted to US dollars at its own exchange rate, can then be summed — latents are the national currencies (not interchangeable), in_proj + W<sub>Q/K/V</sub> are the respective exchange rates, the d-dimensional space is the US dollar, and attention only does arithmetic at the "dollar" layer. This is exactly where "MoT parameters separated by modality" lands: each modality needs its own access path.</p>
+
+  <h3>latent → Modality Decoder: Reconstructing to the Signal Domain</h3>
+  <p>What denoising produces is <strong>the target modality's latent, not a playable waveform / viewable pixels</strong>. Downstream there is still a modality-specific decoder that pulls the latent back to the signal domain: audio latent → vocoder/codec → waveform; video/image latent → VAE decoder → per-frame pixels. This is the same recipe as latent diffusion (denoise a low-dimensional latent, and the VAE/vocoder at the end pulls it back to high dimensions).</p>
+  <div class="note"><b>Two wordings to get exactly right:</b> ① What the Cosmos diffusion path denoises is a <strong>continuous latent</strong>, not a discrete "audio token" (the latter is the AR codebook route of Qwen3 talker / Fish, a different mechanism). ② This decoder is usually a VAE/vocoder trained independently <strong>outside the trunk</strong>, not inside those L MoT layers and not participating in the joint attention — so it is naturally <strong>another (streamable) terminal stage</strong> on the pipeline, with relay carrying the latent in between.</div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+  <span class="snum">10 — Abstraction</span>
+  <h2>Abstraction Implications for SGLang Omni</h2>
+  <p class="lead">The real layering is <strong>Coordinator → Stage → Scheduler → ModelRunner → forward</strong>; the relay (including the CommEngine) is an <strong>orthogonal transport</strong> beneath the Stage that moves tensors along the graph's edges — it is not above the ModelRunner. Unification happens at the Stage, a model-agnostic IO shell ("never checks the scheduler type"), and heterogeneity is pushed down to the Scheduler / ModelRunner.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SGLang Omni's real layering">
+      <defs><marker id="oa" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8892A3"/></marker></defs>
+      <style>.ta{font-family:'IBM Plex Mono',monospace; fill:#1A1F2B; font-size:13px} .da{font-family:'IBM Plex Mono',monospace; fill:#565E70; font-size:11px} .hha{font-family:'Space Grotesk',sans-serif; font-weight:600}</style>
+      <rect x="200" y="14" width="600" height="46" rx="11" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="500" y="34" text-anchor="middle" class="hha ta" font-size="14">Coordinator</text>
+      <text x="500" y="52" text-anchor="middle" class="da">routing · cross-stage lifecycle · merge terminals · abort · rollout session</text>
+      <line x1="270" y1="60" x2="270" y2="90" stroke="#8892A3" marker-end="url(#oa)"/>
+      <line x1="730" y1="60" x2="730" y2="90" stroke="#8892A3" marker-end="url(#oa)"/>
+
+      <rect x="70" y="92" width="400" height="300" rx="13" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="90" y="116" class="hha ta" font-size="13">STAGE</text>
+      <text x="90" y="134" class="da">uniform IO shell · never checks scheduler type</text>
+      <rect x="92" y="146" width="356" height="236" rx="11" fill="#FFFFFF" stroke="#4A3AA8"/>
+      <text x="270" y="168" text-anchor="middle" class="hha" fill="#5E4FCE" font-size="13">OmniScheduler (AR)</text>
+      <rect x="112" y="180" width="316" height="150" rx="10" fill="rgba(94,79,206,.10)" stroke="#4A3AA8"/>
+      <text x="270" y="203" text-anchor="middle" class="hha" fill="#5E4FCE" font-size="13">ThinkerModelRunner</text>
+      <text x="270" y="222" text-anchor="middle" class="da" font-size="10">prepare_forward / post_forward hooks</text>
+      <rect x="140" y="238" width="260" height="40" rx="20" fill="#FFFFFF" stroke="#4A3AA8"/>
+      <text x="270" y="263" text-anchor="middle" class="ta" fill="#5E4FCE" font-size="12">forward() · AR step</text>
+      <text x="270" y="368" text-anchor="middle" class="da" font-size="10">Reasoner — text out · pure AR · KV-cache throughout</text>
+
+      <rect x="530" y="92" width="400" height="300" rx="13" fill="#FFFFFF" stroke="rgba(26,31,43,.14)"/>
+      <text x="550" y="116" class="hha ta" font-size="13">STAGE</text>
+      <text x="550" y="134" class="da">the same shell · just swapped scheduler / runner</text>
+      <rect x="552" y="146" width="356" height="236" rx="11" fill="#FFFFFF" stroke="#0B7A6E"/>
+      <text x="730" y="168" text-anchor="middle" class="hha" fill="#0E9384" font-size="13">Diffusion Scheduler</text>
+      <rect x="572" y="180" width="316" height="150" rx="10" fill="rgba(14,147,132,.10)" stroke="#0B7A6E"/>
+      <text x="730" y="203" text-anchor="middle" class="hha" fill="#0E9384" font-size="13">DiffusionModelRunner</text>
+      <text x="730" y="222" text-anchor="middle" class="da" font-size="10">same primitive · swap weights / m / pos-enc</text>
+      <rect x="586" y="238" width="288" height="40" rx="20" fill="#FFFFFF" stroke="#0B7A6E"/>
+      <text x="730" y="263" text-anchor="middle" class="ta" fill="#0E9384" font-size="10.5">forward() · denoise block (T steps)</text>
+      <text x="730" y="368" text-anchor="middle" class="da" font-size="10">Generator — half-cached KV · first-class runner #236</text>
+
+      <line x1="470" y1="360" x2="530" y2="360" stroke="#8892A3" marker-start="url(#oa)" marker-end="url(#oa)"/>
+      <line x1="270" y1="392" x2="270" y2="416" stroke="#8892A3" marker-end="url(#oa)"/>
+      <line x1="730" y1="392" x2="730" y2="416" stroke="#8892A3" marker-end="url(#oa)"/>
+
+      <rect x="70" y="418" width="860" height="106" rx="13" fill="#EEF1F5" stroke="rgba(26,31,43,.14)"/>
+      <text x="90" y="442" class="hha ta" font-size="12.5">Inter-stage transport — sits beneath the Stage, orthogonal to the runner stack</text>
+      <text x="90" y="466" class="da"><tspan fill="#1A1F2B">control plane · ZMQ</tspan>  —  Submit / DataReady / Abort / Shutdown (small messages)</text>
+      <text x="90" y="486" class="da"><tspan fill="#1A1F2B">data plane · Relay</tspan>  —  SHM / NCCL / NixL / Mooncake · move latent / hidden state / frame</text>
+      <text x="90" y="510" class="da" fill="#B87514">CommEngine / relay is a component of this layer — not an orchestration layer above the ModelRunner</text>
+    </svg>
+    <figcaption>AR and diffusion are not "two engines," but two ModelRunners under the same Stage shell. The VAE/vocoder reconstruction stage is another (terminal) Stage, with relay carrying the latent in between. The judgments below can be taken directly into review.</figcaption>
+  </figure>
+
+  <div class="judge"><span class="jtag">Judgment 1</span><h3>Unify at the Stage Shell, Not the Communication Layer</h3>
+    <p>KV-cache / continuous batching are meaningless for diffusion, and CFG / the denoising scheduler are meaningless for AR. Forcibly unifying the Engine = building an <code>if-modality</code> branch body. The correct seam is the Stage (one code path that never checks the scheduler type), with heterogeneity pushed down to the Scheduler / ModelRunner. Cosmos's Reasoner / Generator land on disjoint weight subsets — exactly the basis for them to be different runners, each able to disaggregate and load only its own slice.</p></div>
+
+  <div class="judge"><span class="jtag">Judgment 2</span><h3>The Denoise Block Is Different Instantiations of the Same Primitive</h3>
+    <p>The decoding <strong>mechanism is the same</strong> for image/video/audio/action (intra-block bidirectional + denoise T steps); the only differences are three parameterizations: which diffusion weight set to use, how the block size m is computed, and the intra-block positional encoding (2D/3D/1D). So there's no need for one decode loop per modality — a single "denoise block" <code>DiffusionModelRunner</code> + per-modality injection (weights, m, positional encoding) suffices. This matches exactly the design in the docs where DiffusionModelRunner is meant to become a first-class runner.</p></div>
+
+  <div class="judge"><span class="jtag">Judgment 3</span><h3>The "Third Form" of KV Needs a Separate Scheduler Track</h3>
+    <p>Within a single generation request the KV is a hybrid of "prefix cached, denoise block recomputed each step, whole block committed to cache when done." It is neither pure AR's fully-cached nor pure DiT's not-cached-at-all. Memory reclamation, preemption, and VRAM budgeting all have to be designed around this form — not by applying an LLM's KV management.</p></div>
+
+  <div class="judge"><span class="jtag">Judgment 4</span><h3>Joint Attention Resists the thinker→talker Two-Stage Split</h3>
+    <p>Ming is loosely coupled, naturally two Stages (thinker → diffusion, relay carries the hidden state). If Cosmos is truly joint-attention, then every layer of the denoise block must read the text condition within the same attention — <strong>there is no baton-passing point</strong> — the whole generation is one fused forward, and is better treated as <em>a single Stage running one runner that does both AR conditioning and denoising</em>. This may be its biggest challenge to our existing producer-consumer carving. (Meanwhile the VAE/vocoder reconstruction stage at the end is still another stage that can be cleanly carved out.)</p></div>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="s11">
+  <span class="snum">11 — Honest Boundaries</span>
+  <h2>Honest Boundaries: What Is a Reading vs What Needs the White Paper to Nail Down</h2>
+  <p>The "AR spans alternating with denoise blocks within a single sequence + block-causal mask + modality-decoupled projections" in Sections 02, 04, and 06 of this material is a <strong>MoT + Transfusion reading</strong>. The model card mentions MoT / single framework / AR tower / diffusion tower, all of which point to this reading (the MoT paper itself studies the setting of text AR + image diffusion within one transformer). But the card <strong>does not confirm the following points verbatim</strong>; they require the white paper / config / HF arch class implementation to be pinned down:</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Open point</th><th>If A (joint, this material's reading)</th><th>If B (cross-attention baton-passing, more like Ming)</th></tr></thead>
+    <tbody>
+      <tr><th>Relation between text K/V and latents</th><td class="cell-diff">in the same softmax's denominator (joint)</td><td class="cell-ar">a separate cross-attention (baton-passing)</td></tr>
+      <tr><th>Can it be split in two</th><td class="cell-diff">hard, the whole generation is one fused forward</td><td class="cell-ar">yes, backbone → diffusion, two stages</td></tr>
+      <tr><th>Do the two towers share the attention sequence</th><td class="cell-diff">yes</td><td class="cell-ar">no, each an independent stack</td></tr>
+    </tbody>
+  </table></div>
+  <p>Also needing implementation confirmation: whether there is a shared trunk between the two towers, whether the input encoder tower is independent of the MoT backbone, how much the Reasoner arch class actually cuts, and which scheduler the diffusion hangs under in the Cosmos SGLang cookbook. These do not affect this material's description of the <em>mechanism's principles</em>, but they do affect the concrete carving onto our Stage / runner.</p>
+</section>
+
+</main>
+
+<footer class="wrap">
+  Internal reading material · based on the nvidia/Cosmos3-Super model card + MoT (2411.04996) / Transfusion mechanism · for reference in SGLang Omni abstraction design<br>
+  The mechanism part is a MoT + Transfusion reading; connections to Cosmos's concrete wiring and to the RFC / PRs are best-effort cross-references — please verify against the white paper and implementation before landing.
+</footer>
+
+</body>
+</html>
