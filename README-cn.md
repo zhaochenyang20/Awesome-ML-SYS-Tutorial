@@ -37,6 +37,7 @@ $$
 - [SGLang Omni：从 decode 计算特性出发，重新设计多 stage 生成模型的推理框架](./sglang/sglang-omni/why-sglang-omni.md)：为什么 multi-stage decoding 才是划分模型的正确视角、multi-stage decoding 模型有什么计算共性，以及 SGLang Omni 的调度解耦 / 通信分层 / 显存隔离三层设计。同样刊载于[英文版本](./sglang/sglang-omni/why-sglang-omni-en.md)和[知乎：SGLang Omni：从 decode 计算特性出发，重新设计多 stage 生成模型的推理框架](https://zhuanlan.zhihu.com/p/2043972741326451200)。
 - [深入浅出 SGLang Omni 对 TTS 模型的优化思路](./sglang/sglang-omni/tts-optimization-zh.md)：我们如何把 Higgs 与 MOSS-TTS-Local 的 TTS serving 在 SGLang-Omni 上做到 1.9–3.4× 加速——encoder LRU caching、delay-pattern / backbone+inner 的 codec 调度、CUDA Graph + async CPU–GPU decode，以及 vocoder batching / windowed streaming。同样刊载[英文版本](./sglang/sglang-omni/tts-optimization.md)和[知乎：深入浅出 SGLang Omni 对 TTS 模型的优化思路](https://zhuanlan.zhihu.com/p/2054821717529343214)。
 - [生命周期与框架抽象：SGLang Omni TTS Serving 重构](./sglang/sglang-omni/tts-refactor-zh.md)：我们如何为六个架构各异的 TTS 后端抽象出 engine 启动、状态传输、缓存、vocoder 生命周期和调度等公共机制；重构净删除 2840 行 non-test 实现代码，并降低了新模型接入生产级 Serving 的成本。同样刊载于[英文版本](./sglang/sglang-omni/tts-refactor.md)。
+- [重新审视 CPU 资源作为语音模型 Serving 过程的一等公民](./sglang/sglang-omni/cpu-first-class-citizen-zh.md)：CI 上跨轮 4 倍的吞吐波动最终查到主机 CPU 争用而非任何代码改动；用 PSI 与每请求 CPU 毫秒数区分 SMT sibling 导致的 cycle 膨胀与排队等核，并做了一个拓扑感知的 CPU allocator——重争用下能保住 92% 到 100% 的干净吞吐，但搬到没有争用的生产机器上收益几乎归零。同样刊载于[英文版本](./sglang/sglang-omni/cpu-first-class-citizen.md)。
 
 ## RLHF System 开发笔记
 
