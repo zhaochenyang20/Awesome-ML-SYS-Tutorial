@@ -159,4 +159,4 @@ Having been through this, we have come to fully appreciate the importance of CPU
 This experience also made us realize more deeply that for high-concurrency, low-intensity serving scenarios like speech, the CPU has always been an overlooked resource. It is just that for those of us accustomed to optimizing long context inference, "madly optimizing against the GPU" is a habit, and it blinded us to another resource that is equally decisive for throughput. Any optimization must suit the specific circumstances, start from the essence of the task and the environment, and find and exploit the fundamental limiting factor in order to solve the problems encountered in the system.
 
 
-Acknowledgements: Jiaxin Deng, Yuhao Chen, Kaige Li, Huapeng Zhou, Ratish P, Ao Sun, Yueying Li, Chenyang Zhao
+Acknowledgements: Jiaxin Deng, Yuhao Chen, Kaige Li, Huapeng Zhou, Ratish P, Chenchen Hong, Ao Sun, Yueying Li, Chenyang Zhao

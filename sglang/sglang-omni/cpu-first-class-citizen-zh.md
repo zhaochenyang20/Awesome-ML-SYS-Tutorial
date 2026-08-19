@@ -159,4 +159,4 @@ CI 的修复依靠手工划定每个 CI runner 的 CPU 核区，这种办法在 
 这次的经历也让我们更加深刻地意识到，对于语音这种高并发低强度的 serving 场景，CPU 一直是被忽视的资源。只是对于习惯了去优化 long context inference 的我们而言，"对着 GPU 疯狂优化"是一种惯性，忽视了另一种同样对吞吐起着决定性作用的资源。做任何优化都要因地制宜，从任务和环境的本质出发，找到根本性的限制性因素并加以利用，从而解决系统上遇到的问题。
 
 
-Acknowledgements: Jiaxin Deng，Yuhao Chen，Kaige Li，Huapeng Zhou，Ratish P，Ao Sun，Yueying Li，Chenyang Zhao
+Acknowledgements: Jiaxin Deng，Yuhao Chen，Kaige Li，Huapeng Zhou，Ratish P，Chenchen Hong，Ao Sun，Yueying Li，Chenyang Zhao
