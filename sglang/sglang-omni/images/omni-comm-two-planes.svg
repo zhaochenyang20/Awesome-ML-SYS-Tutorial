@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1248" height="824" viewBox="0 0 1248 824" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<rect x="0.5" y="0.5" width="1247" height="823" rx="14" fill="#ffffff" stroke="#e6e5df"/>
+<text x="34" y="48" font-size="21" font-weight="700" fill="#14304a" letter-spacing="-0.2">One transfer, two planes</text>
+<text x="34" y="72" font-size="13" fill="#898781"><tspan>What happens between one stage's </tspan><tspan font-family="ui-monospace, Menlo, Consolas, monospace">send_payload()</tspan><tspan> and the moment its memory is safe to reuse</tspan></text>
+<g transform="translate(34,98)">
+    <defs>
+      <marker id="arr-o" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M1,1 L8,4.5 L1,8" fill="none" stroke="#d97a2b" stroke-width="1.8" stroke-linecap="round"/>
+      </marker>
+      <marker id="arr-t" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M1,1 L8,4.5 L1,8" fill="none" stroke="#16a394" stroke-width="1.8" stroke-linecap="round"/>
+      </marker>
+      <marker id="arr-b" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M1,1 L8,4.5 L1,8" fill="none" stroke="#2a78d6" stroke-width="1.8" stroke-linecap="round"/>
+      </marker>
+    </defs>
+
+    <!-- ============ PRODUCER PROCESS ============ -->
+    <rect x="0" y="0" width="360" height="252" rx="12" fill="#fdf3e7"/>
+    <text x="20" y="30" font-size="14" font-weight="700" fill="#a55a17">Producer process</text>
+
+    <rect x="20" y="46" width="320" height="52" rx="8" fill="#fff" stroke="#ecd9c2"/>
+    <text x="36" y="68" font-size="13" font-weight="600" fill="#14304a">stage code</text>
+    <text x="36" y="86" font-size="11.5" fill="#52514e" font-family="ui-monospace, Menlo, monospace">await send_payload / send_stream_chunk</text>
+
+    <line x1="180" y1="98" x2="180" y2="116" stroke="#d97a2b" stroke-width="1.8" marker-end="url(#arr-o)"/>
+
+    <rect x="20" y="120" width="320" height="44" rx="8" fill="#fff" stroke="#ecd9c2"/>
+    <text x="36" y="140" font-size="13" font-weight="600" fill="#14304a">send queue · bounded, one per target</text>
+    <text x="36" y="156" font-size="11.5" fill="#52514e">the send call returns after publication</text>
+
+    <line x1="180" y1="164" x2="180" y2="182" stroke="#d97a2b" stroke-width="1.8" marker-end="url(#arr-o)"/>
+
+    <rect x="20" y="186" width="320" height="52" rx="8" fill="#fff" stroke="#ecd9c2"/>
+    <text x="36" y="207" font-size="13" font-weight="600" fill="#14304a">sender worker</text>
+    <text x="36" y="224" font-size="11.5" fill="#52514e">put_async → publish DataReady → watch until the ack arrives</text>
+
+    <!-- ============ CONSUMER PROCESS ============ -->
+    <rect x="820" y="0" width="360" height="252" rx="12" fill="#e9f6f4"/>
+    <text x="840" y="30" font-size="14" font-weight="700" fill="#0c7368">Consumer process</text>
+
+    <rect x="840" y="46" width="320" height="64" rx="8" fill="#fff" stroke="#c8e6e1"/>
+    <text x="856" y="68" font-size="13" font-weight="600" fill="#14304a">receiver task (one per message)</text>
+    <text x="856" y="86" font-size="11.5" fill="#52514e">get_async → wait for the sender's ready event →</text>
+    <text x="856" y="101" font-size="11.5" fill="#52514e">copy into its own buffer</text>
+
+    <line x1="1000" y1="110" x2="1000" y2="128" stroke="#16a394" stroke-width="1.8" marker-end="url(#arr-t)"/>
+
+    <rect x="840" y="132" width="320" height="44" rx="8" fill="#fff" stroke="#c8e6e1"/>
+    <text x="856" y="152" font-size="13" font-weight="600" fill="#14304a">lane-ordered commit</text>
+    <text x="856" y="168" font-size="11.5" fill="#52514e">reads may finish early; delivery stays in order</text>
+
+    <line x1="1000" y1="176" x2="1000" y2="194" stroke="#16a394" stroke-width="1.8" marker-end="url(#arr-t)"/>
+
+    <rect x="840" y="198" width="320" height="40" rx="8" fill="#fff" stroke="#c8e6e1"/>
+    <text x="856" y="222" font-size="13" font-weight="600" fill="#14304a">consumer stage logic</text>
+
+    <!-- ============ CONTROL PLANE ============ -->
+    <rect x="0" y="292" width="1180" height="108" rx="12" fill="#eef4fc"/>
+    <text x="58" y="318" font-size="13" font-weight="700" fill="#1c5cab">CONTROL PLANE · ZMQ</text>
+    <text x="58" y="336" font-size="11.5" fill="#52514e">small coordination messages</text>
+
+    <rect x="380" y="304" width="330" height="34" rx="17" fill="#fff" stroke="#c5d9f3"/>
+    <text x="545" y="326" font-size="12.5" font-weight="600" fill="#1c5cab" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">DataReadyMessage(DataRef)</text>
+
+    <rect x="380" y="356" width="330" height="34" rx="17" fill="#fff" stroke="#c5d9f3"/>
+    <text x="545" y="378" font-size="12.5" font-weight="600" fill="#1c5cab" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">DataAckMessage(success | error)</text>
+
+    <!-- ============ DATA PLANE ============ -->
+    <rect x="0" y="440" width="1180" height="106" rx="12" fill="#f2effa"/>
+    <text x="58" y="466" font-size="13" font-weight="700" fill="#584a92">DATA PLANE · relay backends</text>
+    <text x="58" y="484" font-size="11.5" fill="#52514e">the actual tensor bytes</text>
+
+    <!-- cuda ipc slot pool -->
+    <rect x="300" y="452" width="324" height="74" rx="8" fill="#fff" stroke="#d9d2ec"/>
+    <text x="316" y="474" font-size="12.5" font-weight="600" fill="#14304a">CUDA IPC pool · contiguous runs of slots</text>
+    <g>
+      <rect x="316" y="486" width="26" height="26" rx="5" fill="#d97a2b"/>
+      <rect x="346" y="486" width="26" height="26" rx="5" fill="#d97a2b"/>
+      <rect x="376" y="486" width="26" height="26" rx="5" fill="#d9d8d2"/>
+      <rect x="406" y="486" width="26" height="26" rx="5" fill="#16a394"/>
+      <rect x="436" y="486" width="26" height="26" rx="5" fill="#16a394"/>
+      <rect x="466" y="486" width="26" height="26" rx="5" fill="#16a394"/>
+      <rect x="496" y="486" width="26" height="26" rx="5" fill="#d9d8d2"/>
+      <rect x="526" y="486" width="26" height="26" rx="5" fill="#d9d8d2"/>
+      <rect x="556" y="486" width="26" height="26" rx="5" fill="#d9d8d2"/>
+      <rect x="586" y="486" width="26" height="26" rx="5" fill="#d9d8d2"/>
+      <text x="329" y="504" font-size="11" fill="#fff" text-anchor="middle" font-weight="700">A</text>
+      <text x="359" y="504" font-size="11" fill="#fff" text-anchor="middle" font-weight="700">A</text>
+      <text x="419" y="504" font-size="11" fill="#fff" text-anchor="middle" font-weight="700">B</text>
+      <text x="449" y="504" font-size="11" fill="#fff" text-anchor="middle" font-weight="700">B</text>
+      <text x="479" y="504" font-size="11" fill="#fff" text-anchor="middle" font-weight="700">B</text>
+    </g>
+
+    <rect x="654" y="452" width="200" height="74" rx="8" fill="#fff" stroke="#d9d2ec"/>
+    <text x="670" y="474" font-size="12.5" font-weight="600" fill="#14304a">SHM blocks</text>
+    <text x="670" y="492" font-size="11.5" fill="#52514e">host-side payloads,</text>
+    <text x="670" y="508" font-size="11.5" fill="#52514e">a few blocks at a time</text>
+
+    <rect x="980" y="452" width="180" height="74" rx="8" fill="#fff" stroke="#d9d8d2" stroke-dasharray="5 4"/>
+    <text x="996" y="474" font-size="12.5" font-weight="600" fill="#898781">remote relay</text>
+    <text x="996" y="492" font-size="11.5" fill="#898781">wired in a future phase</text>
+    <text x="996" y="508" font-size="11.5" fill="#898781">(mooncake_* knobs)</text>
+
+    <!-- ============ FLOW ============ -->
+
+    <!-- 1: sender worker -> data plane (write bytes) -->
+    <path d="M 40 238 L 40 434" stroke="#d97a2b" stroke-width="2" fill="none" marker-end="url(#arr-o)"/>
+    <circle cx="40" cy="270" r="11" fill="#d97a2b"/>
+    <text x="40" y="274.5" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">1</text>
+    <text x="56" y="274" font-size="11.5" fill="#a55a17">write the bytes</text>
+
+    <!-- 2: sender worker -> DataReady pill -->
+    <path d="M 330 238 L 330 321 L 374 321" stroke="#d97a2b" stroke-width="2" fill="none" marker-end="url(#arr-o)"/>
+    <circle cx="330" cy="270" r="11" fill="#d97a2b"/>
+    <text x="330" y="274.5" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">2</text>
+    <text x="346" y="274" font-size="11.5" fill="#a55a17">say where they are</text>
+
+    <!-- DataReady pill -> receiver -->
+    <path d="M 714 321 L 880 321 L 880 260" stroke="#2a78d6" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+
+    <!-- 3: receiver -> copy out of pool -->
+    <path d="M 1100 252 L 1100 420 L 484 420 L 484 446" stroke="#16a394" stroke-width="2" fill="none" marker-end="url(#arr-t)"/>
+    <circle cx="1100" cy="272" r="11" fill="#16a394"/>
+    <text x="1100" y="276.5" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">3</text>
+    <text x="1086" y="276" font-size="11.5" fill="#0c7368" text-anchor="end">copy out</text>
+    <text x="712" y="412" font-size="11.5" fill="#0c7368" text-anchor="middle">read into a buffer the receiver owns</text>
+
+    <!-- 4: receiver -> DataAck pill -->
+    <path d="M 940 252 L 940 373 L 714 373" stroke="#16a394" stroke-width="2" fill="none" marker-end="url(#arr-t)"/>
+    <circle cx="940" cy="272" r="11" fill="#16a394"/>
+    <text x="940" y="276.5" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">4</text>
+    <text x="956" y="276" font-size="11.5" fill="#0c7368">confirm</text>
+
+    <!-- 5: DataAck pill -> sender resolves -->
+    <path d="M 376 373 L 250 373 L 250 258" stroke="#2a78d6" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+    <circle cx="310" cy="373" r="11" fill="#2a78d6"/>
+    <text x="310" y="377.5" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">5</text>
+    <text x="238" y="364" font-size="11.5" fill="#1c5cab" text-anchor="end">success ack frees the slots</text>
+    <text x="238" y="392" font-size="11.5" fill="#d03b3b" text-anchor="end">negative/no ack? fail closed</text>
+  </g>
+<rect x="34" y="673" width="13" height="13" rx="4" fill="#d97a2b"/>
+<text x="54" y="684" font-size="12.5" fill="#52514e">sender-side step</text>
+<rect x="175.2" y="673" width="13" height="13" rx="4" fill="#16a394"/>
+<text x="195.2" y="684" font-size="12.5" fill="#52514e">receiver-side step</text>
+<rect x="328.8" y="673" width="13" height="13" rx="4" fill="#2a78d6"/>
+<text x="348.8" y="684" font-size="12.5" fill="#52514e">control message</text>
+<rect x="463.8" y="673" width="13" height="13" rx="4" fill="#d9d8d2"/>
+<text x="483.8" y="684" font-size="12.5" fill="#52514e">free slot / future path</text>
+<line x1="34" y1="704" x2="1214" y2="704" stroke="#e6e5df" stroke-width="1"/>
+<text x="34" y="726" font-size="12.5" fill="#52514e"><tspan>A </tspan><tspan font-weight="700">DataRef</tspan><tspan> tells the receiver where the bytes live and how to rebuild them. The sender's slots stay locked until a success ack arrives; a negative or missing ack fails the relay </tspan></text>
+<text x="34" y="745" font-size="12.5" fill="#52514e"><tspan>closed.</tspan></text>
+<text x="34" y="768" font-size="12.5" fill="#52514e"><tspan>Two shortcuts skip this lifecycle: </tspan><tspan font-weight="700">LOCAL_OBJECT</tspan><tspan> hands the Python object over inside one process, and </tspan><tspan font-weight="700">direct Torch CUDA IPC</tspan><tspan> sends an eligible same-GPU payload or stream chunk as </tspan></text>
+<text x="34" y="787" font-size="12.5" fill="#52514e"><tspan>IPC handles in the control message.</tspan></text>
+</svg>
