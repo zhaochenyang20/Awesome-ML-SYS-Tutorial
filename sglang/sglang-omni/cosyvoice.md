@@ -4,14 +4,52 @@
 
 ## Runtime Profiling
 
-对于真实场景的需求进行一次压测，覆盖离线/实时；短句/长句；有参考/无参考等多种需求，在此基础上针对每一个阶段进行运行时长的dump，这项工作由agent完成效率极高，本质上是一项埋点任务。
-一般我们从这个阶段可以明确得到各个场景下推理花费时间的信息。
-根据这些信息进行下一步的，针对性的推理优化。
-按照个人经验而言，早期的大部分效率下降都是由“调度器中请求排队”造成的。
+Profiling 的目的不是产出一张 trace，而是回答一个问题：下一步应该优化哪里。AR、DiT、Vocoder 和调度器对应的优化路径不同，没有先定位瓶颈就动手，很容易花大量时间优化局部 kernel，最后端到端看不到收益。
 
-【这一段其实写得不太好，因为你并没有讲清楚怎么去做这个 profile，只是讲了要做 profile 这件事情。可以看一看之前大家做过的 profile 大概是什么样子的，或者和 xuxiang 老师对齐一下，能不能直接用他们 developed 的 agent 来做这个 profile。】
+我们把这个过程整理成一套五层的 runtime profiling 方法论，在 [PR 1850](https://github.com/sgl-project/sglang-omni/pull/1850) 中实现为 `model-profiling` skill。`.claude/skills/model-profiling/METHODOLOGY.md` 是方法论的 source of truth，[issue 1798](https://github.com/sgl-project/sglang-omni/issues/1798) 是各模型 profiling 记录的索引。
 
-【https://github.com/sgl-project/sglang-omni/pull/1850/changes 逻辑上，我们应该要讲到用这个 profile 的 skills 来做 profile。然后讲讲我们没有开源 harness，出于 xxx 原因，需要用户来向我们申请 harness 权限。】
+### 开始之前
+
+先固定两样东西。
+
+- **Workload**：短句和长句、离线和流式、有无参考音频、并发数，这些形状下的瓶颈可能完全不同，要分别测量。
+- **环境**：记录代码 commit、checkpoint 和数据集的 revision、GPU 型号、PyTorch 和 SGLang 版本。共享机器上还要给 server 和压测客户端绑定互不重叠的 CPU 核，确认测量期间 GPU 没有被别的任务占用，并且在采信任何“稳态”数字之前先跑过一轮真实规模的负载。
+
+### 五层
+
+这五层不是固定的 1 到 5 顺序。先做第一层，再根据结果决定往哪里深入。
+
+1. **GPU 忙不忙。** 先判断系统是 GPU 算力受限，还是 CPU 和编排受限。可以用服务自带的 `/start_profile` 拿一段 torch trace，或者在压测期间用 `nvidia-smi`、DCGM 采样 GPU 利用率。解析 trace 时注意 CUDA Graph replay 在不同 PyTorch 和 CUDA 版本里的表示不同，不能假设所有 GPU 活动都出现在普通 kernel 事件里，只算 kernel 会明显低估忙碌率。多种测量都显示忙碌率明显偏低，就继续看 CPU 侧。GPU 已经接近饱和，CPU 侧的调查通常收益很低，应转向 kernel 层面的优化。
+2. **CPU 时间花在哪里。** 在真实负载下用 `py-spy record --idle --subprocesses` 采样，定位占比最高的叶子帧，重复采样确认结果稳定。这一层要得到的不是一张火焰图，而是一个可以验证的假设，比如“某个线程大部分时间停在 eager Python 分发上”。
+3. **更高并发能不能把 GPU 喂饱。** 固定其他条件逐步提高并发，同时记录 GPU 利用率、吞吐、延迟和质量指标，判断增加并发是真的提高了利用率，还是只增加了排队和尾延迟。
+4. **A/B 验证。** 一次只改一个变量，两边使用完全相同的 workload、预热和 GPU 环境。对于个位数百分比的收益，先在同一协议下做一次 A/A，量出这台机器的噪声底。共享机器漂移明显时，优先用两台同时在线的 server 交替压测，而不是每臂重启的 A/B。
+5. **功能回归。** 性能提升之后仍然要检查 WER、说话人相似度等质量指标。修改默认值、调度逻辑、CUDA Graph 或 attention backend 的优化，还要在长序列或结构不同的数据集上重新验证，因为不同长度和结构可能走完全不同的代码路径。
+
+### CosyVoice 走一遍
+
+Fun-CosyVoice3 的 profiling（[issue 1883](https://github.com/sgl-project/sglang-omni/issues/1883)）展示了这套方法如何从测量走到优化假设。
+
+并发 16 下，torch trace 给出的 GPU 忙碌率是 17.9%，vocoder 占请求时间的 89.5%。py-spy 采样三次结果一致，`scheduler-vocoder` 线程 79% 到 87% 的样本停在 Flow DiT 的 eager Python 分发上，等待几乎为零。由此形成一个具体假设：瓶颈不是 GPU 算不动，而是 host 侧发不出去。
+
+随后 [PR 1969](https://github.com/sgl-project/sglang-omni/pull/1969) 对 DiT 的 `torch.compile` 做了配对 A/B：两台在线 server 在同一张卡上交替压测，九对有效实验，吞吐中位数在并发 1 提升 24.6%，并发 16 提升 59.0%，吞吐在九对里都为正。同一台机器、同一协议下做了 19 对 A/A 校准，中位数差在并发 1 约 4%、并发 16 约 6% 以内，两个收益都明显超过测得的噪声底。质量检查用 Seed-TTS EN 的 96 个 clip，corpus WER 为 0.66% 对 0.85%，差异来自一个 clip 里 whisper 把“sky jumper”写成了“skyjumper”，两臂的词内容相同。
+
+这里重要的不是 `torch.compile` 本身，而是整条路径：测量，定位，形成假设，校准噪声，控制变量的 A/B，最后验证正确性。
+
+### 用 skill 跑
+
+在 sglang-omni 仓库根目录的 Claude Code 里运行：
+
+```
+/model-profiling <model>
+```
+
+skill 先检查 benchmark 入口、空闲 GPU 和 profiling 依赖，在任何 GPU 工作开始之前停下来请求确认。首次运行先做发现阶段：从第一层开始，按路由规则决定要不要跑第二、三层，形成具体的第四层假设之后再次停下来等人确认，确认后才继续进入 A/B。每次运行的工作产物保存在被 gitignore 的 `.profiling-runs/<model>/` 下，长期记录是 1798 下对应模型的子 issue。Qwen3-Omni 的 [issue 1914](https://github.com/sgl-project/sglang-omni/issues/1914) 是一个只做发现阶段的例子。
+
+### 关于 harness
+
+第四层用来做 A/A 校准和配对 A/B 的完整实验 harness 目前还没有公开。它还包含给 profiling agent 出题打分的 exam 基础设施，评分逻辑需要和被评估的 agent 隔离，runner 也还依赖我们自己的机器和容器环境。需要使用这套 harness 的读者可以联系我们申请权限。
+
+Profiling 最终要给出一个路由决定：瓶颈在 AR 进入 AR 优化，在 DiT 进入 DiT 优化，在 vocoder 进入 Vocoder 优化，跨阶段的排队和同步问题则进入调度器优化。
 
 ## AR 优化
 
