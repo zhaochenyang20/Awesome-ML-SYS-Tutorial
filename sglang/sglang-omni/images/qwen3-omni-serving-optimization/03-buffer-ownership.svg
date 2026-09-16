@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860" role="img" aria-labelledby="title desc">
+<title id="title">Stable addresses need an ownership boundary</title><desc id="desc">Replay N writes to a fixed-address hidden buffer. Valid request rows and token ranges select the meaningful output. A consumer that retains output needs an owned result where required; a borrowed view must be consumed before the buffer is reused. The next replay can overwrite the shared storage only after the relevant handoff condition has been met. This is an ownership contract, not a claim that every path copies.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="860" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Stable addresses need an ownership boundary</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Replay reuses storage. A downstream consumer must keep the right request’s valid output.</text>
+<rect x="38" y="172" width="235" height="140" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="206" class="label" text-anchor="start" style="">Replay N</text>
+<text x="56" y="237" class="small muted" text-anchor="start" style="">Run model forward</text>
+<text x="56" y="264" class="small muted" text-anchor="start" style="">Write hidden state</text>
+<text x="56" y="291" class="small muted" text-anchor="start" style="">to the fixed address</text>
+<rect x="327" y="133" width="470" height="220" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="347" y="168" class="label" text-anchor="start" style="">Static hidden buffer</text>
+<text x="347" y="197" class="small muted" text-anchor="start" style="">Same allocation across replays</text>
+<rect x="347" y="215" width="96" height="54" rx="3" fill="#dfeadb" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="395" y="249" class="small" text-anchor="middle" style="">valid</text>
+<rect x="453" y="215" width="96" height="54" rx="3" fill="#dfeadb" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="501" y="249" class="small" text-anchor="middle" style="">valid</text>
+<rect x="559" y="215" width="96" height="54" rx="3" fill="#f0f1eb" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="607" y="249" class="small" text-anchor="middle" style="">padding</text>
+<rect x="665" y="215" width="96" height="54" rx="3" fill="#f0f1eb" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="713" y="249" class="small" text-anchor="middle" style="">padding</text>
+<text x="347" y="304" class="small muted" text-anchor="start" style="">Capacity is not the number of valid outputs.</text>
+<text x="347" y="331" class="small muted" text-anchor="start" style="">Illustrative rows; token ranges also matter.</text>
+<path d="M273 242L318 242" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="853" y="172" width="309" height="140" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="871" y="206" class="label" text-anchor="start" style="">Select valid output</text>
+<text x="871" y="237" class="small muted" text-anchor="start" style="">Match the request identity</text>
+<text x="871" y="264" class="small muted" text-anchor="start" style="">Select its valid rows</text>
+<text x="871" y="291" class="small muted" text-anchor="start" style="">and token range</text>
+<path d="M797 242L844 242" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1007 312V373H509V413" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1007 373V413" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="335" y="422" width="365" height="170" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="353" y="449" class="small" text-anchor="start" style="fill:#346657;">If retaining beyond this replay</text>
+<text x="353" y="480" class="label" text-anchor="start" style="">Request-owned result</text>
+<text x="353" y="511" class="small muted" text-anchor="start" style="">Create a snapshot where required.</text>
+<text x="353" y="538" class="small muted" text-anchor="start" style="">Consumer retains its own result;</text>
+<text x="353" y="565" class="small muted" text-anchor="start" style="">shared storage may then be reused.</text>
+<rect x="767" y="422" width="395" height="170" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="785" y="449" class="small" text-anchor="start" style="fill:#376781;">If consuming a borrowed view</text>
+<text x="785" y="480" class="label" text-anchor="start" style="">Read before buffer reuse</text>
+<text x="785" y="511" class="small muted" text-anchor="start" style="">Consumer finishes using the view.</text>
+<text x="785" y="538" class="small muted" text-anchor="start" style="">Producer/consumer ordering protects</text>
+<text x="785" y="565" class="small muted" text-anchor="start" style="">the read from a later overwrite.</text>
+<path d="M517 592V621H688V657" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M964 592V621H688" fill="none" stroke="#346657" stroke-width="2"/>
+<rect x="486" y="666" width="412" height="120" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="504" y="694" class="small" text-anchor="start" style="fill:#346657;">After the selected handoff is safe</text>
+<text x="504" y="725" class="label" text-anchor="start" style="">Replay N + 1</text>
+<text x="504" y="756" class="small muted" text-anchor="start" style="">Same address; the next output replaces N.</text>
+<path d="M898 720H1180V119H560V124" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="7 5"/>
+<rect x="38" y="655" width="386" height="121" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="689" class="label" text-anchor="start" style="">Order the actual GPU work</text>
+<text x="56" y="720" class="small muted" text-anchor="start" style="">Host return alone does not establish</text>
+<text x="56" y="747" class="small muted" text-anchor="start" style="">that a borrowed result is safe to reuse.</text>
+<path d="M38 805H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="835" class="small muted" text-anchor="start" style="">Ownership schematic; copying is path-dependent. Sources: #1380 (hidden buffers), #1532 (initialization).</text></svg>

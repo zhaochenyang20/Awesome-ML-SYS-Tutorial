@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="950" viewBox="0 0 1200 950" role="img" aria-labelledby="title desc">
+<title id="title">Let streaming windows define the graph shapes</title><desc id="desc">Serial chunks contain ten new codec frames and up to twenty-five frames of left context.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="950" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Let streaming windows define the graph shapes</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Serial chunks contain ten new codec frames and up to twenty-five frames of left context.</text>
+<text x="38" y="137" class="label" text-anchor="start" style="">Window length grows with available history</text>
+<rect x="38" y="157" width="700" height="355" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="58" y="224" class="small" text-anchor="start" style="">T = 10</text>
+<rect x="170" y="189" width="140" height="54" rx="8" fill="#e5eee3" stroke="#346657" stroke-width="1.5"/>
+<text x="240" y="223" class="small" text-anchor="middle" style="">10 new</text>
+<text x="58" y="298" class="small" text-anchor="start" style="">T = 20</text>
+<rect x="170" y="263" width="140" height="54" rx="8" fill="#edf0e9" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="240.0" y="297" class="small" text-anchor="middle" style="">10 history</text>
+<rect x="310" y="263" width="140" height="54" rx="8" fill="#e5eee3" stroke="#346657" stroke-width="1.5"/>
+<text x="380" y="297" class="small" text-anchor="middle" style="">10 new</text>
+<text x="58" y="372" class="small" text-anchor="start" style="">T = 30</text>
+<rect x="170" y="337" width="280" height="54" rx="8" fill="#edf0e9" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="310.0" y="371" class="small" text-anchor="middle" style="">20 history</text>
+<rect x="450" y="337" width="140" height="54" rx="8" fill="#e5eee3" stroke="#346657" stroke-width="1.5"/>
+<text x="520" y="371" class="small" text-anchor="middle" style="">10 new</text>
+<text x="58" y="446" class="small" text-anchor="start" style="">T = 35</text>
+<rect x="170" y="411" width="350" height="54" rx="8" fill="#edf0e9" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="345.0" y="445" class="small" text-anchor="middle" style="">25 history</text>
+<rect x="520" y="411" width="140" height="54" rx="8" fill="#e5eee3" stroke="#346657" stroke-width="1.5"/>
+<text x="590" y="445" class="small" text-anchor="middle" style="">10 new</text>
+<rect x="766" y="157" width="396" height="175" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="784" y="191" class="label" text-anchor="start" style="">Compute the full window</text>
+<text x="784" y="222" class="small muted" text-anchor="start" style="">History provides left context.</text>
+<text x="784" y="249" class="small muted" text-anchor="start" style="">It participates in decoding</text>
+<text x="784" y="276" class="small muted" text-anchor="start" style="">but is not emitted again.</text>
+<rect x="766" y="351" width="396" height="161" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="784" y="385" class="label" text-anchor="start" style="">Emit only new audio</text>
+<text x="784" y="416" class="small muted" text-anchor="start" style="">Crop the decoded waveform</text>
+<text x="784" y="443" class="small muted" text-anchor="start" style="">to the new-frame region.</text>
+<text x="784" y="470" class="small muted" text-anchor="start" style="">Capture T = 10, 20, 30, 35.</text>
+<text x="38" y="555" class="label" text-anchor="start" style="">Zero-wait batching uses windows that are already ready</text>
+<rect x="38" y="584" width="205" height="152" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="618" class="label" text-anchor="start" style="">Ready windows</text>
+<text x="56" y="649" class="small muted" text-anchor="start" style="">Request A</text>
+<text x="56" y="676" class="small muted" text-anchor="start" style="">Request B</text>
+<text x="56" y="703" class="small muted" text-anchor="start" style="">Request C</text>
+<path d="M253 660L279 660" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="291" y="584" width="180" height="152" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="309" y="618" class="label" text-anchor="start" style="">Form a batch</text>
+<text x="309" y="649" class="small muted" text-anchor="start" style="">No wait for</text>
+<text x="309" y="676" class="small muted" text-anchor="start" style="">future inputs.</text>
+<path d="M481 660L507 660" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="519" y="584" width="280" height="152" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="537" y="618" class="label" text-anchor="start" style="">Graph lookup</text>
+<text x="537" y="649" class="small muted" text-anchor="start" style="">Batch bucket × length</text>
+<text x="537" y="676" class="small muted" text-anchor="start" style="">Capture memory budget</text>
+<path d="M809 660H829V614H849" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M829 660V705H849" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="861" y="584" width="301" height="60" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1011" y="621" class="label" text-anchor="middle" style="">Captured key: replay</text>
+<rect x="861" y="661" width="301" height="106" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="879" y="695" class="label" text-anchor="start" style="">No matching batch key</text>
+<text x="879" y="726" class="small muted" text-anchor="start" style="">Use smaller captured batches</text>
+<text x="879" y="753" class="small muted" text-anchor="start" style="">or serial execution (B = 1).</text>
+<path d="M1011 777L1011 806" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="995" y="796" class="small muted" text-anchor="end" style="">Unsupported</text>
+<rect x="861" y="818" width="301" height="49" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1011" y="850" class="label" text-anchor="middle" style="">Eager execution</text>
+<text x="38" y="790" class="small muted" text-anchor="start" style="">Stay within the capture memory budget.</text>
+<text x="38" y="819" class="small muted" text-anchor="start" style="">Decompose a batch when a larger graph is missing.</text>
+<text x="38" y="848" class="small muted" text-anchor="start" style="">Use eager only when the shape is unsupported.</text>
+<path d="M38 895H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="925" class="small muted" text-anchor="start" style="">Mechanisms: SGLang-Omni #1101 (exact shapes), #1126 (batching) and #1237 (batched graphs).</text></svg>
