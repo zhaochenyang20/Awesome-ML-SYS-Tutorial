@@ -1,352 +1,197 @@
-# 优化的不是一次 Forward，而是整条语音流水线
-本文记录 SGLang-Omni team 对 Qwen3-Omni serving 的一轮系统优化。
-对普通LLM来说，生成第一个文字 token 往往意味着回答已经开始；但对 Qwen3-Omni，情况要复杂得多。它不仅要理解文字、图片和音频，还要一边生成文本，一边把语义转换成语音编码，再还原为可以播放的波形。因此，文字已经出现，并不代表第一段声音已经准备好；GPU 看起来很忙，也不代表音频能够连续到达。我们真正要优化的，不仅仅是某一次模型forward compute，还有一个请求如何穿过整条语音流水线。
-在最开始的优化中，一条 short-prompt trace 给出了最重要的优化证据：device compute 只有约 3.2–3.8 ms，而prefill-to-first-emit 却达到 76.3 ms，从请求进入到首段文本（TTFT）共 88.1 ms，host 还发出了约 2400 次 CUDA API 调用。这个trace结果表示问题显然不只在模型算得多快，而在于去消减大量的重复计算。
+# 让 Qwen3-Omni 更快开口
 
-如果把 Qwen3-Omni 只看成一个更大的 Transformer，最自然的优化对象就是一次 model forward：换 kernel、加 batch、捕获 CUDA Graph。这个视角能解释局部计算，却解释不了用户为什么还在等第一段声音，也解释不了 GPU 利用率不低时为何播放仍会断续。
+用户问完一句话，屏幕上已经开始出字，耳机里却还是安静的。在这次的优化中如果想要让 Qwen3-Omni 更早开口，我们需要追着第一段声音穿过整条推理流水线：它在哪里算、在哪里等，又在哪里被一次同步或数据交接拖住。
 
-一条语音请求不是在单个 engine 内完成的。输入先经过预处理与可选的图像、音频编码，Thinker 生成文本并持续送出隐藏状态，Talker 把语义流展开成 codec frame，Code2Wav 再把逐步到达的离散表示变成可播放波形。
+普通文本生成在第一个 token 到达时，就开始向用户交付结果。语音生成还要把语义变成离散的音频编码，再把编码还原成波形。Thinker 算完一部分，Talker 才能继续；Talker 生成了一帧，Code2Wav 也未必已经攒够一个可解码窗口。阶段之间还有数据交接，计算已经完成的结果可能仍在队列里。
 
-这些模块有不同的计算形态、ready time 与资源需求。请求会在 admission、队列、线程、进程、设备与传输协议之间多次换手。一次小同步、一次无意义等待或一次多余 relay，都会被几百个 frame、几十路并发或多条 stage edge 放大。
+我们先把这笔时间账拆开。每个阶段算了多久，开算之前等了多久，算完的结果又花了多久才交给下游？分清这些，才知道该减少计算、调整执行粒度，还是去处理一次同步或交接。改完以后，再沿着同一条请求看，省下来的时间有没有传到用户这边。
 
-因此，在本次的优化工作中的我们的优化单位从来不是一次 forward，而是**状态在异构流式流水线中的持续流动**。我们反复做了四件事：
-- 把动态工作变成可重放执行
-- 让 ready 状态沿最短安全路径流动
-- 移除每帧重复成本
-- 让执行 shape 服从音频 streaming protocol
+下面按这条路径展开：从输入准备和消息传递，走到逐帧生成，再到波形解码。具体实现各有不同，做取舍时我们会反复问几个问题。哪些工作要等新输入来了才能做？哪些状态没变，可以接着用？下游到底需要什么，又要在什么时候拿到？
 
-当这些局部固定的成本被移走，瓶颈又会迁移。此时继续压缩原来的热点不会自然增加端到端的 capacity；系统必须重新决定哪些 stage 共置、哪些 stage 独占设备，以及应该复制哪一段，而不是复制整条流水线，我们针对这些设计了新的replica优化，具体的内容会在后文详细说明
+## 1. 沿着请求建立成本模型
 
+### 1.1 一段声音经过哪些阶段
 
+语音路径在配置里分成七个 stage：`preprocessing`、`image_encoder`、`audio_encoder`、`thinker`、`decode`、`talker_ar` 和 `code2wav`。图片与音频编码器按输入需要执行，Predictor 则在 Talker 内部。
 
-> **TODO(FIGURE): Hero 图。** 
-- 画出输入侧 fan-out、Thinker hidden stream、Talker frame loop、Code2Wav window 与客户端音频时间线；右侧只放冻结综合实验产生的 headline cards。验收条件是图中能区分 TTFT、TTFA、steady gap 与 capacity，且不混用不同拓扑的数据。
+输入先经过预处理和按需执行的编码器。Thinker 负责理解与文本生成，生成的文本沿 decode 路径返回，语音生成所需的状态则交给 Talker。接着，Talker 逐步生成 codec frame，内部的 Predictor 补齐其余 codebook。Code2Wav 拿到这些离散编码后，结合左侧历史生成连续波形。
 
-## 1. 性能单位是端到端的流
+![A request produces text through Thinker and audio through Talker and Code2Wav. Data readiness, queueing, and delivery create separate timing boundaries.](images/qwen3-omni-serving-optimization/01-request-path.png)
 
-### 1.1 七个 stage 组成一条请求路径
+*图 1：沿请求观察计算、等待与交付。箭头表示数据依赖；不同部署可以将阶段共置在一张 GPU 上，也可以分开部署。*
 
-当前 Qwen3 omni的 speech pipeline 由七个配置 stage 组成：`preprocessing`、`image_encoder`、`audio_encoder`、`thinker`、`decode`、`talker_ar` 与 `code2wav`。server 或 coordinator 父进程不计入 serving stage。
+这些阶段可以交叠执行，但后一步仍得等前面提供它需要的数据。Talker 要等足够的输入，Code2Wav 要等合法窗口；数据到了，下游还可能因为资源繁忙继续排队。只测一个 `forward()`，这些等待就都漏掉了。
 
-**TODO(figure) 用html生成更好的pipeline表示图
-```text
-preprocessing ─┬─> image_encoder ─┬─> Thinker ──> decode/text
-               ├─> audio_encoder ─┤       │
-               ├──────────────────┼──────>│
-               └──────────────────┴──────>Talker ──> Code2Wav ──> audio
-                                           ▲
-                              streamed hidden chunks
-```
+早期 short-prompt trace 中，GPU 计算约为 3.2–3.8 ms，prefill 到第一次输出却用了 76.3 ms，host 发出了约 2,400 次 CUDA API 调用。这组历史记录把调查方向引向 host dispatch、同步和等待。[原始记录](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/51fa3246427078066c72c2c117ff345ba260d4a5/sglang/sglang-omni/qwen3-omni-serving-optimization-zh.md)
 
-Preprocessing 与按需执行的 image/audio encoder 会把 payload 传递给 Thinker 和 Talker；Thinker 会把 hidden chunks 流式送往 Talker。Predictor 是 Talker 内部子模块，不是独立 stage。
+### 1.2 先确定用户在等哪个事件
 
-历史语音路径中，预处理、图像编码器和音频编码器的输出会先汇入 mm_aggregate。在这个阶段不执行模型计算，只负责等待同一请求所需的输入全部到齐，再将结果转发给 Thinker 和 Talker。新路径将这项等待交还给真正使用数据的模块：Thinker 和 Talker 按请求直接接收预处理及各编码器的输出，在各自需要的输入齐备后开始执行。删除这个纯汇合与转发阶段后，语音流水线由八个阶段缩减为了七个。
-这次修改只重构了语音输出路径；纯文本路径仍沿用原来的 mm_aggregate，不应写成全局删除。相关实现请见 PR #1548(https://github.com/sgl-project/sglang-omni/pull/1548)。
+| 指标 | 观察的事件 | 用来判断什么 |
+| --- | --- | --- |
+| TTFT | 客户端收到第一段文本 | 用户多久能看到回答 |
+| TTFA | 客户端收到首个经校验的非空 PCM 音频块 | 服务多久开始交付音频 |
+| Inter-chunk gap | 相邻音频块的到达间隔 | 后续音频是否及时到达 |
+| E2E latency | 请求到定义的完成事件 | 整条请求多久结束 |
+| Request throughput | 完成请求数 / 测量窗口 | 服务持续处理请求的能力 |
+| WER | 转写错误相对参考文本的比例 | 输出是否保留了要说的内容 |
 
-### 1.2 首包、稳态与容量
+这里测到的 TTFA 还没算真实播放器的缓冲和设备播放延迟。第一块 PCM 来得早，后续块也不一定跟得上。RTF 则是生成耗时除以音频时长，读这个数时，还得一起看完整输出有多长、质量怎么样。
 
-```text
-request ingress
-    ├── preprocess / encoder / Thinker ── first text       ← TTFT
-    ├── hidden stream / Talker / first WAV                ← TTFA
-    ├── WAV chunks ── gap ── WAV chunks                   ← continuity
-    └── all terminal outputs complete                     ← E2E
-```
+具体怎么改，也得看要改善哪个指标。多等一些请求可以提高 batch 效率，却可能让首音更晚；把首窗缩小可以提前输出，后面的调度也会更频繁。E2E 有没有算进 WAV 和元数据落盘，同样会影响数字。下面的结果各自保留原始计时边界，不同实验中的百分比不能直接相加。后文用 C 表示并发请求数，例如 C16 表示并发为 16。
 
-TTFT（time to first token）描述第一段文本，TTFA （time to first audio）描述第一块可播放音频，E2E latency 描述所有终端输出完成时间。RTF (real time factor) 观察语音生产效率，inter-chunk gap 观察播放连续性，request/s 与各 stage queue 共同描述 capacity。
+## 2. Thinker：把输入准备移出重复执行的路径
 
-优化是一个关于trade off的选择，任意指标的提升可能会造成其他指标的下降：比如说，更早 partial start 可能让 Code2Wav 收到更碎的窗口，更大 batch 可能推迟TTFA，replica 增加饱和 capacity 也可能增加低并发路由成本。详细定义、输出合同与质量 gate 见附录 A。
+Thinker 的 Prefill 要处理输入序列和多模态位置，还要准备下游需要的 hidden state。每次请求的内容都不同，但不必把所有动态处理都留到模型执行时。这里先把动态信息整理好，再交给模型批量计算。
 
-### 1.3 Correctness 与 profile 决定优化方向
+### 2.1 提前记录位置，一次完成整个 batch 的合并
 
-本文用 `cN` 表示并发 N，用 A/A band 表示同代码、同条件重复运行的波动范围；A/A floor 是据此设定、候选必须越过的最小 promotion 阈值。
+旧的多模态 merge 按“请求 × 模态”遍历，在 GPU mask 上调用 `any()`、`sum().item()` 等操作。Python 要拿到 device 上的结果，才能决定下一步，这就可能让 CPU 停下来等 GPU。batch 里的请求多了，这类小同步也会跟着重复。
 
-历史 extend/mixed batch 曾把 request 级过滤条件用于 token 级 KV 字段；stale slot 回收后，`out_cache_loc=None` 仍可能到达 `store_cache`。初始 c32 audit 约每 64 个请求失败一次，baseline 因而没有资格谈吞吐。
+改动后，请求构造时就记录好 placeholder 位置，再为整个 batch 准备索引，用批量 tensor 操作把 encoder 输出放回正确位置。这些动态工作集中到了输入准备阶段，模型执行时不必反复询问 GPU“这一行有没有音频”。位置编码也做了类似处理，把逐项构造改成批量运算。[多模态 merge](https://github.com/sgl-project/sglang-omni/pull/1161) · [MRoPE](https://github.com/sgl-project/sglang-omni/pull/1160)
 
-修复后 520/520 个请求完成，其中 480 个运行在 c≥32。我们再把证据分成 mechanism microbenchmark、profile attribution、paired E2E 与 frozen composite；只有语义 gate 和对应层级都成立，结论才会 promotion，相关修复见 [PR #1027](https://github.com/sgl-project/sglang-omni/pull/1027)。
+![Move request-specific placeholder discovery before execution, then gather encoder outputs and scatter them into the batch in one tensor path.](images/qwen3-omni-serving-optimization/02-input-preparation.png)
 
-开头的 short-prompt trace 已经把主矛盾从 GEMM 指向 host dispatch。它也解释了为什么后文先消除动态控制、调度空隙和逐帧固定税，再讨论更大的 batch 或更多设备。
+*图 2：先整理动态位置，再批量搬运数据。优化删除的是请求循环内的 device scalar 同步，encoder 输出仍须写到各自对应的 token 位置。*
 
-沿全链反复出现四类等待：请求尚未获得 admission；ready 工作未被 scheduler 选择；每个 token/frame 重复支付 host、copy 或消息固定税；某个 stage 已饱和而其他设备仍有余量。它们分别指向后文四个系统块。
+在 8,192 个多模态 token 的组件测量中，单模态 merge 从 2.108 ms 降至 1.005 ms，交错 image/video 输入从 7.825 ms 降至 2.311 ms。批量路径也需要临时源缓冲，该测量约为 32 MiB。这是合并操作自身的结果，尚没有稳定的独立端到端 TTFT 胜幅。[组件测量](https://github.com/sgl-project/sglang-omni/pull/1161)
 
-下面四行来自不同的 controlled campaigns，是诊断地图，不是可累加的一次 A/B：
+模型计算前就已经知道的信息，尽量在输入准备时整理好。这一做法也可以用到其他改动里：少做 host/device 往返，后续执行拿到的数据也更规整。
 
-| 系统块 | Observed constraint | Mechanism | Next exposed constraint / default question |
-|---|---|---|---|
-| Thinker | 动态多模态控制与 host dispatch | batch-wide merge、stable hidden、prefill graph | scheduler regime、bucket 启动与显存预算 |
-| Pipeline | ready state 仍等待 timer、wakeup、relay 或错误 transport | conditional dispatch、outbox drain、consumer-aware data plane | placement、replica 与低并发代价 |
-| Talker | 每个 codec frame 重建 state、copy 与 feedback | sampling reuse、native GQA、pinned/dense path | ownership 正确后 overlap 是否真有可隐藏工作 |
-| Code2Wav | 串行窗口 launch、batch shape 与 output materialization | exact/batched graph、chunk alignment、depth-2 output | wait、graph memory、首窗与 continuity 的 Pareto |
+### 2.2 复用执行缓冲时，要一起定义结果的所有权
 
-> **TODO(FIGURE): Measurement 图。** 用一条 request timeline 标出 TTFT、TTFA、E2E、gap、stage residency、queue 与 device self-time，再画 `profile → hypothesis → mechanism → correctness → A/A → paired A/B → promote/revert`。图注固定 benchmark contract 与证据层级。
+文本输出主要用到 logits，语音输出还得把选定层的 hidden state 交给 Talker。eager 每次执行可以产生新的输出 tensor；换成 CUDA Graph，输出地址就需要固定，后续 replay 还会复用同一块缓冲区。下游读取时必须分清这是谁的结果，以及什么时候可能被覆盖。
 
-## 2. Thinker：把动态 Prefill 变成可重放执行
+这里给 hidden state 分配静态缓冲区，forward 向固定地址写入，下游按本次请求的有效行与 token 范围读取。缓冲区要留多大，得和请求、graph 的上限一起算。初始化失败后，还要清理 capture 留下的状态，免得下一次执行继续用无效内容。[静态 hidden buffer](https://github.com/sgl-project/sglang-omni/pull/1380) · [初始化恢复](https://github.com/sgl-project/sglang-omni/pull/1532)
 
-在我们优化Thinker 的过程中，thinker prefill 是最接近传统模型优化的一段，在我们最开始 profile 结果得到的结果并不是 FLOPs 太多，而是动态控制太多。多模态位置要在运行时拼接，hidden state 要跨模块交付，scheduler 还要在 prefill 与 decode 之间决定谁先前进，这些都会造成时间的损失。
+![A stable graph buffer is reused across replays. Request identity, valid rows, and ownership must remain explicit until each consumer finishes.](images/qwen3-omni-serving-optimization/03-buffer-ownership.png)
 
-要把这种路径变成 CUDA Graph replay，不能从“录一张图”开始。首先要让请求级动态工作收敛成 batch-wide tensor operation；随后要把下游依赖的 hidden state 放进地址稳定、生命周期清楚的 buffer；最后 graph runtime 才能安全处理 bucket、padding 与 fallback。
+*图 3：地址稳定只解决重放条件。消费者仍要读取正确的请求范围，并在后续重放覆盖缓冲之前完成必要的数据交接。*
 
-在这之前，我们先系统的清掉了几块挡住主线的障碍。
-1. 更高的安全 admission cap 让 c32–c64 请求真正进入 scheduler，相关能力见 [PR #1135](https://github.com/sgl-project/sglang-omni/pull/1135)。
+后面讲 Code2Wav 时，还会遇到这个问题。执行可以复用，每次输出的生命周期却要单独管好。两边一起考虑，后续的异步传递才有前提。
 
-2. Mixed prefill/decode 让 ready decode 不再被 pure-prefill step 长时间困住，相关能力见 [PR #789](https://github.com/sgl-project/sglang-omni/pull/789)。
+## 3. Pipeline：让就绪的数据尽快被消费
 
-这两项工作的处理对象各不相同。admission cap 决定多少请求有资格参与调度，mixed execution 决定一次 scheduler step 如何使用设备。
+模型算完了，消息也未必马上交到下一个阶段。它可能在等 timer 或线程唤醒，也可能卡在额外中转或昂贵的传输初始化上。要处理这些等待，就得沿着消息的交接路径逐处看。
 
-### 2.1 把逐请求多模态拼接改成 batch-wide merge
+### 3.1 分开处理等待、kernel 提交与传输初始化
 
-多模态 prompt 会在 token 序列中预留 image、video 或 audio placeholder，encoder 输出之后写回这些位置。旧实现按“请求 × 模态”循环，在 GPU mask 上调用 `mask.any()`、`mask.sum().item()` 与 `torch.where()`，把 host sync 放进了 batch 扩展方向。
+早期 Audio Encoder 路径上有三处固定开销。第一条消息到了，还要等约 50 ms；多层 eager forward 会发出大量小 kernel；传一个小 tensor，也可能花不少时间打开 CUDA IPC handle。
 
-在普通 multimodal request 时大约会触发 6 次强制同步；interleaved image+video 加上 deepstack 时最多约 18 次。现象是 batch 增大后 merge latency 近似随请求数增长，profile 根因则是 Python 控制流依赖 device scalar，而不是 scatter 本身昂贵。
+这几处开销分别处理。等待时间改为可配置，空闲路径可以直接处理已到达的请求；合适的 encoder shape 捕获成图，供重复执行时复用；小音频 payload 则走合适的 pooled relay，不必为小 tensor 付出过高的初始化成本。几十 MiB 的大 tensor 和几百 KiB 的小 tensor，不一定该走同一条传输路径。[等待策略](https://github.com/sgl-project/sglang-omni/pull/1564) · [Encoder graph 与传输](https://github.com/sgl-project/sglang-omni/pull/1628)
 
-最符合直觉改法是把动态性前移到 request construction。builder 在 CPU 侧记录 placeholder position，prefill 时为全 batch 一次构造索引，再用一次 `index_copy_` 完成 scatter。这样不是“加速同一段循环”，而是把循环变成可描述、可捕获的 tensor program。
+在历史单张 H200 共置测试中，这组改动使 C1 的 TTFT p50 从 171 ms 降至 74 ms，TTFA p50 从 297 ms 降至 208 ms，请求吞吐提高 16.1%。该 baseline 仍包含旧的 50 ms 等待，因此这个组合结果不能再与单独取消等待的收益相加，也不能解释为相对后续主干的纯增量。C8 的吞吐变化在噪声范围内，C32 约持平；质量检查中的 WER 样本数为 96，speaker similarity 落在 eager 的波动范围内。[实验记录](https://github.com/sgl-project/sglang-omni/pull/1628)
 
-在我们的 microbenchmark 中，单模态 merge 从约 2.1–2.3 ms 降到 0.8–1.0 ms，interleaved image+video 从 7.7–7.8 ms 降到 1.9–2.3 ms。
+### 3.2 一次唤醒，处理已经到达的工作
 
-8192 multimodal-token 上限附近会增加约 32 MiB transient source tensor，且独立 E2E TTFT 未稳定越过噪声带，相关实现见 [PR #1161](https://github.com/sgl-project/sglang-omni/pull/1161)。
+旧 outbox 路径每取一条消息，就要在线程和 event-loop 之间交接一次。改动后，第一次读取仍然阻塞，拿到消息后再用非阻塞读取，把队列里已经到达的消息接着处理掉。每轮最多 64 条，然后让出执行机会。
 
-多模态 rotary position 也经历了同类转换：向量化 block construction 取代逐 token 处理，Talker 只有在能证明 prompt 不含 multimodal start 时才走 linear MRoPE fast path。
+这条路径不为未来消息增加等待。它把已 ready 的工作放到同一次唤醒中处理，同时保留顺序、结束与取消语义。在 H100 FP8 共置的 C16 SeedTTS 比较中，输出 token 吞吐从 100.42 提高到 104.88 tok/s，约增加 4.4%；TTFA p95 从 1.5665 s 降至 1.2991 s，约下降 17.1%。另一次确定性检查中，160 对请求的文本、token 数、chunk 数和 WAV hash 匹配。[Outbox drain](https://github.com/sgl-project/sglang-omni/pull/1384)
 
-这项工作提供 graph-friendly 前置条件与 differential parity，不承担综合 TTFT headline，相关实现见 [PR #1160](https://github.com/sgl-project/sglang-omni/pull/1160)。
+![Ready messages are drained within one wake-up, while consumer-side joins remove a forwarding stage without removing input dependencies.](images/qwen3-omni-serving-optimization/04-pipeline-handoff.png)
 
-这个故事的端到端边界很重要。microbenchmark 证明 host sync 被删除，不能证明用户延迟必然下降；但如果不先删除这些运行时 scalar 与分支，后续 graph capture 即使勉强成功，也只能覆盖一个语义残缺或形状极窄的路径。
+*图 4：减少已就绪数据的交接次数。批量 drain 处理队列中已有的消息；consumer-side join 则把等齐输入的责任交给实际消费者。*
 
-### 2.2 用稳定地址承载需要跨 replay 的 hidden state
+还有一处中转可以直接去掉。历史语音路径里的 `mm_aggregate` 只负责等齐输入再转发，现在改由 Thinker 和 Talker 各自等齐需要的数据。请求从八个 stage 减为七个，汇合输入的工作交给了实际消费者。纯文本路径仍保留原来的汇合阶段。[Consumer-side join](https://github.com/sgl-project/sglang-omni/pull/1548)
 
-Text-output prefill 只需要最终 logits，speech prefill 还要把特定 layer 的 hidden state 交给 Talker。旧路径通过 monkeypatch 或临时返回 tensor 捕获 layer 0/24 hidden，eager 下可以工作，graph replay 下却没有地址与生命周期保证。
+输入还是得等齐，省掉的是中间那次转发。检查一个阶段能不能去掉时，可以先看它有没有改变数据或执行策略，再看这项工作能不能直接交给消费者。
 
-如果 replay 覆盖了上一轮 tensor，或者 consumer 读到错误 row，系统可能仍返回正常长度的音频。这里的 correctness 不是 shape 对齐，而是 request、row、logical token span 与 hidden content 一一对应；内容串线比 crash 更难被普通 smoke test 发现。
+### 3.3 只传会被读取的数据，追加时不重拷贝旧内容
 
-原则性改法是 registered static buffer 加 layer pre-hook。每次 forward 只向固定地址 `copy_`，consumer 按本次有效 row 数读取。默认 8192-token capacity 的 steady-state 额外显存约 67 MiB，稳定地址由明确容量换取，相关实现见 [PR #1380](https://github.com/sgl-project/sglang-omni/pull/1380)。
+要减少传输，先看下游到底会读哪些数据。生成的 assistant 文本流与 prompt 的多模态 hidden state 用途不同，生成文本流不必同时带着 embedding 和另一份辅助 hidden。这条路径就保留 embedding，缺失时再用 hidden fallback；prompt 的多模态 conditioning 仍按需要保留。[Thinker → Talker 数据路径](https://github.com/sgl-project/sglang-omni/pull/1574)
 
-Buffer 只是所有权的一半。deferred graph initialization 失败后还必须清除残留参数，eager multimodal cursor 也不能继承 capture 期间的状态。
+具体走哪条传输路径，也要看数据。不超过 16 KiB、metadata 不含 tensor 的小 CPU 流块，可以直接放进控制消息；较大的 tensor 继续走数据通道。Talker Prefill 则一路保留 tensor，省掉 `cpu().tolist()` 后又重新构造 tensor 的往返。
 
-Bootstrap 恢复和 cursor 生命周期随后被继续加固，相关修复见 [PR #1532](https://github.com/sgl-project/sglang-omni/pull/1532) 与 [PR #1537](https://github.com/sgl-project/sglang-omni/pull/1537)。
+待消费文本队列也可以这样检查。旧实现每追加一批新行，都要把它和还没消费的旧行重新 `torch.cat`。backlog 越长，被反复复制的旧数据就越多。改成 device tensor chunk 队列后，用游标按 FIFO 顺序消费；追加时只放入新 chunk，旧 chunk 消费完再释放。[Pending-text queue](https://github.com/sgl-project/sglang-omni/pull/1611)
 
-这一步没有把一次 forward 直接变快。它建立的是 replay contract：生产者只能写自己的有效 row，消费者只能在约定事件之后读取，失败初始化必须回到干净 eager 状态。没有这个 contract，speech graph 的性能数字没有语义可信度。
+![Transmit the fields the consumer needs, then append immutable tensor chunks to a FIFO instead of concatenating the unconsumed backlog on every arrival.](images/qwen3-omni-serving-optimization/05-payload-queue.png)
 
-### 2.3 Graph replay 改变的不只是 launch 数量
+*图 5：传输字段由消费者决定，队列按 chunk 保存数据。游标记录消费位置，追加新内容不再重拷贝尚未消费的旧行。*
 
-共享 Breakable Prefill CUDA Graph (BCG) runtime 负责 bucket、padding、admission、replay 与按 shape 的 eager path；model-local adapter 负责判断 Qwen batch 能否被完整表示。
+在 H100 FP8 共置比较中，每臂 4,200 个端到端请求全部成功。原有 31,120 次 queue cat 被移除，457.4 MiB 的旧行重拷贝消失；C16 的请求吞吐从 7.351 变为 7.428 req/s，约变化 1%，整体端到端结果接近持平。重复复制确实被移除，但不能据此把用户延迟描述为同幅度下降。[机制与端到端结果](https://github.com/sgl-project/sglang-omni/pull/1611)
 
-未知 auxiliary state、cursor 不完整或超出 capture envelope 时必须拒绝 graph，相关运行时见 [PR #1364](https://github.com/sgl-project/sglang-omni/pull/1364)。
+## 4. Talker：逐帧循环只更新变化的状态
 
-Text-output BCG 先接入 Qwen3-Omni。643-token、`max_tokens=1` 的三轮测试中，c1 TTFT p50 从 55.2 ms 降到 26.3 ms，c1–c16 input throughput 提高约 37–120%。
+Thinker 的 Prefill 集中在请求开头，Talker 则要沿着整段语音反复跑自回归循环。它先生成一部分 codec 信息，内部 Predictor 再补齐其余 codebook；当前帧的结果又参与下一帧。一帧里多做一次同步，或者多一次无用 copy，这类开销就会跟着后续帧不断重复。
 
-这条 text 路径不依赖上一节的 stable hidden capture，且能力是 explicit opt-in，相关实现见 [PR #1381](https://github.com/sgl-project/sglang-omni/pull/1381)。
+### 4.1 以状态变化作为重建条件
 
-Speech 路径只有在 static hidden contract 就绪后才能接入同一机制。它必须让 Talker 得到与 eager 相同的 projected hidden content，而不是只让 Thinker replay 成功。
+如果 batch 组成与采样参数没变，每帧重建 sampling state、mask 和 metadata，也不会得到新的信息。这里把这些状态留下来，跨 step 复用；请求加入或离开，或者参数、所有权变了，再显式更新。[Sampling state reuse](https://github.com/sgl-project/sglang-omni/pull/1043)
 
-Speech BCG 同样是 explicit opt-in，依赖的是稳定 hidden 语义而非 text adapter 的开发顺序，相关实现见 [PR #1519](https://github.com/sgl-project/sglang-omni/pull/1519)。
+sampling state 每帧都要用，重建则等到依赖的状态变化时再做。请求离开后，旧状态也不能继续占用新请求的位置。
 
-这次 speech campaign 覆盖 8448 个零失败请求。低并发下，c1 TTFT/TTFA 分别下降 18.0%/13.5%；到 c32，TTFA 却增加 8.4%、E2E 增加 3.9%、request/s 下降 3.1%。同一个 replay 机制跨过并发区间后改变了方向。
+![Sampling metadata is rebuilt when membership or parameters change. Predictor attention consumes shared K/V heads without materializing repeated copies.](images/qwen3-omni-serving-optimization/06-talker-state.png)
 
-日志确认请求仍命中 graph，因此高并发回退不能简单归因于 fallback。更可能的机制是 prefill 更快 drain 后，scheduler 进入更频繁、更小 batch 的 regime；launch 时间减少了，queue position 与 batch composition 却同时变化。
+*图 6：Talker 的重复路径中，采样元数据按变化更新，attention 用 GQA 表达 K/V 的共享关系。两项改动都减少逐帧执行中的搬运或准备工作。*
 
-Graph 还把启动和显存变成一等资源。一组 42-bucket capture 增加约 18–31 秒启动时间，并占用约 1.26 GB/TP rank 常驻显存。更多 bucket 能提高 shape coverage，却会侵蚀 KV 与运行 batch 的容量，最终可能把收益从另一条曲线拿回来。
+Profile 中，每帧 pageable H2D 事件从 15.13 次降到 4.26 次，forward thread 的 stream synchronization 从 16.09 次降到 5.23 次。这些是事件次数，不能直接换算成节省的毫秒数；对应端到端变化仍接近重复运行的波动范围。[测量记录](https://github.com/sgl-project/sglang-omni/pull/1043)
 
-因此，Thinker BCG 的 production 形态必须同时报告 capture time、每 rank graph memory、shape hit、fallback、TTFT、TTFA 与 QPS。它不是“打开后所有请求更快”的布尔优化，而是一种会改变 scheduler regime 的显式 execution profile。
+### 4.2 让 backend 直接表达共享关系
 
-这些独立 campaign 不能按顺序累加，却把下一个系统问题指向 stage boundary：结果已经 ready，为什么 consumer 还没有拿到？
+Predictor 的 attention 里，也有不必生成的中间 tensor。旧路径先显式扩展 K/V head，再执行 attention。换成原生 GQA 后，backend 可以直接表达 K/V 的共享关系，少跑一些窄 copy kernel。[Native GQA](https://github.com/sgl-project/sglang-omni/pull/1164)
 
-> **TODO(FIGURE): Thinker 图。** 用三层 before/after 表达 request-wise merge → batch-wide merge、ephemeral hidden → static sidecar、约 2400 次 host launch → BCG replay；右侧同时画低并发收益、高并发负向与 42-bucket 启动/显存边界。
+Predictor 已经在 CUDA Graph 内，这项改动减少的是 replay 内部的内存工作。CUDA Graph 复用了提交过程，图里仍然可能有多余的 tensor 扩展。要找到这部分成本，还得继续看一帧里面具体执行了什么。
 
-## 3. Pipeline：让 ready 状态沿最短安全路径流动
+这和前面的输入准备用的是同一个办法：先看计算依赖的值有没有变化，再决定哪些准备工作要重做。后续维护也可以沿用这个条件。每加一种状态，都要说清楚它依赖什么，以及哪些事件会让已有状态失效。
 
-模型算完不等于 consumer 已经拿到结果。每个 stage 有自己的 inbox、outbox、scheduler 与生命周期；大 tensor 和小控制消息又可能选择不同 transport。ready state 可能继续等待 timer、线程唤醒、handle open、join 或多余 relay。
+## 5. Code2Wav：按流式输出协议组织计算
 
-Pipeline 优化的核心不是让所有边都“零拷贝”，而是回答三个问题：状态何时真的 ready，谁是最终 consumer，最小的安全 handoff 是什么。只有 ownership、ordering 与失败回收都明确，路径才有资格缩短。
+Talker 逐帧产生 codec，到了 Code2Wav，就要按窗口生成波形了。一个窗口里有新帧，也可能带着左侧历史。在选执行 shape 之前，得先定下首窗什么时候发出，后续每次新增多少帧，以及哪些波形是这次要交付的。
 
-### 3.1 把 encoder 的三种固定税分别移走
+### 5.1 用真实窗口长度选择执行形状
 
-Audio encoder 的 head latency 曾同时包含三种互不相同的成本。第一条消息到达后固定等待约 50 ms，即使没有第二个请求；32-layer forward 以 eager 发出约 460 次 kernel launch，GPU busy 约 8%；约 258 KiB 输出还要为每个请求打开 CUDA IPC handle。
+串行默认路径中，每个新 chunk 包含 10 帧，最多保留 25 帧左侧历史。随着上下文累积，正常窗口的典型输入长度为 `T=10/20/30/35`。
 
-Profile 中 direct IPC 的 `cudaIpcOpenMemHandle` mean 约 13.4 ms、p95 约 69 ms，而同一小 payload 经 pooled relay 的 measured cost 约 1.3 ms。现象都叫“encoder 慢”，根因却分别是 batch policy、host launch 与 transport setup。
+| 窗口 | 左侧历史 | 新帧 | 总输入长度 |
+| --- | ---: | ---: | ---: |
+| 首窗 | 0 | 10 | 10 |
+| 第二窗 | 10 | 10 | 20 |
+| 第三窗 | 20 | 10 | 30 |
+| 后续完整窗口 | 25 | 10 | 35 |
 
-第一步让 micro-batch wait 可配置并把默认值设为 0；同一 batch 中重复的 audio cache key 只编码一次。
+历史帧也要参与当前窗口计算，但输出时要按边界裁剪，只交付新帧对应的波形。按这些真实长度捕获 CUDA Graph，可以减少 launch 成本，小窗口也不必按最大 shape 计算。[Exact-shape graph](https://github.com/sgl-project/sglang-omni/pull/1101)
 
-在对应主干上，c1/c8 mean TTFT 分别下降 30.4%/27.8%，但 c64 QPS 最差下降 3.7%。无 backlog 时等待是纯税，有 backlog 时 batching 仍可能有价值，相关实现见 [PR #1564](https://github.com/sgl-project/sglang-omni/pull/1564)。
+![Streaming chunk geometry defines graph keys. Ready windows are grouped into supported batch buckets under a fixed memory budget.](images/qwen3-omni-serving-optimization/07-code2wav-windows.png)
 
-最终组合没有重新引入默认等待。Conditional wait 只影响部署方显式配置的正 wait：存在 backlog 才计时，空闲请求立即 dispatch。与此同时，32-layer stack 按 128–4096 token 分桶捕获 graph，`cu_seqlens` split 移到 layer 外，小 audio payload 走 pooled relay，大 image/video tensor 保留 direct path。
+*图 7：先用输出协议确定时间维长度，再按已就绪窗口选择 batch。图的覆盖范围同时受 shape 与显存预算约束。*
 
-这组 headline 使用的 baseline `b3bbff6e` 早于上一项 wait=0 改动，仍包含旧 50 ms head tax。相对这个旧 baseline，c1/c8/c32 mean TTFT 分别下降 54.7%、51.3%、46.1%，c1/c8 mean TTFA 下降 31.2%/20.2%；c8/c32 QPS 基本持平。
+如果先定下一个更大的 batch 或更完整的图，再让请求等它，用户听到首音的时间就会被推迟。所以要先把合法窗口和交付时机定下来，再让执行方式配合这两个条件。
 
-12 个 cell 零失败，音频时长在 ±1.6% 内，WER 略优，speaker similarity 位于 eager control band，相关实现见 [PR #1628](https://github.com/sgl-project/sglang-omni/pull/1628)。
+### 5.2 合并已经 ready 的窗口，并限制等待和显存
 
-两组百分比不能相加。后一个 headline 不是相对上一项 wait=0 改动或 current main 的纯增量，而是把旧 head tax、graph 与 transport 一起纳入 A/B。可推广的结论不是 encoder 获得某个固定加速比，而是 timer、launch 和 handle setup 必须按各自机制与负载条件处理。
+多个请求的窗口同时 ready 时，就可以用有界 batching 合起来执行，达到 batch 条件或等待期限就发出。zero-wait 配置只用当前已就绪的窗口组成 batch，不主动等后面的窗口。后续的 chunk-aligned graph 把合法窗口、batch bucket 和显存预算一起纳入调度规则。[有界 batching](https://github.com/sgl-project/sglang-omni/pull/1126) · [Chunk-aligned graphs](https://github.com/sgl-project/sglang-omni/pull/1237)
 
-### 3.2 一次唤醒处理所有 ready 工作，并删除纯 relay hop
+在 H100 的 Code2Wav 组件实验中，harness 模拟 Talker codec-frame 到达，每个请求包含 20 个窗口，进行三次重复。2% graph 显存预算下，zero-wait 配置在已测 C≥8 档位的组件吞吐提高约 11–15%，C1 约持平。该配置保留 `B=1/2/4` 与 `T=10/20/30/35` 的 12 个图，约占 634 MB；更大的 batch 超出预算时缩小执行批次。[组件实验](https://github.com/sgl-project/sglang-omni/pull/1237)
 
-旧 pipeline 每取一条 stage output 就调用一次 `run_in_executor()`，即使 outbox 里已经积累更多 ready message。profiling 显示 72.37% 的 Thinker message 与 44.40% 的 Talker message 可以直接从 backlog 消费，系统却反复支付线程唤醒和 event-loop handoff。
+这项测量覆盖声码器组件，尚不能给出完整 Qwen3-Omni 的端到端加速比。实验显式启用了 batched 模式，默认仍为关闭；波形按容差对照，最坏 SNR 为 35.26 dB，检查零失败。更长等待和更大显存预算属于另外的配置，不能混入这组结果。
 
-原则性改法是保留第一次 blocking read，随后非阻塞 drain 最多 63 条；连同首条，每轮上限 64，然后主动 yield。它不为未来消息增加等待，也不改变 FIFO、completion 与 abort 语义，只让一次已经付费的唤醒处理当下已 ready 的工作。
+这里还要处理图没覆盖到、以及执行失败的情况。缺少较大 batch 的图时，调度器先拆成已有的小 batch，必要时退回串行；不支持的 shape 可以在 replay 前选择 eager。如果 replay 已经开始，执行中的错误就要保留下来，让后续请求按禁用状态选择回退路径。静默重跑同一请求，可能重复消费输出或掩盖状态损坏。
 
-c16 SeedTTS 测量中，output throughput 提高 4.4%，TTFT p95 下降 8.9%，TTFA p95 下降 17.1%；160/160 请求的 text、token count、chunk count 与 WAV hash 匹配。这里 batch 的是控制工作，不是 model forward，相关实现见 [PR #1384](https://github.com/sgl-project/sglang-omni/pull/1384)。
+## 6. 计算完成后，继续追到结果交付
 
-更彻底的路径缩短，是删除没有独立计算与不可替代状态的 relay。历史 `mm_aggregate` 等待 preprocessing 与 encoder payload，完成 join 后再转发给 Thinker/Talker；consumer 现在直接等待自己所需的输入，join ownership 回到真正使用数据的一侧。
+GPU 算完一个窗口，结果还要复制、裁剪和转换，再送到客户端。如果这些步骤长时间占着调度线程，其他已就绪工作也会等在后面。追到这里，输出处理也得和计算放在一起看。
 
-H200 cold-boot paired tests 中，c1/c8/c16/c32 mean TTFT 分别下降 8.9%、12.0%、20.0%、16.7%，mean TTFA 下降约 5.0–8.3%，QPS 基本持平。
+### 6.1 让输出处理交叠，同时保留结果的所有权
 
-p95 有正有负，所以结论限定为 speech mean head latency 改善，text-only 仍保留该 stage，相关实现见 [PR #1548](https://github.com/sgl-project/sglang-omni/pull/1548)。
+在 CUDA 串行 Code2Wav 路径里，每条流都有一条深度为 2 的输出流水线。它从共享池取得 pinned 槽位，用 CUDA event 追踪异步复制，调度线程就可以继续处理其他工作。复制完成后的 CPU 输出处理可以与后续 GPU 计算交叠；首窗和最终尾窗仍保持同步。[Output overlap](https://github.com/sgl-project/sglang-omni/pull/1567)
 
-这两项工作看似一个是 event-loop 微优化，一个是 topology 变化，背后却是同一原则：ready 数据不应等待与其语义无关的调度边界。可以当场 drain 的消息不再重新睡眠，可以由 consumer join 的状态不再经过专职转发者。
+一个窗口 replay 完成后，接下来的 FP32 转换、到槽位的异步 D2H 和 event 记录，都排在同一 CUDA stream 上。这个顺序保证下一次 replay 不会在这次 copy 完成前覆盖借用的 graph 输出。复制完成后，host 先把有效结果复制到独立的 CPU 内存，再释放槽位，随后发送这份独立结果。这样就把槽位复用和下游消费分开了。
 
-人为拉开请求 arrival 可以打散 prefill wave，却也会让本来 ready 的请求等待。早期 natural-EOS campaign 中，一组配置改善 c32 TTFT，却让 c8 TTFA 变差。后续 colocated sweep 多数落在 A/A band；c64 `gap25` 有多项指标同向负向，但幅度全部仍在 A/A floor 内，不能解释为显著 regression。
+![A depth-two output pipeline separates borrowed graph output from slot-owned pinned data. Completion events and an owned CPU copy separate delivery from safe slot reuse.](images/qwen3-omni-serving-optimization/08-code2wav-output.png)
 
-因此 admission staggering 只能是默认关闭、由 arrival burst 与 SLO 决定的 policy。没有 online load signal 时，一个全局间隔无法同时服务低延迟和饱和吞吐，相关工作见 [PR #1565](https://github.com/sgl-project/sglang-omni/pull/1565)。
+*图 8：D2H 完成后先取得独立 CPU 副本，再释放共享槽位并交付结果。图中输出处理允许交叠，首窗与最终尾窗保留同步边界。*
 
-### 3.3 Data plane 必须理解 consumer、大小与生命周期
+每来一个 Talker frame，就检查一次 event；第一次查到完成，就输出对应结果。请求结束时，先把 pending window 作为独立消息发出，再解码最后的尾部，保留消息边界。
 
-“tensor 很大”不等于每个中间 stage 都应该 materialize 它。早期 video path 会让不消费 embedding 的 stage 重复承担传输与解析；约 55 MiB payload 因此沿 pipeline 扩散，症状表现为延迟随边数而不是最终 consumer 的计算增长。
+请求取消后，还在使用的槽位不能马上回收。abort 先把槽位放进 retired 队列，由 scheduler 查询完成状态后再回收；copy 或 event 记录失败时，则把槽位隔离，避免在完成状态未知时复用缓冲。后续公共 `PinnedTransferSlot` 也保留了这些所有权状态。[输出槽生命周期](https://github.com/sgl-project/sglang-omni/pull/1567) · [公共 transfer slot](https://github.com/sgl-project/sglang-omni/pull/1759)
 
-Producer 随后只发布一次 tensor，中间 stage 转发轻量引用，最终由 Thinker resolve。对应 video workload 的路径 latency 从约 160–179 秒降到 36–37 秒，accuracy 不变，相关工作见 [PR #808](https://github.com/sgl-project/sglang-omni/pull/808)。
+已有 profile 支持调度线程占用下降，但不足以建立可靠的端到端加速结论。同输入的协议级对照检查了消息一致性；后续 transfer-slot 改动还做了 20 个确定性请求和 12 个 real-weight replay case 的 bitwise 对照。这些检查覆盖各自的输入和实现，不能扩写成完整服务的质量结论。
 
-集中式 intra-node CUDA-IPC data plane 继续承接这条 ownership 设计，但不改变“只由 consumer resolve”的原则，相关工作见 [PR #869](https://github.com/sgl-project/sglang-omni/pull/869)。
+### 6.2 每次改动，都回到同一条请求
 
-Consumer-aware 还意味着不发送根本不会被读的字段。Talker projection 不再携带 deepstack visual embedding；这一改动没有发明新 transport，只是让 payload schema 与读者集合一致，相关工作见 [PR #953](https://github.com/sgl-project/sglang-omni/pull/953)。
+Thinker 的输入准备能提前多少，关系到执行路径能有多规整。Talker 则要先看状态变没变，再决定是否逐帧重建。到了 pipeline 和 Code2Wav，要先弄清楚消费者需要什么、什么时候需要，再安排数据传递和窗口。
 
-Zero-copy 也不是无条件答案。几十 MiB tensor 可以摊薄 CUDA IPC setup，小 payload 却可能让 handle open 比 pooled copy 贵一个数量级。正确选择需要同时看 size、fan-out、reuse、receiver device 与 handle 生命周期，而不是给所有 tensor 套一个 backend。
+具体用什么机制，就顺着这些问题来选。批量索引减少对 device 状态的反复查询；尚未消费的数据留在 FIFO 里；K/V 的共享关系交给 GQA 表达，提交过程则用 CUDA Graph 复用。选了这些机制，也要处理它们带来的约束。用了静态地址，就要明确所有权；合并执行要顾及首窗时机，增加图覆盖也要留出显存。
 
-Payload 尚未传输时，构造本身也可能阻塞。Talker receive path 曾为每个 streamed text chunk 重复解析 checkpoint shard resolution，并重新打开同一个 safetensors shard；isolated call 从约 11.4 ms 降到 0.02 ms，三组 c8 paired run 的 TTFA p50 均下降超过 64%。
+做完以后，还是要回到用户的请求上看结果。多模态 merge 的组件时间下降，尚没有稳定的独立 TTFT 胜幅；pending-text 队列消除了重复复制，端到端约持平；outbox drain 则在对应的历史配置下同时改善了输出 token 吞吐与首音尾延迟。把这些结果分开看，才知道接下来该继续缩短当前路径，还是去找别处的等待。
 
-早期实验 arm 还带后来被认定生产路径不可达的 row cache，因此精确 E2E 归因必须保留 revision 边界。最终可依赖的原则是缓存 source/handle lifecycle，不能把旧 arm 的所有收益自动归给 merged diff，相关工作见 [PR #1187](https://github.com/sgl-project/sglang-omni/pull/1187)。
-
-这条 data-plane 线没有结束。Thinker→Talker stream 仍可继续缩小，但在新主干 paired result 完成前只能作为 open mechanism，相关工作见 [PR #1574](https://github.com/sgl-project/sglang-omni/pull/1574)。
-
-Pending-text queue 的 open work 已消除 31120 次 queue-level `torch.cat` 和约 457 MiB 旧 row 重拷贝，CatArray launch/GPU time 下降约 72%。它证明二次复杂度被删除，却没有证明用户曲线同步变化。
-
-4200 个 E2E 请求的 QPS 与 latency 只变化约 1–2%，所以当前结论仍是 mechanism clear、E2E neutral，不能把内部 72% 写成用户性能收益，相关工作见 [PR #1611](https://github.com/sgl-project/sglang-omni/pull/1611)。
-
-#### Topology consequence：路径变短后重新分配容量
-
-Consumer-aware handoff 解决的是一条 edge 怎么走；当单 stage 接近饱和，下一步就要决定进程和设备怎么摆。CPU thread、GPU colocation 与 replica routing 都是 dataflow topology 的一部分，不是部署完成后才附加的运维细节。
-
-多进程 colocated worker 若各自按整机核数创建 OpenMP pool，会把单进程默认叠加成 host oversubscription。一台 224-CPU H200 host 上，两份单卡 worker 曾产生约 2940 个线程，GPU mean utilization 只有约 71–72%。
-
-Qwen3-Omni colocated stage 随后把默认 `OMP_NUM_THREADS` 限为 8，并关闭单 prompt 不需要的 tokenizer parallelism，仍允许显式覆盖。
-
-线程数降到 1284 后，c32/c64 QPS 分别提高 49.3%/98.4%；这证明 host launch capacity 也必须按整条 pipeline 预算，相关实现见 [PR #1060](https://github.com/sgl-project/sglang-omni/pull/1060)。
-
-GPU placement 的同样原则是把容易争用的重 stage 隔离，把轻 stage 放到有稳态余量的一侧。历史 c8 profile 中 Talker median GPU utilization 约 86%，Code2Wav 约 9–13%，而 Thinker 在 speech 稳态有空闲；让 Talker 与 Code2Wav 共卡，正好把轻量窗口计算放进最敏感的自回归循环旁。
-
-默认布局因此把 Code2Wav 移到 Thinker GPU，让 Talker 独占另一张卡。主证据不是旧两卡默认的直接 A/B，而是 Thinker TP2、Code2Wav 固定 rank 1、只移动 Talker 的 isolation experiment；两组 c8 pair 中 TTFA p90 下降约 46%，stall total 下降约 49–55%。
-
-较弱 control 再把 Code2Wav 从 Thinker rank 1 移到独占 GPU，wall 与 E2E 只变约 1%，共同支持 contention 归因。
-
-低并发存在代价：c1 E2E 增加约 14–17%，因为 hidden handoff 变成跨设备；默认选择优先 TTFA 与高并发 capacity，并非无条件胜利，相关实现见 [PR #1235](https://github.com/sgl-project/sglang-omni/pull/1235)。
-
-当一个 Talker GPU 已饱和，再提高 admission 只会改变排队位置。Process replicas 允许一个逻辑 stage 展开为多个实例，请求在 admission 时绑定 replica，并在 payload、stream、completion、abort 与 admin path 保持 sticky binding；model code 仍只认识逻辑 stage 名。
-
-Replica 收益必须排除“只是多了一张卡”。同一实验比较两卡 baseline、三卡各 stage 隔离 control，以及三卡 `2×(Talker+Code2Wav)`。c64 时 replica2 相对 equal-hardware 三卡 control 的 QPS 提高 41.7%，而 isolated control 与两卡 baseline 几乎相同。
-
-容量并非免费。c1/c8 的 replica2 QPS 比三卡 control 分别低 3.9%/3.8%；c64 虽然 mean audio TTFA 与 E2E 改善，mean text TTFT 却增加 32.5%，inter-chunk p95 增加 30.4%。这是一种高并发 scale profile，不是所有请求默认更快的开关。
-
-这些数据来自 PR head，而不是 merge commit。2-GPU full-replica 的 correctness、abort 与 teardown 已在对应 head 上覆盖；仍缺的是 replica2 表在 merge/current-main 上的语义等价与性能复测。
-
-现阶段证据证明“复制瓶颈 stage”改变 capacity curve，不证明任意部署开启 replica 都会获益，相关实现见 [PR #1175](https://github.com/sgl-project/sglang-omni/pull/1175)。
-
-在另一组 controlled campaigns 中，handoff 与 topology 被单独测量；当这些边界税收缩，Talker 每个 codec frame 都重复支付的成本便成为下一项可归因对象。
-
-> **TODO(FIGURE): Pipeline 图。** 以 ready-state 时间线串起 encoder wait/launch/transport、outbox drain、删除 relay 与 consumer-aware data plane；下方补 CPU budget、placement 和三卡 equal-hardware replica control，明确标出低并发代价。
-
-## 4. Talker 与 Predictor：移除每个 codec frame 都要支付的成本
-
-Thinker 的 prefill 开销集中在请求前部，Talker 的固定税则沿音频时间轴重复。每一帧都依赖上一帧采样结果，内部 Predictor 还要逐组补齐 codebook；单步多一个小 copy、一个 state rebuild 或一次 host sync，整段语音就会重复几百次。
-
-这使 Talker 的优化方法与大矩阵 kernel tuning 不同。我们先问哪些对象在相邻 step 之间实际上没有变化，再问哪些 tensor 本来可以由 backend 广播，最后把确实需要跨 host/device 的反馈收敛到可复用、可批量处理的路径。
-
-这条路线也被 profile 约束：约 98.1% 的 Talker kernel 已位于一张约 2000-node graph replay 中。继续扩大 broad graph coverage 不会自动命中热点；graph 外 state、payload、resolve 与 backpressure 才是问题。
-
-### 4.1 复用没有变化的 sampling state
-
-旧 scheduler 即使 batch composition 与 sampling 参数没有改变，也会每帧重建 sampling state、mask 与 metadata，并发起多次小 H2D 和同步。profile 里看到的不是一段巨大 self-time，而是一串规律重复、随 frame 数线性增长的事件。
-
-原则性改法是让 sampling state 跨 step 持久存在，只在 batch composition、参数或 ownership 真正变化时更新。它把“每帧重新证明状态相同”改成“变化发生时显式失效”，也让 state lifecycle 更容易被测试。
-
-Profiler-on 归因中，每帧 pageable H2D 事件数从 15.13 降到 4.26，forward thread 的 stream synchronization 从 16.09 降到 5.23，`memcpyAsync` 从 44.80 降到 26.28。三组数字都是**每帧事件计数，不是毫秒**，相关实现见 [PR #1043](https://github.com/sgl-project/sglang-omni/pull/1043)。
-
-对应 c8 E2E 变化约 2.8%，落在后来测得的 A/A band 内。因此这项工作的可靠结论是 per-frame host/data movement 被删除，而不是 speech latency 获得稳定的独立百分比。机制证据强于 headline，是这里应保留的证据层级。
-
-同类实验还移除了 cached single-token embedding gather 与 not-ready rollback scalar write 上的 host-blocking sync。局部 round-trip 消失，864/864 请求成功，九个 cell 的 text hash 48/48 一致；可见 c1 TTFA 仅变化约 −1.5%。
-
-结果仍在 A/A band 内，说明删除同步 API 不等于删除真实依赖；ordering 或节流可能在更晚位置重新出现。这项工作命中机制但没有通过用户性能 gate，相关工作见 [PR #1409](https://github.com/sgl-project/sglang-omni/pull/1409)。
-
-### 4.2 让 attention backend 原生表达 GQA
-
-Predictor 的 query head 多于 KV head。旧 attention path 先用 `repeat_kv` 显式扩展 K/V，再交给 SDPA；16 个 code group、5 层 Predictor、K/V 两份 tensor，使每个 Talker token 最多触发约 160 个窄 copy kernel。
-
-这些 copy 的单次代价很小，却处在每帧必经的串行循环。更关键的是，它们并没有新增语义：K/V head 只需要按 GQA 规则广播，物化 expansion 是 backend 表达不足产生的中间工作。
-
-改法是直接启用 SDPA 的原生 GQA，让 attention backend 处理 head broadcasting。真实 Predictor 路径覆盖 KV cache、attention 与 output parity，codec token 和音频保持一致，相关实现见 [PR #1164](https://github.com/sgl-project/sglang-omni/pull/1164)。
-
-Talker Predictor 已经位于 CUDA Graph replay 区域，所以 Python launch 开销大多被摊薄，剩余收益主要是 replay 内部的 memory work。没有冻结主干的独立 replay-time 与 E2E 证据时，它应被理解为低风险的 kernel cleanup，而不是整条 speech path 的 headline。
-
-### 4.3 把反馈路径收敛到 pinned、batched 与 dense fast path
-
-Forward 已经 replay 后，scheduler 仍要读取 sampled token、克隆下游输出，并把 feedback 写入下一步的位置。旧通用路径使用 pageable token D2H、逐对象 clone 和稀疏 scatter，即使当前 batch 的 row 连续，也支付最保守的处理成本。
-
-原则性改法有三层：用 pinned token staging 承接必要的 host handoff，把多个输出 clone 合并处理，并在 row 连续时走 dense feedback fast path。稀疏、reorder 或 retract 情况继续保留通用语义，而不是为了 fast path 假定 batch 永不变化。
-
-对应 profile 中，pageable token D2H 从约 1.99 次/帧降到 0.01 次/帧，clone 从约 18 次/step 降到 6 次/step。它直接说明 scheduler 反复支付的 host work 收缩了，不能单独替代用户侧 A/B。
-
-H100、c8 做了 5 组交错 pair，完整结果是 4/5 方向支持 candidate；pair 2 反向，pair 5 两个 arm 都退化。PR 汇总采用 clean pair 1/3/4：request/s 提高约 12.4%，xRT 提高约 9%，TTFA 从 0.788 秒降到 0.677 秒。
-
-发布时必须同时保留 PR 汇总采用 clean pairs 1/3/4 的记录和完整五组方向，不能只引用三组均值。c1 基本不变，也符合 per-frame host work 随 batch 放大的机制预期，相关实现见 [PR #1167](https://github.com/sgl-project/sglang-omni/pull/1167)。
-
-这三步形成一条递进关系：复用不变的控制状态，删除不需要物化的 tensor，再为确实变化的反馈建立显式 fast path。它们都在缩短同一条 frame loop，却分别操作 cache invalidation、attention representation 与 data ownership。
-
-### 4.4 Ownership 正确只是 overlap 的前提
-
-沿这条路线继续，一个自然想法是让 sampled token 与 feedback embedding 完全驻留在 device slot，再把下一步 launch 与上一步 resolve 重叠。它在结构上很诱人，但最新验证显示：拥有正确的 slot，并不意味着存在足够工作可以隐藏其管理成本。
-
-一版实现覆盖 reorder、retract、finish 与 subtype replay，证明 device-resident feedback slot 可以维护语义。
-
-在 7872 个 natural-EOS 请求零失败的前提下，三次 c64 paired boot 的 TTFA mean/p95 median delta 约为 +4.1%/+6.7%，因此状态保持为 HOLD，相关工作见 [PR #1204](https://github.com/sgl-project/sglang-omni/pull/1204)。
-
-建立在该 ownership 上的 overlap 版本按 request ID 重映射 unresolved token，避免 batch composition 变化时串 row。
-
-正确性测试通过，但 H200 ABBA 中 c16/c32 QPS 分别下降 3.15%/1.78%，TTFA p95 增加 18.8%/31.0%，两个 paired boot 同方向，相关工作见 [PR #1320](https://github.com/sgl-project/sglang-omni/pull/1320)。
-
-负结果指向的是 dispatch policy，而不是否定 device residency。若 direct path 的 startup cost 大于可隐藏工作，或 downstream backpressure 让 unresolved slot 占用更久，无条件 overlap 就会把更复杂的状态机带进 tail latency。
-
-下一次重做应先观测 batch slot 中可重叠的工作量、resolve stall、下游 backpressure 与 fallback 频率，再决定何时启用 direct/slot path。Production default 来自这些 gate，而不是从“异步一定更快”的直觉推出。
-
-Talker 证据同样不能与上游百分比串乘；它把问题继续推到下游：逐帧 token 到达后，什么 window shape 才既可高效执行，又符合播放协议？
-
-> **TODO(FIGURE): Talker 图。** 展开一个 codec frame 的 sampling state、Talker forward、Predictor、feedback write 与 output handoff；用三种颜色区分被删除的事件、仍需保留的 ownership，以及 device-slot/overlap 的负结果。
-
-## 5. Code2Wav：让执行 Shape 服从 Streaming Protocol
-
-Talker 逐帧产生 codec token，Code2Wav 却按窗口解码波形。它既需要左侧历史，又希望尽快产生首块音频；多个请求若能同时 ready，可以共享一次 batched forward，但等待它们对齐本身又会增加 TTFA。
-
-所以 Code2Wav 的 shape 不是纯模型参数。`batch × frame window × left context` 由 streaming protocol、arrival cadence、显存预算与首窗策略共同决定。Graph、batch 和 chunk 若各自优化，最终很容易在另一维度互相抵消。
-
-### 5.1 从 exact serial graph 走向有界 batching
-
-最初的流式解码以 batch 1 逐窗口运行，真实时间维会出现 `T={10,20,30,35}`。只捕获最大 shape 会让小窗口 padding，增加无效计算，还可能模糊不同上下文状态；完全 eager 则为每个串行窗口重复支付 launch overhead。
-
-第一步因此捕获真实的 `B1/T{10,20,30,35}` exact shape。Replay 前若发生 graph key miss、batch ineligible 或 capture-time incompatibility，请求可以直接选择 eager，不进入 replay。
-
-一旦 replay 已开始并失败，当前 request 必须 fail closed、raise，不能静默 eager 重跑；runner 随后会被标记为 disabled。后续 request 可以因为 runner disabled 走 eager，但失败的当前 request 不会被再次执行。
-
-三组 clean H100 c8 pair 中，request/s 提高 7.77%，latency 下降 6.57%，TTFA 基本持平；后续 H200 c8–c32 sweep 的 xRT/request throughput 提高约 9–12%。首窗仍要形成并完成，所以收益主要落在后续窗口，相关实现见 [PR #1101](https://github.com/sgl-project/sglang-omni/pull/1101)。
-
-Exact graph 解决了单 stream launch，却没有让多个 ready stream 合并。下一步 scheduler 在有限 deadline 内收集请求，到 batch floor 或 deadline 就执行；关键不是追求最大 batch，而是给等待一个显式上界。
-
-组件级 batch 8 测量可以达到约 3.8–4.1 倍吞吐，端到端却没有稳定、可推广的收益。真实 frame arrival 不整齐，等待可能推迟首音；当 Code2Wav 尚非瓶颈时，组件收益也会被上游排队或已有 overlap 吸收，因此 bounded batching 能力合入后保持默认关闭，相关实现见 [PR #1126](https://github.com/sgl-project/sglang-omni/pull/1126)。
-
-这一正一中性的结果暴露了新的矛盾：serial exact graph 命中稳定，eager batch 有组件效率，两者却使用不同 shape 空间。要获得端到端收益，调度单位必须和音频窗口协议共同设计。
-
-### 5.2 用 chunk boundary 定义 batched graph 的合法 shape
-
-Chunk-aligned scheduler 只消费完整窗口，让 batch 中每个 row 都落在 codec 可以解释的边界；随后捕获 batch size 2/4/8 的 graph。shape、capacity 或显存预算不满足时，系统拆成更小子批或串行路径，而不是把任意输入塞进最大图。
-
-First-ready 窗口还可以绕过普通 inbox 排队。它不是把所有首窗都特殊化，而是承认首窗优化 TTFA、稳态窗口优化 throughput，两类工作应共享 correctness contract，却可以有不同的 scheduling priority。
-
-在 2% graph memory budget、zero-wait 的生产形态下，c≥8 的 xRT/request throughput 提高约 11–15%，TTFA 保持相当或更好。同一 2% budget 下，更重的 wait policy 在 c16 以上提高约 41–51%，但伤害 c1/c8，并增加 queueing 风险。
-
-5% full-graph control 捕获 B8 后达到约 53–55%，它证明更多 shape 有潜在上限，却不属于 2% production budget 结论。最终 `B1/B2/B4` pool 约占 634 MB；B8 超预算时优雅回退，显存是明确 capability boundary，相关实现见 [PR #1237](https://github.com/sgl-project/sglang-omni/pull/1237)。
-
-这里不能把 41–51% 和 53–55% 写成同一个 headline。前者来自 2% budget 下的 heavy-wait profile，后者来自 5% full-graph control；zero-wait production 证据是 11–15%。三组数字回答的是不同的 latency/memory policy。
-
-这一步的系统含义比“支持 B8”更重要：执行 shape 不再由模型任意 padding，而由可以播放的 chunk、允许等待的时长和可占用的 graph memory 共同约束。Fallback 也因此是协议的一部分，而不是命中率不够时的临时补丁。
+我们优化 Qwen3-Omni 时，就沿着这条请求路径反复测量、解释和修改。做完一次局部改动，先确认哪些工作确实被省掉，再测完整请求，看这些工作是否正好处在用户等待的路径上。
