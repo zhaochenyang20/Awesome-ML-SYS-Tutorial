@@ -206,8 +206,6 @@ Group D                  ██████
 Group E                        ██████
 ```
 
-This is a hypothetical illustration of the feedback, **not a measured GPU timeline or a representation of actual stage durations**.
-
 This explanation is consistent with the observations, but the data has not established whether new requests' prefill is the main source of interference, much less whether it accounts for the entire 17.5% loss. Overhead in the return path itself and the precise overlap among Thinker, Talker, and Code2Wav still require GPU timeline evidence. In the single-run shared-reference control, wait-all and early-emit achieved 7.087 and 6.994 requests/s, about 1.3% apart. That is also consistent with there being little room for earlier emission when there is only one group, but it does not replace a complete causal investigation.
 
 Another observation deserves attention: early-emit increased GPU utilization while completing fewer requests. Spending more time busy does not necessarily mean completing user work more efficiently. When stages share resources, the ultimate measures remain end-to-end throughput, latency, and quality; higher utilization alone does not establish a successful optimization.

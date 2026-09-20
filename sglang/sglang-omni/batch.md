@@ -74,7 +74,7 @@ def code2wav_stage(*, gpu: int, process: str) -> StageConfig:
 
 `max_batch_size` 允许一次收集最多 8 条，`max_batch_wait_ms` 则将主动等待预算设为零；`batch_wait_when_idle` 约束空闲时的等待行为，在当前零预算下不会额外引入等待。除开 `max_batch_size` 我和 PR 2254 的作者选择略有区别外，其实 `max_batch_wait_ms = 0.0` 才是最主要的区别。这个选择的灵感其实源自于 [PR 2202](https://github.com/sgl-project/sglang-omni/pull/2202) 的讨论：
 
-我的考虑是，如果为了组 batch 额外等待，希望这段时间 GPU 上仍有其他工作可做，让收集请求与计算尽量 overlap。对于 TTS 这种高频短请求，如果 GPU 已经没有可执行任务，CPU 却还在等下一条请求来凑 batch，主动等待就可能推迟关键路径。因此，在当时的 MiniCPM-o 实现上，我优先将等待预算设为零；是否应当增加等待，要看它能否换来足够的合批收益，而不能仅凭 runtime 有所改善就下结论。
+> 我的考虑是，如果为了组 batch 额外等待，希望这段时间 GPU 上仍有其他工作可做，让收集请求与计算尽量 overlap。对于 TTS 这种高频短请求，如果 GPU 已经没有可执行任务，CPU 却还在等下一条请求来凑 batch，主动等待就可能推迟关键路径。因此，在当时的 MiniCPM-o 实现上，我优先将等待预算设为零；是否应当增加等待，要看它能否换来足够的合批收益，而不能仅凭 runtime 有所改善就下结论。
 
 作为另一个配置实例，Fun-CosyVoice3 的 [vocoder 收集配置](https://github.com/sgl-project/sglang-omni/blob/89e60d0bf216bacd0e072d79f969550469614662/sglang_omni/models/fun_cosyvoice3/config.py#L147-L160)使用了 30 ms 等待预算，收集后的请求再参与 Flow 合批。它与本文 MiniCPM-o Code2Wav 的零等待配置服务于不同计算路径，不能直接据此推导哪个值更好，等待预算仍应结合各自的端到端实验评估。
 
@@ -205,8 +205,6 @@ Group C            ██████
 Group D                  ██████
 Group E                        ██████
 ```
-
-这是对反馈关系的假设性示意，**不是实测 GPU 时间线，也不表示各阶段的实际时长**。
 
 这是一种与实验现象相符的解释，但现有数据尚未证明新请求的 prefill 是否构成主要干扰，更不能将 17.5% 的损失全部归因于它；返回路径自身的开销，以及 Thinker、Talker、Code2Wav 之间具体怎样交叠，仍需 GPU 时间线来验证。共享 reference 的单轮对照中，wait-all 与 early-emit 分别为 7.087 和 6.994 requests/s，相差约 1.3%，也与“一个 group 时提前返回的空间很小”相符，但同样不能代替完整的因果验证。
 
