@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated": "2026-08-19",
+  "generated": "2026-09-20",
   "articles": [
     {
       "id": "slime-vlm-multi-turn",
@@ -928,7 +928,8 @@
       ],
       "referenced_by": [
         "sglang/sglang-omni/tts-optimization.md",
-        "sglang/sglang-omni/cpu-first-class-citizen.md"
+        "sglang/sglang-omni/cpu-first-class-citizen.md",
+        "sglang/sglang-omni/batch.md"
       ],
       "series": null,
       "series_order": null,
@@ -1345,7 +1346,9 @@
         "sglang/kvcache-code-walk-through/mem-fraction-static.md",
         "torch/cuda-graph/readme.md"
       ],
-      "referenced_by": [],
+      "referenced_by": [
+        "sglang/sglang-omni/batch.md"
+      ],
       "series": null,
       "series_order": null,
       "prerequisites": [
@@ -1354,6 +1357,45 @@
       ],
       "external_links": {
         "github_cn": "sglang/sglang-omni/cpu-first-class-citizen-zh.md"
+      }
+    },
+    {
+      "id": "sglang-omni-batch",
+      "path": "sglang/sglang-omni/batch.md",
+      "title": "从一次 Batch Size 争论，思考 SGLang Omni 的性能验证与调度取舍",
+      "topics": [
+        "SGLang",
+        "SGLang-Omni",
+        "MiniCPM-o",
+        "TTS",
+        "Code2Wav",
+        "batching",
+        "reference-aware-batching",
+        "head-of-line-blocking",
+        "scheduler",
+        "benchmark",
+        "CPU-contention",
+        "closed-loop",
+        "performance-validation",
+        "quality-gate"
+      ],
+      "depth": "modify-extend",
+      "status": "published",
+      "language": "bilingual",
+      "references_to": [
+        "sglang/sglang-omni/cpu-first-class-citizen-zh.md",
+        "sglang/sglang-omni/why-sglang-omni.md",
+        "sglang/sglang-omni/tts-refactor-zh.md"
+      ],
+      "referenced_by": [],
+      "series": null,
+      "series_order": null,
+      "prerequisites": [
+        "sglang/sglang-omni/cpu-first-class-citizen-zh.md"
+      ],
+      "external_links": {
+        "github_en": "sglang/sglang-omni/batch-en.md",
+        "github_cn": "sglang/sglang-omni/batch.md"
       }
     }
   ],
