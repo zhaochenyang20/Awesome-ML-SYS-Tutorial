@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="950" viewBox="0 0 1200 950" role="img" aria-labelledby="title desc">
+<title id="title">Copy safely, then emit as soon as the event completes</title><desc id="desc">Each stream uses a depth-two output pipeline; pinned slots come from a shared pool.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="950" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Copy safely, then emit as soon as the event completes</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Each stream uses a depth-two output pipeline; pinned slots come from a shared pool.</text>
+<text x="38" y="137" class="label" text-anchor="start" style="">Same CUDA stream — execution order, not a timing scale</text>
+<rect x="38" y="161" width="244" height="117" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="195" class="label" text-anchor="start" style="">Replay window N</text>
+<text x="56" y="226" class="small muted" text-anchor="start" style="">Borrowed graph output</text>
+<path d="M291 219L319 219" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="330" y="161" width="286" height="117" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="348" y="195" class="label" text-anchor="start" style="">Convert + D2H</text>
+<text x="348" y="226" class="small muted" text-anchor="start" style="">FP32 conversion and copy</text>
+<text x="348" y="253" class="small muted" text-anchor="start" style="">into a pinned output slot.</text>
+<path d="M625 219L652 219" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="664" y="161" width="221" height="117" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="682" y="195" class="label" text-anchor="start" style="">Record event</text>
+<text x="682" y="226" class="small muted" text-anchor="start" style="">Copy completion</text>
+<path d="M894 219L923 219" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="936" y="161" width="226" height="117" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="954" y="195" class="label" text-anchor="start" style="">Replay N+1</text>
+<text x="954" y="226" class="small muted" text-anchor="start" style="">Reuse graph output</text>
+<text x="38" y="315" class="small muted" text-anchor="start" style="">The graph buffer is copied before the next replay can overwrite it.</text>
+<text x="38" y="367" class="label" text-anchor="start" style="">CPU output path</text>
+<rect x="38" y="391" width="235" height="140" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="425" class="label" text-anchor="start" style="">Every Talker frame</text>
+<text x="56" y="456" class="small muted" text-anchor="start" style="">Poll pending events.</text>
+<text x="56" y="483" class="small muted" text-anchor="start" style="">Continue processing.</text>
+<path d="M284 461L303 461" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="315" y="391" width="240" height="140" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="333" y="425" class="label" text-anchor="start" style="">Event complete?</text>
+<text x="333" y="456" class="small muted" text-anchor="start" style="">Not ready: keep slot.</text>
+<text x="333" y="483" class="small muted" text-anchor="start" style="">Ready: copy output.</text>
+<path d="M566 461L585 461" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="597" y="391" width="280" height="140" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="615" y="425" class="label" text-anchor="start" style="">Own the CPU payload</text>
+<text x="615" y="456" class="small muted" text-anchor="start" style="">Copy to request-owned</text>
+<text x="615" y="483" class="small muted" text-anchor="start" style="">CPU memory: numpy.copy</text>
+<path d="M888 461L907 461" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="919" y="391" width="243" height="140" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="937" y="425" class="label" text-anchor="start" style="">Release + emit</text>
+<text x="937" y="456" class="small muted" text-anchor="start" style="">Release pinned slot.</text>
+<text x="937" y="483" class="small muted" text-anchor="start" style="">Emit owned payload.</text>
+<text x="38" y="568" class="small muted" text-anchor="start" style="">Copy and emit as soon as ready; do not wait for the next window launch.</text>
+<text x="38" y="617" class="label" text-anchor="start" style="">Pooled pinned slots; per-stream pipeline depth = 2</text>
+<rect x="38" y="642" width="140" height="84" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="108.0" y="692" class="label" text-anchor="middle" style="">FREE</text>
+<path d="M188 684L218 684" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="230" y="642" width="180" height="84" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="320.0" y="692" class="label" text-anchor="middle" style="">COPYING</text>
+<path d="M420 684L448 684" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="460" y="642" width="140" height="84" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="530.0" y="692" class="label" text-anchor="middle" style="">READY</text>
+<path d="M610 684L638 684" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="650" y="642" width="310" height="84" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="805.0" y="675" class="label" text-anchor="middle" style="">COPY TO OWNED</text>
+<text x="805.0" y="704" class="label" text-anchor="middle" style="">CPU MEMORY</text>
+<path d="M970 684L1000 684" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1012" y="642" width="150" height="84" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1087.0" y="692" class="label" text-anchor="middle" style="">FREE</text>
+<text x="38" y="756" class="small muted" text-anchor="start" style="">After numpy.copy, release the pooled slot; emit the request-owned payload.</text>
+<text x="38" y="785" class="small muted" text-anchor="start" style="">Cancellation retires pending slots; uncertain copy completion prevents reuse.</text>
+<rect x="38" y="810" width="1124" height="67" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="58" y="837" class="small" text-anchor="start" style="">First and final windows stay synchronous.</text>
+<text x="58" y="866" class="small" text-anchor="start" style="">Flush the pending window before decoding the tail; preserve message boundaries.</text>
+<path d="M38 895H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="925" class="small muted" text-anchor="start" style="">Mechanism: SGLang-Omni #1567, with completed output checked on every Talker frame.</text></svg>
