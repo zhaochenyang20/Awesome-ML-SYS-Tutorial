@@ -1,4 +1,65 @@
-# Execution Strategy as Configuration: The Stage–Process–GPU Topology in SGLang-Omni
+# Fish Audio Drama 3 Release with Day-0 Support in SGLang-Omni
+
+Fish Audio has released Drama 3, a next-generation speech generation model that upgrades S2-Pro across the board. Like the S2 series, Drama 3 supports multiple speakers, voice cloning, and natural-language control, and it makes clear advances in long-form audio, interaction, and editability. SGLang-Omni supports Drama 3 from day 0.
+
+## What's New in Drama 3
+
+- **Multi-turn directing.** Give direction on the previous generation, such as "a little gentler, a bit sadder", and the model regenerates it in context instead of starting over.
+- **Speech infilling and precise editing.** Edit speech the way you edit text. Make a local replacement, such as changing "Wednesday" to "Thursday", while the voice and the transitions on either side stay natural.
+- **Script-driven multi-character scenes.** Voice a complete scene with several characters in one pass from a script, with streaming synthesis for long text.
+- **Long conversations and long-form audio.** Built for long recordings and extended sessions, with characters and voices that stay consistent across long content.
+- **Greater expressiveness.** Laughter, crying, whispering, and dramatic emotion are no longer constrained by the reference audio, bringing emotional intensity closer to a human performance.
+- **Multilingual voice cloning.** Cross-lingual voice cloning reaches a new state of the art in error rate (CER/WER).
+- **Natural-language tag control.** Inline tags such as `[whisper]`, `[angry]`, and `[laughing]` carry over from S2 to control emotion and prosody.
+
+## Multilingual Voice Cloning
+
+The table below reports error rates on the 24-language MiniMax Multilingual Testset (CER or WER, %, lower is better).
+
+| Language | Metric | **Drama 3** | OmniVoice | FireRedTTS3-Base | Fish Audio S2 | ElevenLabs v4 | Inworld TTS-2 | Soniox TTS RT v2 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Arabic | CER | 0.76 | 1.39 | 1.75 | 3.50 | **0.71** | 1.39 | 2.30 |
+| Cantonese | CER | 22.70 | **17.71** | 40.32 | 30.67 | 19.74 | 24.14 | – |
+| Chinese | CER | **0.63** | 1.01 | 0.91 | 0.73 | 0.66 | 0.97 | 1.32 |
+| Czech | WER | 3.53 | 2.86 | 3.17 | 2.84 | **2.13** | 3.95 | 8.36 |
+| Dutch | WER | **0.59** | 1.36 | 1.15 | 0.99 | 1.00 | 1.53 | 2.01 |
+| English | WER | **1.13** | 1.56 | 2.12 | 1.62 | 1.56 | 1.56 | 1.94 |
+| Finnish | WER | 3.09 | 3.75 | 3.10 | 3.33 | **2.43** | 4.74 | 4.14 |
+| French | WER | 2.68 | 3.35 | 5.28 | 3.05 | **2.63** | **2.63** | 4.12 |
+| German | WER | **0.48** | 0.96 | 0.69 | 0.55 | 0.90 | 0.83 | 1.10 |
+| Greek | CER | 3.39 | 1.06 | 1.24 | 5.74 | **0.56** | 0.98 | 1.33 |
+| Hindi | CER | 6.35 | **4.33** | 7.02 | 14.64 | 5.78 | 7.16 | 8.76 |
+| Indonesian | WER | 4.93 | 1.97 | **1.42** | 1.46 | 1.59 | 1.67 | 5.08 |
+| Italian | WER | 1.52 | 2.07 | 2.28 | **1.27** | 1.29 | 1.76 | 2.31 |
+| Japanese | CER | 5.02 | 4.03 | 3.60 | **2.76** | 3.66 | 4.23 | 5.36 |
+| Korean | CER | 2.36 | 2.65 | 2.42 | **1.18** | 2.63 | 2.65 | 3.43 |
+| Polish | WER | 0.82 | 0.87 | 1.22 | 1.26 | **0.77** | 1.39 | 2.62 |
+| Portuguese | WER | **1.11** | 2.51 | 1.79 | 1.14 | **1.11** | 1.79 | 1.40 |
+| Romanian | WER | 4.94 | 2.42 | 1.93 | 10.74 | **1.60** | 2.86 | 4.63 |
+| Russian | WER | **2.23** | **2.23** | 3.28 | 2.40 | 2.32 | 2.65 | 4.05 |
+| Spanish | WER | 0.96 | 1.03 | 1.21 | 0.91 | 1.09 | **0.90** | 1.67 |
+| Thai | CER | 2.27 | 3.98 | **1.87** | 4.23 | 3.08 | 4.19 | 5.47 |
+| Turkish | WER | **0.52** | 2.17 | 0.92 | 0.87 | 0.87 | 1.82 | 1.91 |
+| Ukrainian | WER | 2.10 | 1.77 | **0.55** | 2.30 | 1.37 | 2.18 | 3.06 |
+| Vietnamese | CER | 0.80 | 1.37 | 0.86 | 7.41 | **0.61** | 1.25 | 3.36 |
+
+*Table 1. MiniMax Multilingual Testset, error rate (%). ElevenLabs v4, Inworld TTS-2, and Soniox TTS RT v2 were run once on the same items. **Bold**: lowest per row.*
+
+## Day-0 Serving in SGLang-Omni
+
+Drama 3 runs on SGLang-Omni from launch day. We measured production streaming performance on NVIDIA H200 GPUs with streaming requests, Seed-TTS English prompts with pre-encoded references, temperature 1.0 / top-p 0.9 / top-k 30, and up to 500 frames per request. Throughput counts generated acoustic frames; RTF is a request's time from sending to its last audio chunk divided by the length of the audio returned.
+
+| Concurrency | Throughput (acoustic tokens/s) | TTFA p50 / p95 | RTF (mean) |
+|---|---|---|---|
+| 1 | 168 | 88 / 92 ms | 0.131 |
+| 4 | 471 | 108 / 158 ms | 0.187 |
+| 16 | 935 | 209 / 286 ms | 0.370 |
+
+*Table 2. Drama 3 streaming performance in SGLang-Omni.*
+
+A single stream delivers its first audio in under 100 ms. At concurrency 16, each request's audio is still produced about 2.7× faster than it plays back. Reaching numbers like these takes more than a fast model. A streaming speech request passes through several stages that differ in bottleneck resource, resident state, and latency tolerance, and how those stages are grouped into processes, replicated, and placed on GPUs matters as much as the speed of any one of them. In SGLang-Omni, that decision is deployment-time configuration rather than code written for each model. The rest of this post explains how.
+
+## Behind the Numbers: Execution Strategy as Configuration
 
 **TL;DR**
 
@@ -245,7 +306,7 @@ Consider a completed request with fixed transition semantics, including sampling
 
 ## Evaluation
 
-We evaluate SGLang-Omni on omni, text-to-speech (TTS), and automatic speech recognition (ASR) workloads. Table 1 reports request throughput and tail latency for each model at the stated concurrency $C$.
+We evaluate SGLang-Omni on omni, text-to-speech (TTS), and automatic speech recognition (ASR) workloads. Table 3 reports request throughput and tail latency for each model at the stated concurrency $C$.
 
 | Workload | Model | Hardware | $C$ | Completed | Req/s | TTFA p95 (s) | E2E p95 (s) |
 |---|---|---|---:|---:|---:|---:|---:|
@@ -266,7 +327,7 @@ We evaluate SGLang-Omni on omni, text-to-speech (TTS), and automatic speech reco
 | | MOSS-Transcribe-Diarize | 1× H100 | 64 | 3,264/3,264 | 334.958 | – | 0.268 |
 | | Whisper-large-v3 | 1× H100 | 64 | 3,264/3,264 | 105.800 | – | 0.855 |
 
-*Table 1. SGLang-Omni serving performance.*
+*Table 3. SGLang-Omni serving performance.*
 
 - **Metric definitions.**
   - $C$ is the number of concurrent requests.
