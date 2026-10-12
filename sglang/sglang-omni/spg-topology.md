@@ -9,7 +9,7 @@ Fish Audio has released Drama 3, a next-generation speech generation model that 
 - **Script-driven multi-character scenes.** Voice a complete scene with several characters in one pass from a script, with streaming synthesis for long text.
 - **Long conversations and long-form audio.** Built for long recordings and extended sessions, with characters and voices that stay consistent across long content.
 - **Greater expressiveness.** Laughter, crying, whispering, and dramatic emotion are no longer constrained by the reference audio, bringing emotional intensity closer to a human performance.
-- **Multilingual voice cloning.** Cross-lingual voice cloning reaches a new state of the art in error rate (CER/WER).
+- **Multilingual voice cloning.** A large improvement over S2 in multilingual voice-cloning error rate (CER/WER).
 - **Natural-language tag control.** Inline tags such as `[whisper]`, `[angry]`, and `[laughing]` carry over from S2 to control emotion and prosody.
 
 ## Multilingual Voice Cloning
