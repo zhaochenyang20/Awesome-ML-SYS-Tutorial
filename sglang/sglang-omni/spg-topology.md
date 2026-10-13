@@ -47,6 +47,8 @@ The table below reports error rates on the 24-language MiniMax Multilingual Test
 
 ### Day-0 Serving in SGLang-Omni
 
+For installation, deployment, and streaming API examples, see the [Drama 3 Cookbook](https://sgl-project.github.io/sglang-omni/cookbook/fishaudio_drama3.html).
+
 Drama 3 runs on SGLang-Omni from launch day. We measured production streaming performance on NVIDIA H200 GPUs with streaming requests, Seed-TTS English prompts with pre-encoded references, temperature 1.0 / top-p 0.9 / top-k 30, and up to 500 frames per request. Throughput counts generated acoustic frames; RTF is a request's time from sending to its last audio chunk divided by the length of the audio returned. Each cell is the mean of four runs, and each run used one H200.
 
 | Concurrency | Throughput (acoustic tokens/s) | TTFA p50 / p95 | RTF (mean) |
