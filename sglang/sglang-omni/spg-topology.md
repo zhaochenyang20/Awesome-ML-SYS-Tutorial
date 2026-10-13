@@ -311,4 +311,8 @@ Consider a completed request with fixed transition semantics, including sampling
 
 ## Acknowledgments
 
-TODO
+It takes us for over half a year to retake SGLang Omni back to life. Thanks to all the people who helped us along the way.
+
+SGLang Omni team: Chenyang Zhao, Jingwen Gu, Shenggui Li, Richard Wang, Yichi Zhang, Xuesong Ye, Jiaxin Deng, Ratish P, Jiaxuan Luo, Xinyu Lu, Wenyao Gao, Ao Sun, Jintao Qu, Kaige Li, Yuhao Chen, Yuhan Zhou, Xuxiang Tian, Ruoyi Zhang, Junnan Li, Yixiao Zeng, Chenchen Hong, Huapeng Zhou, Yang Gao, Chaoye Fei, Yiyang Zhang, Yitian Gong
+
+FishAudio Team: Shidong Li, Xuehao Yang, Shijia Liao
