@@ -1,4 +1,4 @@
-# Fish Audio Drama 3 Release with Day-0 Support in SGLang-Omni
+# SGLang Omni: Serving Multi-Stage Omni Models with Heterogeneous Stage Scheduling
 
 Fish Audio has released Drama 3, a next-generation speech generation model that upgrades S2-Pro across the board. Like the S2 series, Drama 3 supports multiple speakers, voice cloning, and natural-language control, and it makes clear advances in long-form audio, interaction, and editability. SGLang-Omni supports Drama 3 from day 0.
 
@@ -12,7 +12,7 @@ Fish Audio has released Drama 3, a next-generation speech generation model that 
 - **Multilingual voice cloning.** A large improvement over S2 in multilingual voice-cloning error rate (CER/WER).
 - **Natural-language tag control.** Inline tags such as `[whisper]`, `[angry]`, and `[laughing]` carry over from S2 to control emotion and prosody.
 
-## Multilingual Voice Cloning
+### Multilingual Voice Cloning
 
 The table below reports error rates on the 24-language MiniMax Multilingual Testset (CER or WER, %, lower is better).
 
@@ -45,19 +45,23 @@ The table below reports error rates on the 24-language MiniMax Multilingual Test
 
 *Table 1. MiniMax Multilingual Testset, error rate (%). ElevenLabs v4, Inworld TTS-2, and Soniox TTS RT v2 were run once on the same items. **Bold**: lowest per row.*
 
-## Day-0 Serving in SGLang-Omni
+### Day-0 Serving in SGLang-Omni
 
-Drama 3 runs on SGLang-Omni from launch day. We measured production streaming performance on NVIDIA H200 GPUs with streaming requests, Seed-TTS English prompts with pre-encoded references, temperature 1.0 / top-p 0.9 / top-k 30, and up to 500 frames per request. Throughput counts generated acoustic frames; RTF is a request's time from sending to its last audio chunk divided by the length of the audio returned.
+Drama 3 runs on SGLang-Omni from launch day. We measured production streaming performance on NVIDIA H200 GPUs with streaming requests, Seed-TTS English prompts with pre-encoded references, temperature 1.0 / top-p 0.9 / top-k 30, and up to 500 frames per request. Throughput counts generated acoustic frames; RTF is a request's time from sending to its last audio chunk divided by the length of the audio returned. Each cell is the mean of four runs, and each run used one H200.
 
 | Concurrency | Throughput (acoustic tokens/s) | TTFA p50 / p95 | RTF (mean) |
-|---|---|---|---|
-| 1 | 168 | 88 / 92 ms | 0.131 |
-| 4 | 471 | 108 / 158 ms | 0.187 |
-| 16 | 935 | 209 / 286 ms | 0.370 |
+|---:|---:|---:|---:|
+| 1 | 166.7 | 88.9 / 90.8 ms | 0.131 |
+| 2 | 287.0 | 96.2 / 130.1 ms | 0.152 |
+| 4 | 467.6 | 108.2 / 156.4 ms | 0.186 |
+| 8 | 678.1 | 153.2 / 210.9 ms | 0.256 |
+| 16 | 927.6 | 210.1 / 287.2 ms | 0.373 |
+| 32 | 1244.7 | 304.6 / 396.1 ms | 0.551 |
+| 64 | 1687.3 | 450.9 / 1020.1 ms | 0.801 |
 
-*Table 2. Drama 3 streaming performance in SGLang-Omni.*
+*Table 2. Drama 3 streaming performance in SGLang-Omni. Means of four Seed-TTS English runs.*
 
-A single stream delivers its first audio in under 100 ms. At concurrency 16, each request's audio is still produced about 2.7× faster than it plays back. Reaching numbers like these takes more than a fast model. A streaming speech request passes through several stages that differ in bottleneck resource, resident state, and latency tolerance, and how those stages are grouped into processes, replicated, and placed on GPUs matters as much as the speed of any one of them. In SGLang-Omni, that decision is deployment-time configuration rather than code written for each model. The rest of this post explains how.
+A single stream delivers its first audio in under 100 ms. At concurrency 16, each request's audio is still produced about 2.7× faster than it plays back. At concurrency 64, throughput is about 1,690 acoustic tokens/s and mean RTF is still 0.80, so a request finishes faster than its audio plays. Reaching numbers like these takes more than a fast model. A streaming speech request passes through several stages that differ in bottleneck resource, resident state, and latency tolerance, and how those stages are grouped into processes, replicated, and placed on GPUs matters as much as the speed of any one of them. In SGLang-Omni, that decision is deployment-time configuration rather than code written for each model. The rest of this post explains how.
 
 ## Behind the Numbers: Execution Strategy as Configuration
 
@@ -65,7 +69,7 @@ A single stream delivers its first audio in under 100 ms. At concurrency 16, eac
 
 A request to a modern omni, speech, or TTS model no longer executes as a single autoregressive loop. It traverses heterogeneous stages, such as modality encoders, a thinker, a talker, and a streaming vocoder, and these stages differ in bottleneck resource, resident state, and latency tolerance. We call the way these stages are grouped into processes, replicated, and placed on devices the *execution strategy*. We argue that it affects serving performance as strongly as the efficiency of any individual stage, and that the model architecture should not dictate it. [SGLang-Omni](https://github.com/sgl-project/sglang-omni) represents the execution strategy as a deployment-time configuration, the **Stage–Process–GPU (SPG) topology**, and relates it to three measurable characteristics: the synchronization granularity of each dependency, and the bottleneck resource and resident state size of each stage. Feedback-coupled fusion, process grouping, replication across and within GPUs, encoder–prefill–decode disaggregation, and stage offload are all instances of this single representation. The same runtime realizes each of them without model-specific changes.
 
-## Introduction
+### Introduction
 
 Multi-stage decoding is becoming the dominant execution pattern for generative models beyond text. Instead of running a single autoregressive loop, a request traverses multiple *modules*. A module is a computational unit declared by the model architecture, and each holds its own runtime state, such as a KV cache, a feedback buffer, or an accumulation window. Omni models decompose speech generation into an autoregressive thinker, a talker that receives per-step feedback from an auxiliary head, and a streaming vocoder. TTS models interleave a slow semantic decoder with a fast acoustic decoder. Unified multimodal models may route one request through both autoregressive and diffusion modules. Even within one architecture, modules differ in dominant bottleneck, resident state, and latency tolerance.
 
@@ -77,7 +81,7 @@ This post describes how SGLang-Omni represents and realizes execution strategies
 - **SPG topology.** We introduce a deployment representation that specifies process grouping, replication, tensor parallelism, and placement independently of the model's computation.
 - **Runtime.** We describe a runtime that realizes any SPG topology. It combines per-stage schedulers behind a uniform interface, feedback-coupled execution, placement-aware communication, and validated per-stage memory budgets.
 
-## Background: Multi-Stage Generative Models
+### Background: Multi-Stage Generative Models
 
 We use Qwen3-Omni as a running example (Figure 1). A speech request passes through the following stages:
 
@@ -97,7 +101,7 @@ A module executes in one or more *phases*. Each phase advances in a fixed unit: 
 - **Bufferable stream.** The producer emits an ordered sequence of chunks, which the consumer may buffer. For example, the talker streams codec frames to the vocoder.
 - **Per-step feedback.** The producer cannot begin its next step until the consumer completes the current one. In Qwen3-Omni, each talker step produces the first codebook of a frame, and the code predictor generates the remaining codebooks. The resulting embedding is then fed back into the next talker step.
 
-## Motivation: Architecture-Transcribed Execution
+### Motivation: Architecture-Transcribed Execution
 
 Existing serving systems derive the execution strategy directly from the model architecture: the declared modules, with all of their phases, become the deployed stages. These systems differ mainly in the granularity of this transcription (Figure 2).
 
@@ -116,7 +120,7 @@ In practice, the best-performing strategy often departs from the architecture in
 
 Both strategies preserve the model's dataflow and outputs, yet neither can be obtained by transcribing the architecture.
 
-## Computational Characteristics
+### Computational Characteristics
 
 Three measurable characteristics largely determine which execution strategy is suitable:
 
@@ -136,11 +140,11 @@ These characteristics also combine. A module bottlenecked on host-side dispatch 
 
 The execution strategy also determines how much lower-level optimizations pay off. Consider CUDA graphs for the Qwen3-TTS vocoder at concurrency 16. In two runs where the vocoder shares a process with the talker, CUDA graphs improve throughput by 7.0% and 9.7%, and reduce mean inter-chunk latency by 10.0% and 9.4%. When the vocoder runs in a separate process, the same optimization is approximately neutral. This is consistent with the vocoder's kernel-launch work moving off the talker's critical path once the two run in separate processes. Kernel-level optimizations therefore cannot be evaluated independently of the topology in which they execute.
 
-## The SPG Topology
+### The SPG Topology
 
 SGLang-Omni separates the computation of a multi-stage model from its deployment. A stage graph specifies the local computations and the dependencies between them. An SPG topology specifies how stages are grouped, replicated, parallelized, and placed.
 
-### Stages and the Stage Graph
+**Stages and the Stage Graph**
 
 A stage is a logical execution unit with a computation, local state, and a scheduling policy. Each scheduled execution of a stage consumes a set of inputs, reads and updates the stage's state, and emits a sequence of output events. The state holds whatever the computation needs across executions, such as request-specific KV caches, feedback, or stream buffers. This interface accommodates one-shot encoders, autoregressive decoding, and incremental waveform synthesis. A stage may contain a whole module, one phase of a module (such as prefill or decode), or several tightly coupled modules.
 
@@ -150,7 +154,7 @@ The stages and their dependencies form a directed acyclic stage graph $\mathcal{
 - a consumer may wait for several predecessors and merge their payloads;
 - a stream consumer may begin executing before its producer finishes.
 
-### Deployment Representation
+**Deployment Representation**
 
 For a stage graph $\mathcal{G}$, an SPG topology is
 
@@ -203,7 +207,7 @@ processes:
 <img width="998" alt="Figure 3: Replicated Qwen3-Omni SPG topology" src="./images/spg-qwen3-omni-replicated-topology.png" />
 
 
-### Representative Topologies
+**Representative Topologies**
 
 Common execution strategies are all instances of the same representation. They differ only in how stages are grouped, replicated, parallelized, and placed:
 
@@ -258,7 +262,7 @@ The same graph supports independent replica counts and GPU sharing. For example,
 
 **Stage offload.** Consider two sequential single-replica stages on one GPU, of which only one keeps its weights on the GPU at a time. When execution switches from the first stage to the second, the first stage's weights are unloaded to host memory after it completes, and the second stage's weights are loaded before it runs. Only weight residency changes; the topology and the request binding stay fixed. KV caches remain on the GPU and continue to count toward the memory budget.
 
-## Runtime Design
+### Runtime Design
 
 The runtime realizes an SPG topology through four layers, Coordinator → Stage → Scheduler → ModelRunner (Figure 4).
 
@@ -271,7 +275,7 @@ The runtime realizes an SPG topology through four layers, Coordinator → Stage 
 
 Because of this separation, process grouping can change without merging the scheduling policies of the member stages. For a fixed execution contract, changing $(\pi, r, \mu)$ reuses the same ModelRunner implementation of $F_s$. For example, EPD adds stage handoffs and prefill/decode scheduling, but decode still invokes the existing CUDA-graph-enabled ModelRunner. Adding decode replicas instantiates that same runner in more workers. Topology changes therefore inherit model-specific execution optimizations, with no separate implementation for each deployment.
 
-### Heterogeneous Scheduling
+**Heterogeneous Scheduling**
 
 Each stage type uses a scheduling policy suited to its workload:
 
@@ -281,7 +285,7 @@ Each stage type uses a scheduling policy suited to its workload:
 
 These policies determine when $F_s$ is invoked and how $I_s$ is formed, while $x_s$ retains the stage's per-request state.
 
-### Placement-Aware Communication
+**Placement-Aware Communication**
 
 Inter-stage communication is split across two planes. The control plane carries request lifecycle events, routing metadata, and data descriptors. The data plane moves tensor buffers through a backend-neutral relay interface. In a relay-backed handoff, the producer publishes the data together with a descriptor, and the consumer uses the descriptor to fetch the data before admitting dependent work. For an edge $u \to v$ with endpoint processes $p$ and $p'$, the transport is chosen from the locality of the endpoints and the compatibility of the data:
 
@@ -294,7 +298,7 @@ Inter-stage communication is split across two planes. The control plane carries 
 
 Every path preserves readiness, stream ordering, and data lifetime. Backend-specific ownership and completion tracking govern when buffers are reclaimed. As a result, changing $\mu$ changes the transport but preserves $E$ and $\beta_a$.
 
-### Preserving Request Semantics
+**Preserving Request Semantics**
 
 Correctness follows from three invariants:
 
@@ -304,68 +308,6 @@ Correctness follows from three invariants:
 
 Consider a completed request with fixed transition semantics, including sampling choices. By induction over its causally ordered execution events, every consumer receives the predecessor data it requires and advances the corresponding state. Terminal stages therefore produce the same per-output data sequences as the logical graph. This argument holds under changes in batching, placement, and delivery time, provided that stage implementations satisfy the invariants above.
 
-## Evaluation
-
-We evaluate SGLang-Omni on omni, text-to-speech (TTS), and automatic speech recognition (ASR) workloads. Table 3 reports request throughput and tail latency for each model at the stated concurrency $C$.
-
-| Workload | Model | Hardware | $C$ | Completed | Req/s | TTFA p95 (s) | E2E p95 (s) |
-|---|---|---|---:|---:|---:|---:|---:|
-| Omni (speech output) | Qwen3-Omni-30B-A3B-Instruct | 2× H100 | 1 | 64/64 | 2.052 | 0.118 | 0.709 |
-| | | | 8 | 64/64 | 10.801 | 0.290 | 1.057 |
-| | | | 16 | 128/128 | 15.306 | 0.447 | 1.528 |
-| | | | 32 | 256/256 | 18.923 | 0.755 | 2.459 |
-| | | | 64 | 512/512 | 22.754 | 1.187 | 4.168 |
-| TTS | Qwen3-TTS 0.6B Base | 1× H200 | 32 | 1,088/1,088 | 13.200 | 0.633 | 3.50 |
-| | Qwen3-TTS 1.7B Base | 1× H200 | 32 | 1,088/1,088 | 12.967 | 0.674 | 3.53 |
-| | Qwen3-TTS 0.6B CustomVoice (streaming) | 1× H200 | 32 | 1,088/1,088 | 11.450 | 0.512 | 3.89 |
-| | Fish Audio S2-Pro | 1× H100 | 32 | 3,498/3,508 | 2.390 | – | 17.334 |
-| | Higgs Audio v3 | 1× H100 | 32 | 3,508/3,508 | 14.648 | – | 2.941 |
-| | MOSS Local | 1× H100 | 32 | 3,508/3,508 | 3.287 | – | 11.502 |
-| | MOSS v1.5 | 1× H100 | 32 | 1,088/1,088 | 3.055 | – | 11.999 |
-| ASR | Qwen3-ASR 0.6B | 1× H100 | 64 | 3,264/3,264 | 434.715 | – | 0.242 |
-| | Qwen3-ASR 1.7B | 1× H100 | 64 | 3,264/3,264 | 402.180 | – | 0.296 |
-| | MOSS-Transcribe-Diarize | 1× H100 | 64 | 3,264/3,264 | 334.958 | – | 0.268 |
-| | Whisper-large-v3 | 1× H100 | 64 | 3,264/3,264 | 105.800 | – | 0.855 |
-
-*Table 3. SGLang-Omni serving performance.*
-
-- **Metric definitions.**
-  - $C$ is the number of concurrent requests.
-  - TTFA is the time to the first non-empty audio packet.
-  - E2E is the end-to-end request latency.
-  - A dash indicates that the metric is not reported for that workload.
-- **Omni.** Inputs are Seed-TTS EN voice-clone requests consisting of reference audio, reference text, and target text. The setup uses two H100 80GB GPUs with CUDA MPS and with speculative decoding disabled. The configuration is the optimized one at revision `18ada129`.
-- **Qwen3-TTS.** Each cell contains 1,088 Seed-TTS EN requests on one H200. Sampling uses temperature 0.9, top-p 1.0, top-k 50, and repetition penalty 1.05. The revision is `ef947946`.
-- **Fish Audio S2-Pro, Higgs Audio v3, and MOSS models.** These results come from an earlier measurement cohort on one H100. Each model runs in its native streaming mode, except MOSS v1.5, which is non-streaming. Each cell contains 3,508 Seed-TTS requests (1,088 EN, 2,020 ZH, and 400 hard), except MOSS v1.5, which uses the 1,088-request EN split.
-- **ASR.** Each cell contains three repeats of the 1,088 Seed-TTS EN reference clips on one H100.
-- **Comparability.** Measurement cohorts differ in hardware and software revision, so results should not be compared across groups.
-
-Two further results stand out:
-
-- **Streaming continuity.** At $C = 32$, all three Qwen3-TTS configurations sustain stall-free playback for 100% of requests with startup buffers of 50, 100, and 200 ms. Their p95 inter-chunk gaps are 0.488 s, 0.518 s, and 0.450 s. For CustomVoice, incremental codec output reduces p95 TTFA from 2.754 s in non-streaming mode to 0.512 s, an 81.4% reduction.
-- **Scaling with concurrency.** From $C = 1$ to $C = 64$, Qwen3-Omni speech throughput increases from 2.05 to 22.75 requests/s, and Qwen3-ASR 0.6B throughput increases from 33.4 to 434.7 requests/s.
-
-## Getting Started
-
-SGLang-Omni is available on PyPI:
-
-```bash
-uv pip install --prerelease=allow "sglang-omni==0.1.7"
-```
-
-The default Qwen3-Omni speech topology is launched with:
-
-```bash
-sgl-omni serve --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct --port 8008
-```
-
-The replicated topology of Figure 3 is launched with:
-
-```bash
-sgl-omni serve --config examples/configs/qwen3_omni_speech_replica2.yaml --port 8091
-```
-
-The resolved topology of a configuration can be inspected before launch with `sgl-omni config resolve --config <config.yaml> --show config`. The [process topology guide](https://sgl-project.github.io/sglang-omni/basic_usage/process_topology.html) documents process grouping, replication, and GPU sharing. The [cookbook](https://sgl-project.github.io/sglang-omni/) provides model-specific instructions for Qwen3-Omni, Qwen3-TTS, Fish Audio S2-Pro, Higgs Audio v3, MOSS-TTS, Qwen3-ASR, and other supported models.
 
 ## Acknowledgments
 
