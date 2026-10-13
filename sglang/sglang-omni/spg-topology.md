@@ -1,6 +1,6 @@
-# SGLang Omni: Serving Multi-Stage Omni Models with Heterogeneous Stage Scheduling
+# Fish Audio Drama 3 Meets SGLang Omni: Day-0 Support and the Stage–Process–GPU Topology
 
-Fish Audio has released Drama 3, a next-generation speech generation model that upgrades S2-Pro across the board. Like the S2 series, Drama 3 supports multiple speakers, voice cloning, and natural-language control, and it makes clear advances in long-form audio, interaction, and editability. SGLang-Omni supports Drama 3 from day 0.
+Fish Audio has released Drama 3, a next-generation speech generation model that upgrades S2-Pro across the board. Like the S2 series, Drama 3 supports multiple speakers, voice cloning, and natural-language control, and it makes clear advances in long-form audio, interaction, and editability. We are excited that Drama 3 is powered by SGLang-Omni from day 0, delivering low-latency, high-throughput streaming speech right at launch.
 
 ## What's New in Drama 3
 
