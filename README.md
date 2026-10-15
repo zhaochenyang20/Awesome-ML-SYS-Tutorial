@@ -143,6 +143,7 @@ Coming back to the topic, this series of podcasts started in August 2024, when I
 
 - [Revisiting CUDA Graph: Core Mechanisms, Multi-Graph Memory Sharing, and Unified Coverage for Dual AR Models](./torch/cuda-graph/readme-2-en.md): Also available on [Zhihu](https://zhuanlan.zhihu.com/p/2017950447520980998) and in [Chinese version](./torch/cuda-graph/readme-2.md).
 - [Brief Analysis of CUDA Graph Based on torch-memory-savor](./torch/cuda-graph/readme_en.md): Also available on [Zhihu: Brief Analysis of CUDA Graph Based on torch-memory-savor](https://zhuanlan.zhihu.com/p/1921726788574360686) and in [Chinese version](./torch/cuda-graph/readme.md).
+- [GPU MODE Lecture Notes](https://github.com/gpu-mode/lectures): Community lecture series on GPU programming for ML — CUDA kernels, profiling, quantization, Flash Attention, Triton and CUTLASS — with notebooks and slides from each lecture.
 
 ### Distributed Training & Communication
 
