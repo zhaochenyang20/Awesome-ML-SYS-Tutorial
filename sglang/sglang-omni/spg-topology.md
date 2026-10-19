@@ -63,6 +63,71 @@ Drama 3 runs on SGLang-Omni from launch day. We measured production streaming pe
 
 A single stream delivers its first audio in under 100 ms. At concurrency 16, each request's audio is still produced about 2.7× faster than it plays back. At concurrency 64, throughput is about 1,690 acoustic tokens/s and mean RTF is still 0.80, so a request finishes faster than its audio plays. Reaching numbers like these takes more than a fast model. A streaming speech request passes through several stages that differ in bottleneck resource, resident state, and latency tolerance, and how those stages are grouped into processes, replicated, and placed on GPUs matters as much as the speed of any one of them. In SGLang-Omni, that decision is deployment-time configuration rather than code written for each model. The rest of this post explains how.
 
+## SGLang-Omni Against Other Open-Source Serving Engines
+
+Beyond Drama 3, we compared SGLang-Omni with three other open-source omni and speech serving engines, labeled OSS 1, OSS 2 and OSS 3, on 18 models: 10 text-to-speech models, 6 speech recognition models and 2 omni models. Each engine served each model it supports with its own server and out-of-the-box settings, on the same H200, driven by the same HTTP client. In every chart, SGLang-Omni is the leftmost bar; the other engines' order and colors are shuffled per model, and a red cross marks a model the engine does not support.
+
+<img width="1000" alt="Text-to-speech throughput" src="https://raw.githubusercontent.com/sgl-project/sglang-omni/38a1c5f5a6468432e86b62ae66b0c8d73b576a96/spg-topology/benchmark/tts_throughput.svg" />
+
+<img width="1000" alt="Text-to-speech time to first audio" src="https://raw.githubusercontent.com/sgl-project/sglang-omni/38a1c5f5a6468432e86b62ae66b0c8d73b576a96/spg-topology/benchmark/tts_ttfa.svg" />
+
+<img width="1000" alt="Speech recognition throughput" src="https://raw.githubusercontent.com/sgl-project/sglang-omni/38a1c5f5a6468432e86b62ae66b0c8d73b576a96/spg-topology/benchmark/asr_throughput.svg" />
+
+<img width="1000" alt="Omni model throughput" src="https://raw.githubusercontent.com/sgl-project/sglang-omni/38a1c5f5a6468432e86b62ae66b0c8d73b576a96/spg-topology/benchmark/omni_throughput.svg" />
+
+SGLang-Omni has the highest throughput on every model in the comparison:
+
+| Family | Models | Throughput vs the fastest other engine |
+|---|---:|---|
+| Text-to-speech, concurrency 16 | 10 | 1.10× to 3.68× (Higgs Audio v3 3.26×, MOSS-TTS v1.5 3.68×, Fish Audio S2-Pro 2.74×, Qwen3-TTS 1.40× to 1.61×) |
+| Speech recognition, concurrency 32 | 6 | 1.16× to 1.81× |
+| Omni with speech output, concurrency 16 | 2 | Qwen3-Omni 1.32×, MiniCPM-o 4.5 6.41× |
+
+Streaming time to first audio at concurrency 16 (p95) is the lowest on 9 of the 10 text-to-speech models and ties on MOSS-TTS Local (0.45 s for both). It is also lower on Qwen3-Omni (0.41 s vs 0.50 s). Output quality matches: SeedTTS WER is within 0.15 points of the best other engine on every model but one. The exception is MOSS-TTS Local (1.79% vs 1.43%), where our output matches the official reference implementation and the other engine's speaker similarity is about 10 points lower.
+
+All of these numbers come from a single instance per GPU. The same-GPU replication topology described below raises them further: three replicas of the Qwen3-TTS 1.7B pipeline on one H200 deliver 1.60× the streaming throughput of one instance at concurrency 96, and three CosyVoice3 replicas at concurrency 48 deliver 2.05× the non-streaming throughput of one instance at concurrency 16.
+
+### Methodology and Reproduction
+
+| Setting | Value |
+|---|---|
+| Hardware | One NVIDIA H200 (141 GB) per model; every engine ran on the same GPU and the same pinned CPU cores, back to back |
+| Serving | Each engine's own server with its default configuration, one instance, CUDA MPS off, Hugging Face Hub offline after the weights were downloaded |
+| Versions | SGLang-Omni `main` as of 14 October 2026, which includes PRs #2798, #2799, #2801, #2804 and #2805, plus PR #2800; other engines at their latest release or `main` as of 13 October 2026 |
+| Text-to-speech | SeedTTS EN, all 1,088 prompts; voice cloning from each item's reference audio (CustomVoice checkpoints use a fixed speaker); throughput non-streaming and TTFA streaming, both at concurrency 16; 32 warm-up requests excluded |
+| Speech recognition | 1,088 SeedTTS EN reference clips through `/v1/audio/transcriptions`, temperature 0, concurrency 32; 64 warm-up requests excluded |
+| Omni | Qwen3-Omni: a fixed 256-prompt SeedTTS EN subset, read-aloud instruction, thinker capped at 256 tokens, streamed audio. MiniCPM-o 4.5: SeedTTS EN 1,088 voice cloning, offline |
+| Statistics | Mean of three passes; quality scored on the first pass with whisper-large-v3; outputs above 50% WER are counted as runaways and excluded |
+
+The comparison used one engine-neutral HTTP client for all engines. For text-to-speech and omni, the benchmark scripts in the SGLang-Omni repository reproduce the SGLang-Omni numbers within about 6%:
+
+```bash
+git clone https://github.com/sgl-project/sglang-omni.git && cd sglang-omni
+uv pip install --prerelease=allow -v -e .
+python -m benchmarks.dataset.prepare --dataset seedtts
+
+# Text-to-speech, for example Qwen3-TTS 1.7B Base
+sgl-omni serve --model-path Qwen/Qwen3-TTS-12Hz-1.7B-Base --port 8000
+python -m benchmarks.eval.benchmark_tts_seedtts \
+    --meta zhaochenyang20/seed-tts-eval-arrow \
+    --model Qwen/Qwen3-TTS-12Hz-1.7B-Base --port 8000 \
+    --lang en --max-concurrency 16
+
+# Speech recognition, for example Qwen3-ASR 1.7B
+sgl-omni serve --model-path Qwen/Qwen3-ASR-1.7B --port 8000
+python -m benchmarks.eval.benchmark_asr_seedtts \
+    --port 8000 --concurrencies 32 --repeats 3 --warmup
+
+# Omni, Qwen3-Omni
+sgl-omni serve --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct --port 8000
+python -m benchmarks.eval.benchmark_omni_seedtts \
+    --meta zhaochenyang20/seed-tts-eval-arrow \
+    --model qwen3-omni --port 8000 \
+    --max-concurrency 16 --max-samples 256
+```
+
+The usage notes at the top of each script cover the other models, including reference formats for Higgs Audio and MOSS-TTS and speaker presets for Voxtral. Set `HF_HUB_OFFLINE=1` once the weights are cached, so that no engine contacts the Hugging Face Hub while serving.
+
 ## Behind the Numbers: Execution Strategy as Configuration
 
 **TL;DR**
