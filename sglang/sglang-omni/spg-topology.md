@@ -367,5 +367,3 @@ Moss AI Team: Yang Gao, Chaoye Fei, Yitian Gong, Chen Yang, Yiyang Zhang, Xipeng
 Boson AI Team: Huapeng Zhou, Silin Men, Ke Bai, Dongming Shen, Mu Li, Alex Smola
 
 FishAudio Team: Shidong Li, Xuehao Yang, Shijia Liao
-
-VI Labs: Alex Liu, Boyue Li, Shin, Yuan Gong
