@@ -1,20 +1,20 @@
-*本文AI含量为0，请放心食用。
-
-> 本文所有代码片段对照 `sgl-project/sglang-omni` main @ `0ee0304a5`（2026-10-16）
-
 # 以 CosyVoice 为代表的 AR + DiT + Vocoder 生成模型优化思路
 
-过去几个月，我们观察到相当量的 TTS 模型采用了 AR + DiT + Vocoder 架构，这些模型通常还会额外带一个 speaker encoder 用来做音色克隆，所以严格说是四个模型串起来的一条链路。为了和社区的说法保持一致，本文仍然沿用 AR + DiT + Vocoder 这个简称。DiT 的加入使得这些模型的音质相比不采用 DiT 方案的模型有了显著提升，但是这带来一些新的优化设计挑战。我们这里总结分享 SGLang Omni 对此类模型的优化思路，主要是 [issue 1652](https://github.com/sgl-project/sglang-omni/issues/1652) 所 track 的各阶段优化，同时我们目前仍旧在进行对于 CosyVoice 通过 Runtime Optimization Agent 进行的进一步优化。总结思路的同时，我们也会把这套方法论扩展到更多 AR + DiT + Vocoder 架构的模型上，譬如 [dots.tts](https://github.com/studio-dots-ai/dots.tts) 和 [Minimax-Music3](https://huggingface.co/MiniMaxAI/MiniMax-Music3)。
+过去几个月，我们观察到相当量的 TTS 模型采用了 AR + DiT + Vocoder 架构，这些模型通常还会额外带一个 speaker encoder 用来做音色克隆，所以严格说是四个 module 串起来的一条链路。为了和主流说法保持一致，本文仍然沿用 AR + DiT + Vocoder 这个简称。
+
+在这之中，DiT 的加入使得这些模型的音质有了显著提升，也带来一些新的优化设计挑战。我们这里总结分享 SGLang Omni 对此类模型的优化思路，主要是 [issue 1652](https://github.com/sgl-project/sglang-omni/issues/1652) 所 track 的各阶段优化。总结思路的同时，我们希望把这套方法论扩展到更多 AR + DiT + Vocoder 架构的模型上，譬如 [dots.tts](https://github.com/studio-dots-ai/dots.tts) 和 [Minimax-Music3](https://huggingface.co/MiniMaxAI/MiniMax-Music3)。
+
+为了准确描述我们的优化思路，本文所有代码片段对照 `sgl-project/sglang-omni` main @ `0ee0304a5`（2026-10-16）。
 
 ## 算法层分析
 
-这一类的 TTS 模型的主要方案是通过 AR 部分生成 audio token，随后使用扩散部分（以DiT结构为主）将 audio token 渲染为 mel 谱，而后则是经典的 vocoder 把 mel 转为波形的过程。
+这一类的 TTS 模型的主要方案是通过 AR 部分生成 audio token，随后使用扩散部分（以 DiT 结构为主）将 audio token 渲染为 mel 谱，而后则是经典的 vocoder 把 mel 转为波形的过程。
 
-- **AR 部分**：骨干就是 Qwen2-0.5B，词表是 6561 个 speech token 外加 200 个控制 token（`sglang_model.py`），帧率是 25 Hz，也就是1秒音频对应 25 个 token。
-- **Speaker encoder**：参考音频编码出一个 192 维的 speaker embedding，用来控制音色。严格来说它是这条链路上第四个模型，也是预处理阶段的heavy work（见后文多线程 CPU 处理）。
+- **AR 部分**：骨干就是 Qwen2-0.5B，词表是 6561 个 speech token 外加 200 个控制 token（`sglang_model.py`），帧率是 25 Hz，也就是 1 秒音频对应 25 个 token。
+- **Speaker encoder**：参考音频编码出一个 192 维的 speaker embedding，用来控制音色。严格来说它是这条链路上第四个模型，也是预处理阶段的 heavy work（见后文多线程 CPU 处理）。
 - **Flow / DiT**：输入 80 通道的 mel，token 到 mel 的比例是 2，所以 mel 是 50 Hz。DiT 的 hidden size 是 1024，静态 chunk size 是 50 mel 帧，正好等于一个 25 token 的 hop（这个对齐关系见后文 Scheduler 一节）。
-- **ODE求解器**：10步的Euler，但是有cfg的缘故所以实际上要翻个倍的前向次数。
-- **HiFT**：基于 ISTFT 的神经声码器。mel 帧到采样点的倍率是 \(8 \times 5 \times 3 \times 4 = 480\)，配上 24 kHz 采样率，正好 50 Hz 的 mel。
+- **ODE 求解器**：10 步的 Euler，但是有 cfg 的缘故所以实际上要翻个倍的前向次数。
+- **HiFT**：基于 ISTFT 的神经声码器。mel 帧到采样点的倍率是 $8 \times 5 \times 3 \times 4 = 480$，配上 24 kHz 采样率，正好 50 Hz 的 mel。
 
 所以一条 5 秒的音频，整条链路是：
 
@@ -22,7 +22,7 @@
 125 个 token → 250 帧 × 80 通道 mel → 12 万个采样点
 ```
 
-从算法设计上来说，这种 multi-stage 的方案通过 diffusion 提升了不少音质，而Cosyvoice这种模型在引入了speaker encoder的情况下也能把音色相似度做的很好。但是多阶段生成在infra层面给我们带来了一系列挑战：
+从算法设计上来说，这种 multi-stage 的方案通过 diffusion 提升了不少音质，而 Cosyvoice 这种模型在引入了 speaker encoder 的情况下也能把音色相似度做的很好。但是多阶段生成在 infra 层面给我们带来了一系列挑战：
 
 - **AR 只有一个 decode step，DiT 有 10 步 × CFG 2 次。** 前者的瓶颈和 LLM 一样是 memory-bound 的 decode，后者每一步都是一次完整的 DiT 前向，走的是完全不同的优化路径。
 - **DiT 是 chunk-causal 的，而且带 lookahead。** 每一帧只能看到自己所在的 chunk 和之前的 chunk，但每个 chunk 还要额外需要 3 个 token 的 lookahead 才能开始算。这直接影响了流式调度的切分策略。
@@ -30,17 +30,17 @@
 
 ## Runtime Profiling
 
-兵来将挡，水来土掩，为了优化好CosyVoice这个模型，我们讨论出了一套runtime profiling的method，同样给agent配套了相关的探测skill和优化skill等工具，具体见 [PR 1850](https://github.com/sgl-project/sglang-omni/pull/1850)，感兴趣的读者可以直接看那边。
+兵来将挡，水来土掩，为了优化好 CosyVoice 这个模型，我们讨论出了一套 runtime profiling 的 method，同样给 agent 配套了相关的探测 skill 和优化 skill 等工具，具体见 [PR 1850](https://github.com/sgl-project/sglang-omni/pull/1850)，感兴趣的读者可以直接看那边。
 
-AI Infra哲学三大问题：1. 哪里速度慢，拖慢了整体的效率？ 2. 这个优化到底是不是在拿效果换速度？ 3. 这个优化它是否切实产生了效益？
+AI Infra 哲学三大问题：1. 哪里速度慢，拖慢了整体的效率？ 2. 这个优化到底是不是在拿效果换速度？ 3. 这个优化它是否切实产生了效益？
 
-而runtime profiling则是我们对于第一个问题的一次尝试。
+而 runtime profiling 则是我们对于第一个问题的一次尝试。
 
-通过给这里多个阶段的模型进行阶段性的测速，哪个部分拖慢了生成的速度便显而易见了，而在往后的优化过程中，这个方案我们可以反复使用，因此固定出一套方法论从长远维护的角度来看，是很有收益的。同样，这套高度重复的工作也可以交给agent进行埋点，从而极大的节省人类的精力。
+通过给这里多个阶段的模型进行阶段性的测速，哪个部分拖慢了生成的速度便显而易见了，而在往后的优化过程中，这个方案我们可以反复使用，因此固定出一套方法论从长远维护的角度来看，是很有收益的。同样，这套高度重复的工作也可以交给 agent 进行埋点，从而极大的节省人类的精力。
 
 TTS 的效果指标和 LLM 不一样，我们主要看 WER：把生成的音频重新过一遍 ASR 转成文字，再和参考文本比对。也是最能反映"音质有没有被优化搞坏"的指标（我们的 baseline 数据就是用 SeedTTS 这套评测跑的）。此外还会看说话人相似度（音色像不像参考音频）。
 
-而在优化过程中常常会出现由AI挖掘的伪需求，实际上这个优化引入之后并没有多大的变化，甚至说是噪声区间内，因此我们要构建一个严格的AB Test去衡量最后的效益。
+而在优化过程中常常会出现由 AI 挖掘的伪需求，实际上这个优化引入之后并没有多大的变化，甚至说是噪声区间内，因此我们要构建一个严格的 AB Test 去衡量最后的效益。
 
 ## 优化分解
 
@@ -48,21 +48,21 @@ TTS 的效果指标和 LLM 不一样，我们主要看 WER：把生成的音频�
 
 判断依据的话，按照“是否改变单个算子的计算方式”进行分类。
 
-To be honest, 目前SGLang Omni对于大部分模型的优化都还停留在engineering level，而且我们也不敢保证在这一层已经优化得很好了。
+To be honest, 目前 SGLang Omni 对于大部分模型的优化都还停留在 engineering level，而且我们也不敢保证在这一层已经优化得很好了。
 
 这里说的"算子"是指一次实际的计算，比如一次 matmul、一次 attention、一次 conv。改变它的**执行形态**（换一个实现、融合掉、编译掉）算 kernel level，剩下的算 engineering level。
 
-在此发表一个暴论，在工程层面没有优化完全的情况下，任何kernel level的收益都是缺乏置信度的。
+此外，我们的实际经验表明，在工程层面（上游 runtime overhead）没有优化完全的情况下，任何 kernel level 的收益都是缺乏置信度的。
 
 ### Engineering level method
 
-常见的工程层的优化，一般包括打高batch，优化流水线里面CPU和GPU的负载，并行处理音频等，而CosyVoice引入了一项更重要的工程措施：优化调度层。对于多阶段的推理，如何编排好每个请求，让它们既可以享受到加速，同时不会出现乱窜的情况，变成了本次优化过程中的一大挑战。
+常见的工程层的优化，一般包括打高 batch，优化流水线里面 CPU 和 GPU 的负载，并行处理音频等，而 CosyVoice 引入了一项更重要的工程措施：优化调度层。对于多阶段的推理，如何编排好每个请求，让它们既可以享受到加速，同时不会出现乱窜的情况，变成了本次优化过程中的一大挑战。
 
-由于AR部分的推理加速方案几乎可以完全照抄主流LLM推理引擎的方式，因此本文不会用过多的篇幅讲解相关内容，但是这并不代表AR部分不重要，只是由于方案成熟，我们采用的优化手段可能并不会产生更多的超额效益。
+由于 AR 部分的推理加速方案几乎可以完全照抄主流 LLM 推理引擎的方式，因此本文不会用过多的篇幅讲解相关内容，但是这并不代表 AR 部分不重要，只是由于方案成熟，我们采用的优化手段可能并不会产生更多的超额效益。
 
-#### 1. Batch inference
+**Batch inference**
 
-几乎所有的模型，首先想到的卓有成效的优化手段都是batch inference。而batch inference的核心思想就是按照矩阵乘的性质，把一组target全部padding到一个M*N大小的矩阵进行推理，而后对里面每一条都进行裁切，从而把吞吐提上去。这里要注意它提升的是**吞吐**而不是单请求的延迟：单次前向里多算几条几乎不增加耗时，但单条请求该等的计算一步没少，甚至可能因为要凑批而多等一会儿。
+几乎所有的模型，首先想到的卓有成效的优化手段都是 batch inference。而 batch inference 的核心思想就是按照矩阵乘的性质，把一组 target 全部 padding 到一个 M*N 大小的矩阵进行推理，而后对里面每一条都进行裁切，从而把吞吐提上去。这里要注意它提升的是**吞吐**而不是单请求的延迟：单次前向里多算几条几乎不增加耗时，但单条请求该等的计算一步没少，甚至可能因为要凑批而多等一会儿。
 
 示例代码如下：
 
@@ -137,9 +137,9 @@ generated = solve_flow_euler_packed(
 )
 ```
 
-#### 2. CUDA Graph capture
+**CUDA Graph capture**
 
-DiT 的 Euler solve 是典型的 launch-bound：10 步 Euler，每步还要跑一次 CFG，拆出来是一大串几微秒级的小kernel，CPU launch的速度跟不上，GPU 在 kernel 之间空转。CUDA 的图捕获把整串 kernel 录下来，之后一次 `replay` 就把整串给send出去，消除逐个 launch 的间隙。它 replay 的还是同一批 kernel，很适合当作一个优先处理的 low-hanging fruit。
+DiT 的 Euler solve 是典型的 launch-bound：10 步 Euler，每步还要跑一次 CFG，拆出来是一大串几微秒级的小 kernel，CPU launch 的速度跟不上，GPU 在 kernel 之间空转。CUDA 的图捕获把整串 kernel 录下来，之后一次 `replay` 就把整串给 send 出去，消除逐个 launch 的间隙。它 replay 的还是同一批 kernel，很适合当作一个优先处理的 low-hanging fruit。
 
 graph 是静态的，输入输出的地址和形状在录制时就固定了，代价就是不够灵活，需要提前把形状定好：
 
@@ -193,21 +193,21 @@ captured.graph.replay()
 return captured.static_output[..., :actual_mel_frame].clone()
 ```
 
-#### 3. Scheduler level optimization
+**Scheduler level optimization**
 
-CV3这一类多阶段模型相对于Dual-AR结构模型最特别的部分，就是对scheduler的精心优化。
+CV3 这一类多阶段模型相对于 Dual-AR 结构模型最特别的部分，就是对 scheduler 的精心优化。
 
-AR部分原生便是流式的output，因此如何做好DiT部分的chunk inference，调度好三个模型之间的推理，以及如何在不同GPU之间把各个部分打满（目前还没完成），就是这一小节的核心探讨内容。
+AR 部分原生便是流式的 output，因此如何做好 DiT 部分的 chunk inference，调度好三个模型之间的推理，以及如何在不同 GPU 之间把各个部分打满（目前还没完成），就是这一小节的核心探讨内容。
 
-在先前优化的基础上，各个stage目前都已经支持batch inference了，但是生产环境中我们常常会面临一个延迟的tradeoff：有的音频长，有的音频短，长度差距太大，我们没法等一整个batch都推理完了再统一丢给下一个模型。所以一个batch里的请求必然会在不同阶段之间先拆开，再按下一阶段的特点重新组batch，反复多次，以此打满GPU和各个模型的利用率。
+在先前优化的基础上，各个 stage 目前都已经支持 batch inference 了，但是生产环境中我们常常会面临一个延迟的 tradeoff：有的音频长，有的音频短，长度差距太大，我们没法等一整个 batch 都推理完了再统一丢给下一个模型。所以一个 batch 里的请求必然会在不同阶段之间先拆开，再按下一阶段的特点重新组 batch，反复多次，以此打满 GPU 和各个模型的利用率。
 
-由于stream和非stream存在较大的区别，我们这里先讲非stream的：
+由于 stream 和非 stream 存在较大的区别，我们这里先讲非 stream 的：
 
-offline推理比较简单，可以总结为“收集-推理-发送”这三个行为，不过三个部分“收集”的方式并不一样。AR部分直接交给sglang的continuous batching，请求按decode step加入和退出batch，哪条先生成完就先把整条结果发给下一个stage，不会被同batch里的长请求影响（赞美sglang）；到了DiT这边，vocoder入口会按时间/数量检测请求，30ms/16条作为基础临界条件，然后按mel帧数计cost，保证总量不超过8000帧，随后再按长度做一次自适应分组（组内长度差不超过384帧，全局padding预算25%），尽量让长度相近的请求共用一次Flow solve；HiFT则在每个Flow组内部按padding浪费程度再分一次组。
+offline 推理比较简单，可以总结为“收集-推理-发送”这三个行为，不过三个部分“收集”的方式并不一样。AR 部分直接交给 sglang 的 continuous batching，请求按 decode step 加入和退出 batch，哪条先生成完就先把整条结果发给下一个 stage，不会被同 batch 里的长请求影响（赞美 sglang）；到了 DiT 这边，vocoder 入口会按时间/数量检测请求，30 ms / 16 条作为基础临界条件，然后按 mel 帧数计 cost，保证总量不超过 8000 帧，随后再按长度做一次自适应分组（组内长度差不超过 384 帧，全局 padding 预算 25%），尽量让长度相近的请求共用一次 Flow solve；HiFT 则在每个 Flow 组内部按 padding 浪费程度再分一次组。
 
-理论上如果生成速度极快，长音频和短音频之间的完成时间差被压缩到10ms这种级别，我们就不需要这种处理了，直接等整个batch全部完成再一起交给下一阶段即可（也就是static batching，暂称懒狗方案）。懒狗方案本质上也是我们目前实现的一个子集：当一批请求恰好同时完成、长度也接近时，上面的流程就会退化成它。不过目前我们还远远没有达到这个极限效率，因此一定的工程实现可以极大地降低延迟。
+理论上如果生成速度极快，长音频和短音频之间的完成时间差被压缩到 10 ms 这种级别，我们就不需要这种处理了，直接等整个 batch 全部完成再一起交给下一阶段即可（也就是 static batching，暂称懒狗方案）。懒狗方案本质上也是我们目前实现的一个子集：当一批请求恰好同时完成、长度也接近时，上面的流程就会退化成它。不过目前我们还远远没有达到这个极限效率，因此一定的工程实现可以极大地降低延迟。
 
-先看vocoder入口的攒批。攒不进去的消息会按到达顺序插回队头，不会被丢掉：
+先看 vocoder 入口的攒批。攒不进去的消息会按到达顺序插回队头，不会被丢掉：
 
 ```python
 # sglang_omni/scheduling/streaming_simple_scheduler.py，`collect_new_request_batch`（示意：两段 defer 分支合并成一行，省略 abort/错误与带 timeout 的二次取消息）
@@ -224,7 +224,7 @@ while len(batch) < self.max_batch_size:                  # 条数上限
 self.pending_messages.extendleft(reversed(deferred))     # 按到达顺序插回队头
 ```
 
-攒到一批之后，再按长度做一次自适应分组。它是先按mel帧数排序，然后跑一个DP。这里的目标有俩：外层先尽量减少分组数（从一个组开始递增，找到第一个满足 padding 预算的方案就返回）；组数固定之后，DP 才在组内最小化 \(\sum \text{组大小} \times \text{组内最长}\)。两层合起来的总目标是把平均 batch size 顶上去。约束是组内的长度差不超过 `flow_merge_max_gap_frames`，并且全局padding预算不超过 `flow_merge_pad_budget_percent`：
+攒到一批之后，再按长度做一次自适应分组。它是先按 mel 帧数排序，然后跑一个 DP。这里的目标有俩：外层先尽量减少分组数（从一个组开始递增，找到第一个满足 padding 预算的方案就返回）；组数固定之后，DP 才在组内最小化 $\sum \text{组大小} \times \text{组内最长}$。两层合起来的总目标是把平均 batch size 顶上去。约束是组内的长度差不超过 `flow_merge_max_gap_frames`，并且全局 padding 预算不超过 `flow_merge_pad_budget_percent`：
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/stages.py，`adaptive_flow_requests_grouping`
@@ -241,13 +241,13 @@ if (plan[0] / non_patching_workload - 1) * 100 <= flow_merge_pad_budget_percent 
     ...                                                  # 全局 padding 预算
 ```
 
-然后是streaming的，能把这种AR+NAR结构的streaming跑明白已然让人拼尽全力，在此基础上的优化更是考究工程能力。
+然后是 streaming 的，能把这种 AR+NAR 结构的 streaming 跑明白已然让人拼尽全力，在此基础上的优化更是考究工程能力。
 
-AR每生成一段token，我们就会把这一部分发送给dit，首次需要hop + lookahead = 25 + 3 = 28个token，之后每25个token同步一次，并且第一个chunk会顺带把prompt的token/mel/speaker embedding一起带过去，这样vocoder不需要等AR整条生成完的payload就可以接着进行生成。DiT和HiFT在同一个vocoder stage里，DiT做完chunk-wise的推理渲染出mel谱之后，会在同一个step里直接交给HiFT增量地出波形，最终得到音频片段返回给用户侧。
+AR 每生成一段 token，我们就会把这一部分发送给 dit，首次需要 hop + lookahead = 25 + 3 = 28 个 token，之后每 25 个 token 同步一次，并且第一个 chunk 会顺带把 prompt 的 token/mel/speaker embedding 一起带过去，这样 vocoder 不需要等 AR 整条生成完的 payload 就可以接着进行生成。DiT 和 HiFT 在同一个 vocoder stage 里，DiT 做完 chunk-wise 的推理渲染出 mel 谱之后，会在同一个 step 里直接交给 HiFT 增量地出波形，最终得到音频片段返回给用户侧。
 
 对齐关系：DiT 的静态 chunk size 是 50 mel 帧，正好等于 25 个 token 乘上 token2mel 的倍率 2，所以 hop 取 25 个 token 不是随手定的，而是为了让一个 hop 正好落在一个 chunk 边界上。
 
-vocoder这边给每个请求维护一个状态机：token够一个因果窗口（offset + hop + 3）就是`causal_window`，可以出一个hop；AR结束之后剩下的部分走`leftover`；AR结束但一个token都没有则走`fallback`；其余情况都是`wait`。DiT的chunk inference靠chunk-causal mask保证每一帧只看得到自己所在的chunk和之前的chunk，新来的token不会改变已经输出的部分；同时prompt会被pad到hop的整数倍，让第一个hop正好对齐chunk边界，不用多等几个AR token。hop的长度也是逐步增长的（25 → 50 → 100），首包只需要28个token，开播之后有了余量就换大hop减少调用次数。
+vocoder 这边给每个请求维护一个状态机：token 够一个因果窗口（offset + hop + 3）就是 `causal_window`，可以出一个 hop；AR 结束之后剩下的部分走 `leftover`；AR 结束但一个 token 都没有则走 `fallback`；其余情况都是 `wait`。DiT 的 chunk inference 靠 chunk-causal mask 保证每一帧只看得到自己所在的 chunk 和之前的 chunk，新来的 token 不会改变已经输出的部分；同时 prompt 会被 pad 到 hop 的整数倍，让第一个 hop 正好对齐 chunk 边界，不用多等几个 AR token。hop 的长度也是逐步增长的（25 → 50 → 100），首包只需要 28 个 token，开播之后有了余量就换大 hop 减少调用次数。
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/streaming_vocoder.py，`CosyVoice3StreamState.next_decode`
@@ -262,7 +262,7 @@ else:
     return "wait"
 ```
 
-一个step里，选定的请求合成一次成批的Flow调用；HiFT 同样一个 step 只跑一次——把每条请求的新 mel 帧接到它自己的历史后面，整组共用一次 HiFT 调用：
+一个 step 里，选定的请求合成一次成批的 Flow 调用；HiFT 同样一个 step 只跑一次——把每条请求的新 mel 帧接到它自己的历史后面，整组共用一次 HiFT 调用：
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/streaming_vocoder.py，`run_step`（示意：省略 fallback 分支与 hop 推进）
@@ -299,7 +299,7 @@ return self.vocoder.hift_step(rows)          # 一次调用覆盖整个 step 的
 
 这里能省下来，是因为 HiFT 单次调用本身是 launch-bound（H100 上 50 帧 8 ms、600 帧 12 ms），16 行的 step 逐请求跑要花掉约 200 ms，和一个 Flow hop 同量级。代价是要处理窗口化：F0 和 sine source 仍然覆盖每条请求的整段历史（source 相位是累积和、噪声按绝对位置索引），真正被切短的是 decode——只跑"已产出前缀之后的新帧 + 29 帧左感受野上下文"，29 帧是 decode 的因果卷积感受野之和。final 还要右对齐：source 的 STFT 在结尾做 reflect pad，ISTFT 的 overlap-add 归一化与边缘裁剪都依赖信号在哪儿结束，右对齐之后每条 final 的结尾才和自己单独跑一次一致。
 
-每一个step选哪些请求一起跑也有讲究：已经开播的请求优先，按播放余量（已产出音频时长 - 已播放时长）从小到大排，余量越小越容易断流；还没开播的请求排在后面，按到达顺序处理。并且只和同类step合批（hop和leftover走的是不同的Flow路径），每个step最多16条，多条请求沿序列维打包之后一次Flow调用算完。
+每一个 step 选哪些请求一起跑也有讲究：已经开播的请求优先，按播放余量（已产出音频时长 - 已播放时长）从小到大排，余量越小越容易断流；还没开播的请求排在后面，按到达顺序处理。并且只和同类 step 合批（hop 和 leftover 走的是不同的 Flow 路径），每个 step 最多 16 条，多条请求沿序列维打包之后一次 Flow 调用算完。
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/streaming_vocoder.py，`select_step_participants`（示意：省略两处 assert 与空列表返回）
@@ -321,7 +321,7 @@ peers = [(rid, s) for rid, s in ranked if s.next_decode() == head_decode]  # 只
 return peers[: self.max_batch_size]
 ```
 
-整个step由serving loop驱动：先把inbox里的消息读完，再跑一个step，保证排序的时候看到的都是最新状态。驱动逻辑本身在框架层，很简单的几行代码：
+整个 step 由 serving loop 驱动：先把 inbox 里的消息读完，再跑一个 step，保证排序的时候看到的都是最新状态。驱动逻辑本身在框架层，很简单的几行代码：
 
 ```python
 # sglang_omni/scheduling/streaming_vocoder.py，`StreamingVocoderBase.pump_one_step`（示意：省略失败回调）
@@ -347,7 +347,7 @@ if self.has_ready_work():
         continue
 ```
 
-最后是资源编排。vocoder和AR在同一个进程、同一张卡上，所以vocoder被放到了独立的CUDA stream上，kernel和host copy不再排在AR的decode后面：
+最后是资源编排。vocoder 和 AR 在同一个进程、同一张卡上，所以 vocoder 被放到了独立的 CUDA stream 上，kernel 和 host copy 不再排在 AR 的 decode 后面：
 
 当然后面如果考虑分离推理的话，还有更多的研究方向。
 
@@ -363,9 +363,9 @@ else:
     self.stream_context = contextlib.nullcontext()
 ```
 
-同时同进程的stage按列表顺序构建，vocoder放在engine之前，Flow/HiFT/CUDA Graph先驻留，再由SGLang按剩余显存分配KV pool，避免OOM或者KV pool被挤小。
+同时同进程的 stage 按列表顺序构建，vocoder 放在 engine 之前，Flow/HiFT/CUDA Graph 先驻留，再由 SGLang 按剩余显存分配 KV pool，避免 OOM 或者 KV pool 被挤小。
 
-顺着再往下想一步，会发现更根本的问题是：KV pool 本身就不该按整张卡来算。`mem_fraction_static` 默认 0.85，在 H100 上打满之后，我们发现AR能占用 5.46M tokens / 62.5 GB 的pool大小；而这台机器上最多 32 条并发 × 4096 context = 131k tokens，只有 1.5 GB。也就是说那 62.5 GB 里除 1.5 GB 之外**永远不可能被用到**，那既然这样，为什么我们不把吃白饭的显存拿出来给其他两个模型呢。
+顺着再往下想一步，会发现更根本的问题是：KV pool 本身就不该按整张卡来算。`mem_fraction_static` 默认 0.85，在 H100 上打满之后，我们发现 AR 能占用 5.46M tokens / 62.5 GB 的 pool 大小；而这台机器上最多 32 条并发 × 4096 context = 131k tokens，只有 1.5 GB。也就是说那 62.5 GB 里除 1.5 GB 之外**永远不可能被用到**，那既然这样，为什么我们不把吃白饭的显存拿出来给其他两个模型呢。
 
 改法是让池子跟着实际能跑的请求数走：
 
@@ -382,7 +382,7 @@ if overrides.get("max_total_tokens") is None:
 
 H100 上池子从 62.5 GB 降到 1.5 GB，分配完的剩余显存从 11.2 GB 变成 72.2 GB；buffered 并发 32 的吞吐 +83%。而省下来的这 60 GB 最大的用处，是把**同卡多副本**这条路打开了，下面会讲相关内容。
 
-至于多副本，框架本身已经支持把vocoder拆到单独的进程和GPU上，或者整条pipeline做数据并行。同卡多副本这条路上现在有了实测，而且收益比想象中实在——单副本根本跑不满卡：
+至于多副本，框架本身已经支持把 vocoder 拆到单独的进程和 GPU 上，或者整条 pipeline 做数据并行。同卡多副本这条路上现在有了实测，而且收益比想象中实在——单副本根本跑不满卡：
 
 | 副本数 | 单副本 req/s | 聚合 req/s | 相对单副本 | SM active |
 | --- | --- | --- | --- | --- |
@@ -395,9 +395,9 @@ H100 上池子从 62.5 GB 降到 1.5 GB，分配完的剩余显存从 11.2 GB �
 
 值得注意的是 Tensor Active 只从 7.8% 走到 18.5%，也就是说加副本之后用上了空转的算力，这也解释了为什么聚合吞吐能涨这么多而单副本只是缓慢下降。
 
-#### 4. 多线程CPU处理
+**多线程 CPU 处理**
 
-参考音频的编码（ONNX speaker encoder + speech tokenizer）是预处理阶段的主要负载任务，它原本在lock里串行执行，配了 `max_concurrency=8` 也并行不起来。改法是把编码移出临界区，只把最后的组装步骤加锁——**锁的范围应该只覆盖真正有共享状态的那部分**，这是这一类优化里最通用的经验。
+参考音频的编码（ONNX speaker encoder + speech tokenizer）是预处理阶段的主要负载任务，它原本在 lock 里串行执行，配了 `max_concurrency=8` 也并行不起来。改法是把编码移出临界区，只把最后的组装步骤加锁——**锁的范围应该只覆盖真正有共享状态的那部分**，这是这一类优化里最通用的经验。
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/request_builders.py，`preprocess_cosyvoice3_payload`（示意：省略前段取 context 与锁后的 state 回填）
@@ -437,16 +437,16 @@ providers = (
 )
 ```
 
-再往下挖一层，"并行起来"之后还有一笔账：ONNX Runtime 的 intra-op 工作线程在空闲时是spining的。speaker encoder 是跑在 CPU 上的 ONNX session，它的 worker 没事干的时候也在空转抢 CPU，而 serving也需要一部分CPU core。
+再往下挖一层，"并行起来"之后还有一笔账：ONNX Runtime 的 intra-op 工作线程在空闲时是 spining 的。speaker encoder 是跑在 CPU 上的 ONNX session，它的 worker 没事干的时候也在空转抢 CPU，而 serving 也需要一部分 CPU core。
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/utils.py，`SpeakerEncoder`（示意）
 option.add_session_config_entry("session.intra_op.allow_spinning", "0")   # 空闲时让 worker 休息一下。
 ```
 
-改动只有一行，收益却不小，而且之前CPU压力越大，加入这个改动之后收益也就越大：H200 上流式并发 16 吞吐 +32.51%、非流式并发 16 +44.93%；把进程绑到 8 个核上时 +82.88%，16 核的时候 +33.57%。这个梯度正好说明它省的是 CPU 竞争产生的开销。
+改动只有一行，收益却不小，而且之前 CPU 压力越大，加入这个改动之后收益也就越大：H200 上流式并发 16 吞吐 +32.51%、非流式并发 16 +44.93%；把进程绑到 8 个核上时 +82.88%，16 核的时候 +33.57%。这个梯度正好说明它省的是 CPU 竞争产生的开销。
 
-#### *5. BF16推理
+**BF16 推理**
 
 示例代码如下：
 
@@ -481,7 +481,7 @@ with hift_autocast:
     wav, _ = self.hift.inference(speech_feat=padded, finalize=True)
 ```
 
-#### 6. 消除 host sync 与常驻化
+**消除 host sync 与常驻化**
 
 这里面收益最大的一条，反而是最不起眼的一条：AR 每步都要把采样出来的 token id 读回 host。原先是直接 `token_ids.tolist()`，这是一次同步的 D2H 拷贝，而 AR 跑在 legacy default stream 上。
 
@@ -500,7 +500,7 @@ token_ids_cpu = self.redraw_repeated_tokens(
 )
 ```
 
-改完之后，原先每步三次同步读回（`collect_tokens`、output processor、sglang 的 batch result 转换）合并成异步copy+单次等待。Qwen3-Omni 的 talker 和 MOSS-TTS 其实很早就引入这个方法了，CV3 这次算是跟齐。RTX PRO 4500 上并发 4 流式首包 -200 ms、吞吐 +12.6%，并发 16 +18.1%；H100 上并发 16 吞吐 +9.2%、首包 -21.9%。
+改完之后，原先每步三次同步读回（`collect_tokens`、output processor、sglang 的 batch result 转换）合并成异步 copy + 单次等待。Qwen3-Omni 的 talker 和 MOSS-TTS 其实很早就引入这个方法了，CV3 这次算是跟齐。RTX PRO 4500 上并发 4 流式首包 -200 ms、吞吐 +12.6%，并发 16 +18.1%；H100 上并发 16 吞吐 +9.2%、首包 -21.9%。
 
 示例代码如下：
 
@@ -529,13 +529,13 @@ sine_gen.sine_waves = sine_gen.sine_waves.to(device)
 hift.f0_predictor.to(torch.float64)                  # 每次调用都 cast 一次
 ```
 
-#### 7. 流式 Flow 的 prefix KV cache
+**流式 Flow 的 prefix KV cache**
 
 前面讲 Flash Attention 的时候提过：AR 那一侧的 prefix caching 是从 SGLang 白拿的，DiT 这一侧得自己动手。这一项就是那件事的落地，也是流式路径上最大的一笔收益。
 
 问题是这么来的：chunk-causal mask 只规定了一帧能看到自己所在的 chunk 和之前的 chunk，并没有让它要算的东西变少。所以**hop k 仍然要把前缀所有帧的 10 步 Euler × 2 份 CFG 重跑一遍**，才能算出新的那几帧。一条 300 token 的请求，累计 Flow 工作量大约是 buffered 路径的 2.7 倍，而且这个代价随着流式长度线性增长——首包延迟和 c=16~32 的吞吐基本都耗在这上面。
 
-但前缀是因果的：它在每个 Euler 求解器的step中、每层的 K/V 只取决于更早那些 hop 已经解出来的帧，是个纯函数。那就把它存下来，每个 hop 只解新帧，前缀通过 FA3 的 paged KV 接口去 attend。
+但前缀是因果的：它在每个 Euler 求解器的 step 中、每层的 K/V 只取决于更早那些 hop 已经解出来的帧，是个纯函数。那就把它存下来，每个 hop 只解新帧，前缀通过 FA3 的 paged KV 接口去 attend。
 
 ```python
 # sglang_omni/models/fun_cosyvoice3/prefix_cache.py，`PrefixKVPool`（示意）
@@ -566,11 +566,11 @@ for half in range(2):                           # CFG 两份：条件行与其�
 
 ### Kernel level method
 
-#### 1. torch.compile
+**torch.compile**
 
-自从torch 2.0引入这个功能之后，它已然成为最简单且高效的优化方案，只需要加上 `@torch.compile` 的装饰器便可以一键享受加速。
+自从 torch 2.0 引入这个功能之后，它已然成为最简单且高效的优化方案，只需要加上 `@torch.compile` 的装饰器便可以一键享受加速。
 
-compile的本质是将原本的model类编译为一个torch._dynamo类，把一个动态图编译为一个静态图，进行一系列的算子融合，从而实现加速。而且热更新模型的权重并不会破坏compile后的图，对于rollout来说也属于一种很有效的优化方式。
+compile 的本质是将原本的 model 类编译为一个 torch._dynamo 类，把一个动态图编译为一个静态图，进行一系列的算子融合，从而实现加速。而且热更新模型的权重并不会破坏 compile 后的图，对于 rollout 来说也属于一种很有效的优化方式。
 
 示例代码如下：
 
@@ -593,7 +593,7 @@ with torch.inference_mode():
                       speaker_embedding, prompt_mel, streaming=streaming)
 ```
 
-warmup 这一步不能省，而且必须在和 serving 相同的 `inference_mode` + autocast 精度下跑，否则 guard会直接爆炸，并且第一个真实请求会触发重编译，然后某个倒霉蛋就要爽吃100s的延迟了。这条路径默认开启，H200 上中位吞吐并发 1 时 +24.6%、并发 16 时 +59.0%，WER 不变。
+warmup 这一步不能省，而且必须在和 serving 相同的 `inference_mode` + autocast 精度下跑，否则 guard 会直接爆炸，并且第一个真实请求会触发重编译，然后某个倒霉蛋就要爽吃 100 s 的延迟了。这条路径默认开启，H200 上中位吞吐并发 1 时 +24.6%、并发 16 时 +59.0%，WER 不变。
 
 第二代是编译我们自研的打包 DiT（`PackedDiT`），也就是流式路径跑的那个。它只有一种 `forward` 方式，要求 `fullgraph=True`、不允许出现 graph break；causal（流式 hop）与 full（非流式 final）的差别表现在 attention 实现上：
 
@@ -630,11 +630,11 @@ with self.vocoder.stream_context:
         self.vocoder.leftover_batch(items)
 ```
 
-#### 2. TRT Engine
+**TRT Engine**
 
 TRT 是 NVIDIA GPU 专用的一种加速手段：先把模型转成 ONNX，再用 TensorRT 导出成一个 engine。
 
-坦白说，TRT 这条路我们已经实现了（opt-in，默认关闭），但目前**并没有比 torch.compile 更快，而且差得还不止一点**。单并发下它确实很强（RTF 约 0.09~0.10），但到了高并发反而不如compile了。
+坦白说，TRT 这条路我们已经实现了（opt-in，默认关闭），但目前**并没有比 torch.compile 更快，而且差得还不止一点**。单并发下它确实很强（RTF 约 0.09~0.10），但到了高并发反而不如 compile 了。
 
 不过这一套的工程细节还是有价值的，尤其是它和 torch.compile 互斥、按 profile 边界回退这两点，所以代码留在下面供参考。
 
@@ -702,13 +702,13 @@ flow.decoder.estimator = wrapper
 flow.packed_estimator = None                        # TRT 与 PackedDiT 打包路径互斥，一并摘掉
 ```
 
-#### 3. Flash Attention
+**Flash Attention**
 
 先花一点篇幅讲清楚 attention 这边到底在优化什么：
 
 1. **前缀缓存（prefix caching）**：多个请求如果共享相同的前缀（比如系统提示、或者同一段参考音频），那段 prefix 的 KV 只需要算一次，后面的请求直接复用。
-2. **RadixAttention**：SGLang的核心技术，用一棵基数树（radix tree）管理所有请求的 KV，在 radix tree 上做最长前缀匹配，让上面那个复用自动发生，不用调用方自己管理。
-3. **FlashAttention**：算子层面的改进。它减少 HBM 读写，并且不把 \(N \times N\) 的注意力矩阵拉出来，而是分块在 SRAM 里算完。这个和前缀缓存是正交的。
+2. **RadixAttention**：SGLang 的核心技术，用一棵基数树（radix tree）管理所有请求的 KV，在 radix tree 上做最长前缀匹配，让上面那个复用自动发生，不用调用方自己管理。
+3. **FlashAttention**：算子层面的改进。它减少 HBM 读写，并且不把 $N \times N$ 的注意力矩阵拉出来，而是分块在 SRAM 里算完。这个和前缀缓存是正交的。
 
 CV3 的 AR 部分直接跑在 SGLang 上，所以第 1、2 项它是自动继承的，不需要我们做什么。真正需要我们动手的是 DiT 那一侧，也就是 `packed_dit.py` 里的三个 attention 实现。
 
@@ -765,9 +765,9 @@ elif streaming:                                    # 流式：按 chunk 切段�
 return WholeRowAttention(rows, heads=heads, head_dim=head_dim, max_frames=rows.width)  # 非流式：整行双向
 ```
 
-所以这一项是三路分发：没有 FA3 或不是半精度时退回上面那套 padded SDPA；流式走按 chunk 切段的 ragged方案；非流式走整行双向的 varlen 方案。因此不会让某些硬件上的正确性出问题。
+所以这一项是三路分发：没有 FA3 或不是半精度时退回上面那套 padded SDPA；流式走按 chunk 切段的 ragged 方案；非流式走整行双向的 varlen 方案。因此不会让某些硬件上的正确性出问题。
 
-#### 4. 手写算子改写
+**手写算子改写**
 
 前面几项都是换一个现成的实现，这一项是真正自己动手改算子。
 
@@ -817,7 +817,7 @@ def rope_angles(self, frame_count):                  # 每步只生成一份角�
 
 `rope_angles` 只按 `frame_count` 返回角度，不再像早期版本那样在方法里就 `freqs[:, rows.positions]` 切好——位置切片移到了 `solve_flow_euler_packed` 里对 twin rows 做。
 
-#### 5. 按 Euler steps 提前计算 AdaLN 调制
+**按 Euler steps 提前计算 AdaLN 调制**
 
 前面几项都是在改"怎么算"，这一项是在问"有没有必要每次都算"。
 
