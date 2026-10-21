@@ -253,15 +253,15 @@ CI中的每个gate都对应一个写在代码里的参考值（reference），�
 | `tests/test_model/test_asr_ci_multi_speaker.py` | MOSS-Transcribe-Diarize | 0.9 / 1.1（AISHELL4-long与GoogleTime为0.8 / 1.2） |
 | `tests/test_ci/tts_mps_ci_config.py` | TTS MPS | 0.75 / 1.25 |
 
-速度类参考值按指标方向乘以上表的slack（`tests/utils/__init__.py`中的`apply_slack`）；WER默认乘以1.25（`apply_wer_slack`，ASR传入的是1.1）；UTMOS乘以0.97（`apply_mos_slack`）；准确率与TTS的speaker similarity不加slack，直接与参考值比较。calibration只改参考值，不改slack。
+速度类参考值按指标方向乘以上表的slack（`tests/utils/__init__.py`中的`apply_slack`）；WER默认乘以1.25（`apply_wer_slack`，ASR传入的是1.1）；UTMOS乘以0.97（`apply_mos_slack`）；准确率与TTS的speaker similarity不加slack，直接与参考值比较（TTS MPS除外，其similarity乘以0.97）。calibration只改参考值，不改slack。
 
 calibration工具是维护者私有仓库中的`calibrate-h100-ci` skill（`tests/README.md`中有链接），在[PR #2132](https://github.com/sgl-project/sglang-omni/pull/2132)之前以`.claude/skills/tune-ci-thresholds/`的形式放在sglang-omni仓库中。按迁出前（2026-09-12）的版本，流程如下：
 
 1. 先停掉CI机器上的runner，等正在执行的job结束。calibration与CI共用同一台机器，CI任务会带来额外的CPU、GPU与带宽争用。最后一轮测量结束后立即恢复CI，不要等报告写完。
-2. 每组GPU绑定到其NUMA本地的CPU核（`OMNI_CI_CPUSET`，由`tests/test_model/conftest.py`通过`sched_setaffinity`生效）。写入阈值所用的测量固定在同一组GPU上进行，其余组只做测量。
+2. 每组GPU绑定到其NUMA本地的CPU核（`OMNI_CI_CPUSET`，由`tests/test_model/conftest.py`通过`sched_setaffinity`生效）。写入阈值所用的测量固定在CPU核数最少的那组GPU上进行，这样得到的阈值对每一组都偏保守；其余组只做测量。
 3. 执行precheck：检查依赖版本、GPU显存是否已释放、资源文件，并跑一次CUDA smoke test，同时记录镜像digest、驱动、torch与sglang版本等环境指纹。FlashInfer JIT cache、UTMOS与speaker similarity模型都要提前预热，否则冷启动会产生无效的轮次。
 4. 每个stage重复运行5轮，取所有干净轮次中的最差值：越高越好的指标取最小值，越低越好的取最大值。不取百分位，也不去掉极值。
-5. 明显偏离的轮次判为destructive（MAD z-score大于3.5，且与最近的值相差20%以上），整轮作废并补跑两轮，单个stage最多15轮。被CPU争用打断的尝试同样作废重跑。
+5. 明显偏离的轮次判为destructive（MAD z-score大于3.5，且与最近的值相差20%以上），整轮作废并补跑两轮，单个stage最多15轮。若有3轮及以上被判废，或数据分成了两群，则整个stage重跑一次；仍不稳定的话，保留所有观测、取其中的最差值，并标记出来人工复核。被CPU争用打断的尝试同样作废重跑。
 6. 工具为每个参考值生成before / after对照，由人审阅后再写回上表中的文件。写回后重新生成一次计划，确认所有参考值都已一致。
 
 calibration PR只修改参考值。PR描述中写明测量所用的commit、镜像digest、sglang与torch版本、GPU与cpuset、每个参考值在各轮的结果与变化量，以及刻意没有更新的参考值及原因。合入后，用对应模型的label重跑一次CI。
@@ -301,7 +301,7 @@ calibration PR只修改参考值。PR描述中写明测量所用的commit、镜�
 > # get_context().override(...) / declare_late_resolution(...)
 > ```
 >
-> `ServerArgs.override`在`0.5.17`中依然存在，因此执行这段代码时，每次都会进入第一个分支，后面为新版本准备的两条路径永远不会执行。升级PR的修法是让scheduler绕过这段代码，直接调用`get_context().override(...)`。shim本身后来在[PR #1719](https://github.com/sgl-project/sglang-omni/pull/1719)中修复：不再探测`ServerArgs.override`是否存在，而是判断传入的`server_args`是否就是已经发布到runtime context的那份记录，再决定通过`get_context().override(...)`还是`declare_resolution(...)`写入。
+> `ServerArgs.override`在`0.5.17`中依然存在，因此执行这段代码时，每次都会进入第一个分支，后面为新版本准备的两条路径永远不会执行。升级PR的修法是让scheduler绕过这段代码，直接调用`get_context().override(...)`。shim本身后来在[PR #1719](https://github.com/sgl-project/sglang-omni/pull/1719)中修复：不再探测`ServerArgs.override`是否存在，而是判断传入的`server_args`是否就是已经发布到runtime context的那份记录，再决定通过`get_context().override(...)`还是`declare_late_resolution(...)`（现已改名为`declare_resolution(...)`）写入。
 
 ## 六、检查清单
 

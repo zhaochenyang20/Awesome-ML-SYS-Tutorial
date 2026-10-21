@@ -2,7 +2,7 @@
 
 For the Chinese version, see [SGLang Omni Backbone Version Upgrade Guide](./version_bump_guide_zh.md).
 
-SGLang Omni depends heavily on SGLang's internal APIs. Of its roughly 512 Python files, 68 directly import internal modules under `sglang.srt.*`. These modules are implementation details of SGLang, and their private interfaces come with no compatibility guarantees. A backbone bump looks like a dependency update, but in practice it means adapting the existing code to whatever changed in those private interfaces.
+SGLang Omni depends heavily on SGLang's internal APIs. Of its roughly 512 Python files, 68 directly import internal modules under `sglang.srt.*`. These modules are implementation details of SGLang, and their private interfaces come with no compatibility guarantees. A backbone bump looks like a dependency update, but in practice it means adapting the existing code to changes in those private interfaces.
 
 > Most examples in this guide come from the `0.5.16 → 0.5.17` upgrade ([PR #1477](https://github.com/sgl-project/sglang-omni/pull/1477), later superseded by the `0.5.18` upgrade in [PR #1719](https://github.com/sgl-project/sglang-omni/pull/1719) and never merged on its own). It touched 10 files, adding 80 lines and removing 43. That is far smaller than the previous upgrade, which touched 162 files, but as before, neither of the two most time-consuming issues was visible to a type checker. For a full retrospective on the earlier `0.5.12.post1 → 0.5.16` upgrade, see [From API Alignment to Floating-Point Associativity: Upgrading SGLang Omni's Backbone](./version_bump.md). This guide does not repeat those cases.
 
@@ -103,7 +103,7 @@ The reliable approach is to diff the code itself: unpack the old and new wheels,
 > | `pp_max_micro_batch_size` read moved to `get_parallel()` | no |
 > | token clamp reads `dcp_size` | no |
 >
-> On the config split, the changelog said, "Code that mutated ServerArgs at runtime must route through the new accessors." That statement is accurate, but it does not say that the old call still returns normally, and that gap is exactly where we got caught.
+> On the config split, the changelog said, "Code that mutated ServerArgs at runtime must route through the new accessors." That statement is accurate, but it does not say that the old call still returns normally, which is exactly what caused the failure described above.
 
 ### Step 2: establish a performance baseline
 
@@ -213,7 +213,7 @@ Once a regression is confirmed, add temporary logging to the compatibility layer
 
 These logs cover only the call sites exercised by that run; the rest remain unknown. Base conclusions on measured results, and state clearly which paths were not covered. Overstating the scope will mislead later investigation.
 
-> Across the repository, there were 23 `override_server_args` call sites covering 13 fields. Temporary logging was added to the helper on a running Qwen3-TTS server. The three call sites reached by that run all yielded clear results, and none was affected; only `pp_max_micro_batch_size` was actually broken. The remaining callers were on model paths not reached by the run, and the PR marks them as unaudited.
+> For `0.5.17`, there were 23 `override_server_args` call sites across the repository, covering 13 fields. Temporary logging was added to the helper on a running Qwen3-TTS server. The three call sites reached by that run all yielded clear results, and none was affected; only `pp_max_micro_batch_size` was actually broken. The remaining callers were on model paths not reached by the run, and the PR marks them as unaudited.
 >
 > Based on those measurements, the PR reached a narrow conclusion: writing through `ServerArgs.override` and later reading the value back from `ServerArgs` still works, but writing a value for a config bag consumer to read does not. It would be wrong to summarize this as "all of these overrides are broken."
 
@@ -252,15 +252,15 @@ As of 2026-10-21, the references and slack factors on main live in these files:
 | `tests/test_model/test_asr_ci_multi_speaker.py` | MOSS-Transcribe-Diarize | 0.9 / 1.1 (0.8 / 1.2 for AISHELL4-long and GoogleTime) |
 | `tests/test_ci/tts_mps_ci_config.py` | TTS MPS | 0.75 / 1.25 |
 
-Speed references are multiplied by the slack for their direction (`apply_slack` in `tests/utils/__init__.py`). WER uses 1.25 by default (`apply_wer_slack`; ASR passes 1.1), and UTMOS uses 0.97 (`apply_mos_slack`). Accuracy and TTS speaker similarity get no slack and are compared with the reference directly. Calibration changes only the references, never the slack.
+Speed references are multiplied by the slack for their direction (`apply_slack` in `tests/utils/__init__.py`). WER uses 1.25 by default (`apply_wer_slack`; ASR passes 1.1), and UTMOS uses 0.97 (`apply_mos_slack`). Accuracy and TTS speaker similarity get no slack and are compared with the reference directly, except in TTS MPS, where similarity is multiplied by 0.97. Calibration changes only the references, never the slack.
 
 The calibration tool is the `calibrate-h100-ci` skill in a private maintainer repository (linked from `tests/README.md`). Before [PR #2132](https://github.com/sgl-project/sglang-omni/pull/2132) it lived in the sglang-omni repository as `.claude/skills/tune-ci-thresholds/`. As of that last in-repo version (2026-09-12), the procedure was:
 
 1. Stop the CI runners on the host and wait for running jobs to finish. Calibration shares the machine with CI, and CI jobs add CPU, GPU, and bandwidth contention. Restore CI as soon as the last measurement finishes rather than after the report is written.
-2. Pin each GPU group to its NUMA-local CPU cores (`OMNI_CI_CPUSET`, applied with `sched_setaffinity` in `tests/test_model/conftest.py`). The measurements that set thresholds always run on the same GPU group; the other groups are for measurement only.
+2. Pin each GPU group to its NUMA-local CPU cores (`OMNI_CI_CPUSET`, applied with `sched_setaffinity` in `tests/test_model/conftest.py`). The measurements that set thresholds always run on the group with the fewest CPU cores, so the resulting thresholds are conservative for every group; the other groups are for measurement only.
 3. Run the precheck: dependency versions, freed GPU memory, assets, and a CUDA smoke test, while recording an environment fingerprint (image digest, driver, torch and sglang versions). Warm the FlashInfer JIT cache and the UTMOS and speaker-similarity models beforehand; a cold start produces invalid rounds.
 4. Run each stage 5 times and take the worst value over the clean rounds: the minimum for higher-is-better metrics, the maximum for lower-is-better ones. No percentiles, no trimming.
-5. A round that deviates sharply (MAD z-score above 3.5 and at least 20% away from the nearest value) is marked destructive, discarded whole, and replaced by two new rounds, up to 15 rounds per stage. An attempt interrupted by CPU contention is discarded and rerun as well.
+5. A round that deviates sharply (MAD z-score above 3.5 and at least 20% away from the nearest value) is marked destructive, discarded whole, and replaced by two new rounds, up to 15 rounds per stage. If three or more rounds are rejected, or the values split into two clusters, the whole stage is rerun once. If it is still unstable after that, every observation is kept, the worst one sets the reference, and the stage is flagged for review. An attempt interrupted by CPU contention is discarded and rerun as well.
 6. The tool produces a before/after comparison for every reference. A person reviews it before the values are written back to the files above. After writing, regenerate the plan and confirm that every reference now matches.
 
 The calibration PR changes only reference values. Its description states the measured commit, the image digest, the sglang and torch versions, the GPUs and cpuset, every reference's per-round results and change, and any reference deliberately left unchanged, with the reason. After it merges, rerun CI with the labels for the affected models.
@@ -300,7 +300,7 @@ Fixing one compatibility shim cannot stop upstream from deprecating another inte
 > # get_context().override(...) / declare_late_resolution(...)
 > ```
 >
-> `ServerArgs.override` still exists in `0.5.17`, so this code always entered the first branch, and the two paths below it for the new version never ran. The upgrade PR worked around it by having the scheduler bypass this code and call `get_context().override(...)` directly. The shim itself was fixed later in [PR #1719](https://github.com/sgl-project/sglang-omni/pull/1719): instead of probing for `ServerArgs.override`, it checks whether the `server_args` passed in is the record already published to the runtime context, and writes through `get_context().override(...)` or `declare_resolution(...)` accordingly.
+> `ServerArgs.override` still exists in `0.5.17`, so this code always entered the first branch, and the two paths below it for the new version never ran. The upgrade PR worked around it by having the scheduler bypass this code and call `get_context().override(...)` directly. The shim itself was fixed later in [PR #1719](https://github.com/sgl-project/sglang-omni/pull/1719): instead of probing for `ServerArgs.override`, it checks whether the `server_args` passed in is the record already published to the runtime context, and writes through `get_context().override(...)` or `declare_late_resolution(...)` (since renamed `declare_resolution(...)`) accordingly.
 
 ## 6. Checklist
 
