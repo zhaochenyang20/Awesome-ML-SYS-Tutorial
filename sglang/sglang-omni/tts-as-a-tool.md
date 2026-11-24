@@ -1,32 +1,34 @@
 # TTS as a Tool: The LLM Decides What to Say, the System Decides When to Stop
 
-| Fragmented replies when every turn is interrupted | First prompts that call the speech tool | First audio of a multi-sentence reply |
+| Fragmented replies in interruption replay | First prompts that call the speech tool | First audio on three-sentence requests |
 |:---:|:---:|:---:|
-| 25% → **[TBD]** | 12/24 → **36/36** | 2.48 s → **1.26 s** (old pipeline: 1.29 s) **[TBD: re-measure on one setup]** |
+| 12/128 → **0/128** | 12/24 → **36/36** | 1,198 ms → **705 ms** (direct text: 655 ms) |
 
 ## TL;DR
 
-In SGLang Omni's streaming cascade, TTS used to read every token the language model wrote. The model never chose to speak, never learned what the user had heard, and couldn't speak while doing anything else. We turned speech into a tool. The model calls `tts_start` with the text it wants said, and that call's single tool response reports whether the speech completed, was interrupted (along with the part the user heard), or failed. With Qwen3.8-27B, requiring the call, speaking once per user input, streaming the call's argument and prefilling its opening bring the first audio of a multi-sentence reply to 1.26 s. **[TBD: fragment-rate result.]** Asynchronous tools and correcting a speech mid-way are still open. The split of control is deliberate: the model decides what to say, and the system decides when speech stops and records what the user actually heard, because today's models can sense neither.
+In SGLang Omni's streaming cascade, the model calls `tts_start` with the text it wants spoken. The Session monitors incoming speech, decides when playback stops, and records how far it got. The tool result reports whether speech completed, was interrupted, or failed, and can include an estimated `heard_prefix`. This gives the model a record of what the listener likely heard. It can also choose wording specifically for speech, with brevity still depending on the model and prompt. Scheduling speech alongside asynchronous tools remains open.
+
+We required a speech call and ended the turn after one successful speech to make Qwen3.8-27B use the tool reliably. Streaming the text argument and prefilling the call opening reduced the median time to first audio from 1,198 ms to 705 ms on matched three-sentence requests. On the same H200, the old direct-text path took 655 ms.
 
 ## 1. Introduction
 
 Ask a human assistant to book you a flight and three things happen that nobody thinks about. They tell you the two options that matter rather than every fare on the screen. If you cut in halfway through the second option, they know you only heard the first. And they say "let me check" while they're already looking it up.
 
-A full-duplex system has to do all of this while the conversation keeps moving. That takes two kinds of awareness a language model doesn't have: a continuous stream of input, and the passing of time. An LLM gets a prompt, writes a reply and stops. It doesn't know how far its words have got through the speaker, or how much the user heard before cutting in. Our [post on SGLang Omni's interactive runtime](https://www.sglang.io/blog/omni-interactive-runtime) ended on an open question: how much interaction behavior should a model learn, and how much should the surrounding system coordinate? Native full-duplex models learn timing inside the model. Cascaded systems hand it to an external controller, and in return each component can be upgraded on its own. This post answers that question for one action in a cascade: speaking.
+A full-duplex system has to do all of this while the conversation keeps moving. The language model in this cascade receives discrete prompts and generates replies. The Session observes input continuously and tracks playback timing, including how far a reply got before the listener cut in. Our [post on SGLang Omni's interactive runtime](https://www.sglang.io/blog/omni-interactive-runtime) ended on an open question about how much interaction behavior a model should learn and how much the surrounding system should coordinate. Native full-duplex models learn timing inside the model. Cascaded systems hand it to an external controller, and in return each component can be upgraded on its own. This post answers that question for speaking in a cascade.
 
-Our answer is a split of control. The model decides what to say. The system decides when speech must stop, and keeps the record of what the user actually heard. The interface between the two is one that agents already know well: a tool call.
+Our answer is a split of control. The model decides what to say. The system decides when speech must stop and keeps a record of the estimated playback position. A tool call is the interface between the two.
 
 ## 2. The Problem: TTS as a Fixed Stage of the Pipeline
 
 Until this change, the streaming cascade ran ASR → LLM → TTS, with the synthesizer reading every token the model wrote. That had three consequences.
 
-**The model says too much.** The cascade already strips Markdown, emoji and links before synthesis, so stray symbols aren't the issue. The issue is that an answer written for a screen is the wrong shape for speech: long, structured, thorough. Because everything the model writes gets spoken, it has no way to write one thing and say another.
+**The model says too much.** An answer written for a screen can be long, structured, and thorough. When the cascade reads the model's text directly, the same wording goes to speech. The `text` argument of `tts_start` gives the model a place to choose what should be spoken. The profile prompts for short spoken replies, and how much the tool reduces over-speaking remains to be measured.
 
-**The model doesn't know what the user heard.** When the user cuts in, the cascade trims the reply in the history down to the part that was played, ends it with "…" and adds a system note. The model then reads its own chopped-off replies as examples of how it answers, and copies them. In [#3255](https://github.com/sgl-project/sglang-omni/pull/3255), in 20-turn conversations where every reply was cut, 25% of Qwen3.8-27B's replies came out as fragments such as "杜甫是唐代伟大的…" ("Du Fu was one of the great Tang…"), with the note in place.
+**The model doesn't know what the user heard.** When the user cuts in, the old cascade trims the reply in the history down to the part that was played, ends it with "…" and adds a system note. The model can imitate those shortened replies. In [#3255](https://github.com/sgl-project/sglang-omni/pull/3255), 25% of final answers ended in an ellipsis when Qwen3.8-27B was given 20-turn histories with every reply cut. The tool result makes playback progress explicit in the history through `heard_prefix`.
 
-**Speech can't run alongside anything else.** An assistant should be able to say "let me check" while a lookup runs, or ask for a slower, warmer delivery. When speech is simply what comes out of the pipeline, there's nowhere to start other work in parallel and nowhere to put speaking parameters.
+**Speaking while other tools run.** An assistant should be able to say "let me check" while a lookup runs. A speech tool gives the Session a separate action it could schedule. The current profile ends the turn after one successful speech per user input. Scheduling asynchronous tools and speaking again when their results arrive remain open design questions (Section 7).
 
-All three problems have the same cause: speaking isn't something the model does. A speech has no identity and no result, and it leaves no record of what was done and how it turned out. A tool call provides all three. The `tool_call_id` identifies the action, the tool response is its result, and the call and its response together are the record in the history.
+The first implementation focuses on what gets recorded after speaking. The `tool_call_id` identifies the action, and the call and its result together record the model's wording and the outcome in the conversation history.
 
 ## 3. Design
 
@@ -55,7 +57,7 @@ Every `tts_start` ends in exactly one outcome:
   <img src="images/tts-tool-outcomes.png" alt="Outcomes of tts_start: a refused call or one with no words to speak returns failed; an accepted speech ends as completed, interrupted with heard_prefix, or failed with heard_prefix" width="90%">
 </div>
 
-`heard_prefix` is the part of the text the user actually heard. Section 8.3 explains how it is computed.
+`heard_prefix` is the part of the text that the playback record indicates the user heard. Section 8.3 explains how it is computed.
 
 **Interruption takes a fast path.** When voice activity detection hears the user, the Session closes the TTS and stops the LLM at once, without asking the LLM. Waiting for the user's words to go through ASR and the LLM first would leave time for more audio to play. Everything played in that window would be recorded as said, although the user, who was talking, never heard it.
 
@@ -77,17 +79,19 @@ The reason goes back to the thesis. The LLM doesn't know how far its speech has 
 
 ### 4.3 After an Interruption
 
-**How the model learns what was heard.** We could stream playback progress back to the model, or give it a list of sentences to query. Instead, the stop position is reported once, at the interruption, in the tool response. An LLM has no sense of time and usually assumes it finished speaking, so feeding it progress while it generates wouldn't improve its decisions. The position is accurate to the sentence by default and to the word with an aligner. We don't try to align to tokens. The model isn't rolled back either. Its next prompt shows the new input next to the interrupted call's result.
+**How the model learns what was heard.** We could stream playback progress back to the model, or give it a list of sentences to query. In this design, the Session records the stop position in the tool result and can update it as playback reports arrive. Its estimate uses sentence boundaries by default and can use word timings with an aligner. The next prompt includes the new input and the interrupted call's result.
 
 **How an interrupted speech appears in the history.** There were three candidates:
 
-| Approach | What goes wrong |
+| Approach | What the model sees |
 |---|---|
-| Trim the reply to what was heard (the old cascade) | The model imitates the trimmed replies: 25% fragments when every turn is cut |
-| Insert "the user interrupted you here" at the cut | Weaker models start saying lines like this themselves |
-| Keep the full call and put `heard_prefix` in the tool response (ours) | Nothing the model wrote is rewritten |
+| Trim the reply to what was heard (the old cascade) | An assistant reply ending in an ellipsis and a system note about interrupted speech |
+| Put an interruption note in the user message | The heard text appears in the user's account of the interruption |
+| Keep the call and put `heard_prefix` in the tool response (ours) | The generated text stays in the call and the heard text goes in its result |
 
-The third approach keeps the model's intent and the outcome separate. The call holds the full text the model meant to say, and the response says how much of it got through. The history never contains a chopped-off reply for the model to copy.
+The third approach records the model's wording separately from playback. If the user interrupts while the model is still writing, the call keeps the text generated up to that point. If generation has finished, the call keeps the entire argument.
+
+In one history replay (Section 6), the original call included "The parcel code is V2P2." The simulated interruption set `heard_prefix` to end after "The pickup desk is next to the main entrance." When asked whether it had already read the code aloud, the model's next `tts_start` said "Not yet read. The code is V2P2."
 
 ## 5. Making a Real Model Use It
 
@@ -95,35 +99,35 @@ The design was the easy part. Getting Qwen3.8-27B to use it well took a series o
 
 **Forcing the call.** With `tts_start` offered as an option, only 12 of 24 first prompts called it, and the rest answered in plain text. With `tool_choice: required`, 36 of 36 did. With thinking on, the model calls the tool without being forced, but writing the whole text then took a median of 3.1 s, so the profile runs with thinking off. As a fallback, if a server ignores `tool_choice` and the model writes plain text, that text is spoken as if it were a `tts_start` call, and its result is reported, cut short or followed up in the same way.
 
-**Ending a turn.** If every prompt requires a call, the model can't choose silence. So how does a turn end? We tried giving it a way out, a `silent` tool. On a Session's first input it chose silence for 34 of 50 plain questions. After a completed speech it repeated its answer in 10 of 49 samples with a `silent` tool, and in 22 of 50 with a `silent` action. So ending a turn became a system rule: **one speech per user input**. After a completed speech the model isn't prompted again, and the result goes into its next prompt. It is prompted again only if its call was refused or the speech failed, at most four times per input. The cost is a conflict with the most typical use of an asynchronous tool: say "let me check", then speak again when the result arrives. Section 7 comes back to this.
+**Ending a turn.** If every prompt requires a call, the model can't choose silence. So how does a turn end? We tried giving it a way out, a `silent` tool. On a Session's first input it chose silence for 34 of 50 plain questions. After a completed speech it repeated its answer in 10 of 49 samples with a `silent` tool, and in 22 of 50 with a `silent` action. The system now **ends the turn after one successful speech per user input** and includes the result in the model's next prompt. It is prompted again only if its call was refused or the speech failed, at most four times per input. This limits a common use of asynchronous tools, where the assistant says "let me check" and speaks again when a result arrives.
 
-**First-audio latency.** This came down in three steps:
+**First-audio latency.** The stock SGLang `qwen3_coder` parser releases the text parameter at its closing tag, so the synthesizer waits for the whole argument. Two changes let synthesis start sooner.
 
-1. A tool call's arguments normally arrive only once the call is complete. SGLang's `qwen3_coder` parser releases a parameter only at its closing tag, so the model had to write its whole answer before the first word was spoken.
-2. Our chat service streams the `text` argument as the model writes it, so the first sentence is synthesized while the model is still writing the rest.
-3. Every call starts with the same 14 tokens, `<tool_call>\n<function=tts_start>\n<parameter=text>\n`. We send them as an assistant message the model continues (`continue_final_message: true`), so decoding starts at the spoken text. The model's first character came after a median of 77 ms instead of 293 ms. One detail: these requests use `tool_choice: auto`, not `required`. The opening already commits the model to the call, and the grammar that `required` imposes would make it open a second call.
+1. Our chat service streams the `text` argument as the model writes it, so the first sentence is synthesized while the model writes the rest.
+2. We [prefill the 14-token call opening](https://github.com/sgl-project/sglang-omni/pull/4472), `<tool_call>\n<function=tts_start>\n<parameter=text>\n`, as an assistant message the model continues (`continue_final_message: true`). Decoding starts at the spoken text. These requests use `tool_choice: auto` because the supplied opening already starts the call.
 
-| Configuration | Multi-sentence reply | One-sentence reply |
-|---|---|---|
-| TTS reads the model's text (old pipeline) | 1.29 s | 1.14 s |
-| `tts_start`, SGLang's parser | 2.48 s | 1.38 s |
-| `tts_start`, streamed argument | 1.47 s | 1.39 s |
-| `tts_start`, streamed argument + prefilled opening | 1.26 s | **[TBD]** |
+| Configuration | Requested one sentence | Requested three sentences |
+|---|---:|---:|
+| TTS reads the model's text (old pipeline) | 776 ms | 655 ms |
+| `tts_start`, SGLang's parser | 1,109 ms | 1,198 ms |
+| `tts_start`, streamed argument | 1,150 ms | 876 ms |
+| `tts_start`, streamed argument and prefilled opening | 947 ms | 705 ms |
 
-*Time from the end of the user's speech to first audio, median. The first three rows were measured on two H200s over 15 turns each. The last row was measured separately, over 9 questions asked twice each. **[TBD: re-measure all four rows on one setup.]***
+We replayed the same 15 clips for each requested reply length in each configuration on one H200. All 120 measured turns completed with audio. The table shows medians from when the client sent the packet containing the VAD-detected speech end to when it received the first nonempty audio chunk.
 
-A one-sentence reply gains nothing from streaming, because its first sentence ends where the call does.
+For three-sentence requests, streaming saved a median of 305 ms across the 15 pairs and prefill saved another 205 ms relative to streaming alone. For one-sentence requests, streaming alone added a median of 5 ms across pairs. The final tool path took a paired median of 43 ms longer than direct text on three-sentence requests and 172 ms longer on one-sentence requests.
 
 **Failure.** Failed speech isn't retried. It fails loudly and returns `failed`. In this profile the TTS timeout is 10 s instead of 120 s. When synthesis fails after some sentences have played, the response carries `heard_prefix` along with a note telling the model to say only the rest. Without the note, the model restarted from the beginning in 13 of 20 samples. With it, that dropped to 0 of 20.
 
 ## 6. Evaluation
 
-**[TBD: this section waits on four runs.]** The numbers above are engineering checks on small samples: 24, 36, 50 and 20 runs. As in the runtime post, 25 samples per category carry roughly 20 points of sampling noise, so every number is reported with its sample size.
+We ran the [four evaluations](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/pull/311#issuecomment-7124364587) on one H200 with Qwen3.8-27B and [SGLang Omni at `02e5103`](https://github.com/sgl-project/sglang-omni/tree/02e5103ce0428b8a37e2339116b96a516c0eb36f). Section 5 reports the latency results. The other runs measure conversation behavior and what the model learns from interruption history.
 
-- **Latency on one setup.** The old pipeline, `tts_start` with SGLang's parser, the streamed argument, and the streamed argument with the prefilled opening, all on the same hardware, for one-sentence and multi-sentence replies. **[TBD]**
-- **Full-Duplex-Bench.** The `tts-tool` profile against the old text path on the same revision and hardware: 25 pairs per v1.5 category and 10 samples per v1.0 subset. **[TBD]**
-- **Fragment rate when every turn is interrupted.** This uses the setup from #3255: four 20-turn conversations, with the first 30% of each reply counted as heard and 32 samples per cell. Trimmed replies with a note give 25%. The full call with `heard_prefix` gives **[TBD]**.
-- **History replay.** We plant a random detail in the unplayed tail of a speech, then ask about it on the next turn, and measure how often the model believes it already told the user. **[TBD]**
+**Full-Duplex-Bench.** We ran the direct-text and prefilled tool paths at four concurrent sessions, using the same 100 v1.5 pairs (25 per category) and 30 v1.0 samples (10 per public subset). The local Qwen judge labeled 21/25 direct-text backchannel cases as resuming the original speech, compared with 14/25 for the tool path. Cases labeled as responding rose from 0/25 to 6/25. The v1.5 mean response latency went from 0.950 s to 1.076 s. These are single-run observations. The v1.0 numbers cover the public subsets, with the licensed CANDOR subsets left for future runs. The optional A/F/U judge ran during the preflight.
+
+**Fragment rate after repeated interruptions.** We rebuilt four 20-turn conversations from the topics in [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments), marked the first 30% of each prior reply as heard, and sampled 32 final answers per conversation and history format. The shortened assistant replies with a system note produced 12/128 answers ending in an ellipsis (9.4%). The English inline note and `tts_start` with `heard_prefix` each produced 0/128.
+
+**History replay.** The full tool argument contained a randomly chosen code in both conditions. The heard condition also included it in `heard_prefix`. When asked whether it had read the code, the model answered correctly in both conditions for all 32 pairs and included the right code in its next `tts_start` in all 64 cases. These were direct chat requests with a supplied playback history. They measure how the model uses the record, and testing live playback alignment requires a separate experiment.
 
 ## 7. Limitations and Open Questions
 
@@ -135,7 +139,7 @@ What's left open is mostly a question of where control should sit.
 
 **Steering.** When the user talks while the model is in the middle of a tool loop, should the system interrupt immediately, or let the loop finish and then add the user's words?
 
-Today we keep stopping speech and recording what was heard in the system, because the model can't sense time. As models gain that sense, the line between model and system should move toward the model. The interface wouldn't need to change: the model would simply find `tts_close` in its tool list.
+Today the Session stops speech and records playback progress because it observes continuous input and the playback timeline. If future models can use those signals directly, the system could offer `tts_close` as a model tool.
 
 ## 8. Engineering Appendix
 
