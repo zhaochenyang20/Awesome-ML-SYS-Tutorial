@@ -211,4 +211,4 @@ The "A live demo of the reference profile" section of the [Full-Duplex Guide](ht
 
 ### Acknowledgments
 
-The `tts_start` path landed in [sgl-project/sglang-omni#4428](https://github.com/sgl-project/sglang-omni/pull/4428), authored by [Jingwen Gu](https://github.com/JingwenGu0829). We thank its co-authors: Yuhao Chen, db-ol, Jiaxin (Jackson) Deng, Wenyao Gao, JD, Jeffro, Junnan Li, Qun Lou, Jaxan Luo, JinyanSu1, XXXXRT666, Xuesong Ye and Wilson Zheng.
+The `tts_start` path landed in [sgl-project/sglang-omni#4428](https://github.com/sgl-project/sglang-omni/pull/4428). We thank everyone who contributed to it: Jingwen Gu, Yuhao Chen, Jiaxin Deng, Wenyao Gao, Jiadong Guo, Jeffero Qu, Junnan Li, Qun Lou, Jiaxian Luo, Jinyan Su, Xuesong Ye, Wilson Zheng, Chenyang Zhao.
