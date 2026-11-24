@@ -45,43 +45,15 @@ On top of these there is one division of labor. The model owns what is said, and
 
 A Session plays one speech at a time. A second `tts_start` while one is playing gets `BUSY` rather than silently replacing it. The normal path and the interruption path look like this:
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant S as Session
-    participant L as LLM
-    participant T as TTS
-
-    U->>S: finishes speaking (ASR text)
-    S->>L: prompt, with the last speech's result
-    L->>S: tts_start(text), streamed as it is written
-    S->>T: speak, sentence by sentence
-    T-->>U: audio
-    alt speech plays out
-        T->>S: last sentence played
-        S->>S: record completed
-    else user cuts in
-        U->>S: starts speaking (VAD)
-        S->>T: tts_close
-        S->>L: stop generating
-        S->>S: record interrupted + heard_prefix
-    end
-    Note over S,L: The result goes into the LLM's next prompt
-```
+<div align="center">
+  <img src="images/tts-tool-sequence.png" alt="A tts_start call: the LLM calls tts_start and the Session has the TTS speak; the speech either plays out and is recorded as completed, or the user starts speaking and the Session sends tts_close to the TTS and stop to the LLM, recording interrupted with heard_prefix" width="90%">
+</div>
 
 Every `tts_start` ends in exactly one outcome:
 
-```mermaid
-flowchart TD
-    A[LLM calls tts_start] --> B{Session accepts?}
-    B -- "no: a speech is on, or bad arguments" --> F0["failed (BUSY or error), returned at once"]
-    B -- yes --> C{Any speakable words?}
-    C -- "no: only ... or an emoji" --> F1["failed, but the Session keeps going"]
-    C -- yes --> D[TTS speaks sentence by sentence]
-    D -- last sentence played --> OK["completed (truncated: true if max_tokens cut it)"]
-    D -- user starts talking --> I["interrupted + heard_prefix"]
-    D -- speech service fails --> F2["failed + heard_prefix, with a note: say only the rest"]
-```
+<div align="center">
+  <img src="images/tts-tool-outcomes.png" alt="Outcomes of tts_start: a refused call or one with no words to speak returns failed; an accepted speech ends as completed, interrupted with heard_prefix, or failed with heard_prefix" width="90%">
+</div>
 
 `heard_prefix` is the part of the text the user actually heard. Section 8.3 explains how it is computed.
 
