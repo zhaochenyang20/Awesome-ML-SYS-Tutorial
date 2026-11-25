@@ -1,4 +1,4 @@
-# TTS as a Tool: The LLM Decides What to Say, the System Decides When to Stop
+# Speaking Is an Action: Turning TTS into a Tool for Interactive Models
 
 | Model | Fragmented replies in interruption replay | First prompts that call the speech tool | First audio on three-sentence requests |
 |---|:---:|:---:|:---:|
@@ -8,33 +8,33 @@
 
 ## TL;DR
 
-Human communication is interactive: people keep perceiving while they respond, cut in, and change course when cut off. SGLang Omni builds interactive systems from open models, starting with a cascade of ASR, LLM and TTS coordinated by a Session that continuously runs interaction management. We wanted the cascade to use tools, and after thinking it through, the best form was to make TTS itself the first one: to the LLM, speaking is a tool call no different from a Google search or a weather lookup. The old cascade read aloud every token the LLM wrote, which left a bad choice: with thinking off the model is dumb, and with thinking on it is far too verbose to say out loud. Now the LLM passes `tts_start` only the words worth saying. The Session decides when speech stops and tells the model, through `heard_prefix`, how much the user heard. Across Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B, streaming the tool argument and prefilling the call opening cut median first audio from TODO ms to TODO ms on average, against TODO ms for the old direct-text path.
+Models keep getting smarter, yet people still talk to them one turn at a time. Human communication is interactive: people keep perceiving while they respond, cut in, and change course when cut off. SGLang Omni builds interactive systems from open models, starting with a cascade of ASR, LLM and TTS coordinated by a Session that continuously runs interaction management. The old cascade read aloud every token the LLM wrote, which left a bad choice: with thinking off the model is dumb, and with thinking on it is far too verbose to say out loud. We wanted the cascade to use tools, and after thinking it through, the best form was to make TTS itself the first one: to the LLM, speaking is a tool call no different from a Google search or a weather lookup. Now the LLM passes `tts_start` only the words worth saying. The Session decides when speech stops and tells the model, through `heard_prefix`, how much the user heard. Across Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B, streaming the tool argument and prefilling the call opening cut median first audio from TODO ms to TODO ms on average, against TODO ms for the old direct-text path.
 
 ## Why Interactive Models
 
-Interaction doesn't come in turns. People take in what they see and hear while they respond, start answering before the other side has finished, and change course the instant something changes. In conversation, gaps between turns are around 200 ms, shorter than the 600 ms it takes to plan a sentence (Levinson & Torreira, 2015), and about 40% of turn changes overlap (Heldner & Edlund, 2010). Turn-based systems flatten this into strict alternation and make the human adapt to the machine: say it in one breath, don't pause, don't interrupt, wait. They have to guess when your input has ended, so they either cut you off when you pause to think or make every turn wait.
+Models keep getting smarter, but the way people work with them has barely changed: write a prompt, wait for a reply. People don't communicate that way. They share the same moment and setting and respond while they perceive: they answer before the other side has finished, rephrase when they see a frown, and change course the moment something changes. In conversation, gaps between turns are around 200 ms, shorter than the 600 ms it takes to plan a sentence (Levinson & Torreira, 2015), and about 40% of turn changes overlap (Heldner & Edlund, 2010). Turn-based systems flatten this into a walkie-talkie exchange and make the human adapt to the machine: say it in one breath, don't pause, don't interrupt, wait. They guess from silence when your input has ended, so they either cut you off when you pause to think or make every turn wait.
 
-The deeper problem is that a language model lives outside time. One view holds that a person is a thinking machine taking in the world every 200 ms; a language model sees a prompt, not a stream. It can't notice that you hesitated or looked away, or that its answer is drifting, and it can't feel ten seconds pass. An interactive model like Thinking Machines Lab's reads and writes in 200 ms windows, which is what lets it learn when to respond, when to wait and when to stop.
+The deeper problem is the model itself. A language model experiences the world in a single thread: while the user talks, it waits; while it generates, the world stands still. It sees a prompt, not a stream. It can't notice that you hesitated or looked away, or that its answer is drifting, and it can't feel ten seconds pass. One view holds that a person is a thinking machine taking in the world every 200 ms. Thinking Machines Lab's interaction model keeps reading audio, video and text and producing its response in 200 ms steps, which is what makes it possible to learn when to respond, when to wait and when to stop.
 
-So the goal is not a faster turn-based system but a model that interacts, through every modality it can perceive and produce. Full duplex, perceiving and responding at once, is the means.
+Nor is interaction a layer that can be added afterwards. Every moment holds a decision: speak, wait, stop, or go look something up. These decisions take as much intelligence as the answer itself; hand them to silence thresholds and hand-written rules, and they will be dumber than the model and fall further behind as models improve. So the goal is not a faster turn-based system. Full duplex, perceiving and responding at once, is only the means; the real goal is a model that interacts, whose interaction grows with its intelligence across every modality it can perceive and produce.
 
 ## Our Cascade
 
-Native full-duplex models, such as Thinking Machines Lab's interactive model and Moshi (Défossez et al., 2024), learn interaction end to end, but they need strong omni base models, and open source has few. Turn-based omni models still respond one turn at a time. A cascade of VAD, ASR, LLM and TTS is built from parts open source has in abundance: each upgrades on its own as better models ship, and each failure can be traced to its part. The cost is lost signal: ASR drops tone of voice and merges speakers. SGLang Omni's [streaming cascade](https://www.sglang.io/blog/omni-interactive-runtime) coordinates the parts with a Session that continuously runs interaction management: it decides when the user has finished or cut in, stops playback, and keeps the history in line with what was actually played.
+Native full-duplex models, such as Thinking Machines Lab's interaction model, OpenAI's GPT-Live and Moshi (Défossez et al., 2024), learn interaction end to end, but they need strong omni base models, and open source has few. Turn-based omni models still respond one turn at a time. A cascade of VAD, ASR, LLM and TTS is built from parts open source has in abundance: each upgrades on its own as better models ship, and each failure can be traced to its part. The cost is lost signal: ASR drops tone of voice and merges speakers. SGLang Omni's [streaming cascade](https://www.sglang.io/blog/omni-interactive-runtime) coordinates the parts with a Session that continuously runs interaction management: it decides when the user has finished or cut in, stops playback, and keeps the history in line with what was actually played. The cascade is a bridge to an interactive model. Until open models can make every interaction decision on their own, our rule is: give the model the decisions it makes well, let the system coordinate the signals the model cannot yet perceive, and hand those back as models improve.
 
 ## Why TTS Should Be a Tool
 
-Imagine you are driving and ask an interactive model what the weather is like today. What do you expect to hear, and what do you expect to see? You want to hear one sentence, "72°F today", and glance at the screen for the rest of the week. Behind that sentence, the model has already looked the weather up. What you want to hear is short; what you want to see can be rich.
+Imagine you are driving an electric car and ask its in-car assistant what the weather is like today. What do you expect to hear, and what do you expect to see? You want to hear one sentence, "72°F today", and glance at the touchscreen for the rest of the week. Behind that sentence, the model has already looked the weather up. What you want to hear is short; what you want to see can be rich. This kind of interaction takes real intelligence: the model knows what to think about, what to show and what to say aloud.
 
 Our cascade did not work this way. ASR, the LLM and TTS were nodes at the same level, and TTS read every token the LLM wrote. The surface problem was tokens TTS can't read: emoji, Markdown asterisks, tables. We filtered those out. The real problem is that open LLMs are trained for coding and talk like it: long, structured, thousands of tokens at a time. Turn thinking off and the model gets dumb: its answers go wrong and it handles tools poorly. Turn thinking on and it gets smart, but nobody wants to hear everything it writes.
 
-Reading every token also hides what the user actually heard. When the user cut in, the old cascade trimmed the reply in the history to the played part, ended it with "…" and added a system note. Models imitate those trimmed replies: given 20-turn histories with every reply cut, the setup from [#3255](https://github.com/sgl-project/sglang-omni/pull/3255), TODO% of final answers ended in an ellipsis.
+Reading every token also hides what the user actually heard. When the user cut in, the old cascade trimmed the reply in the history to the played part, ended it with "…" and added a system note. The model then picks up this broken output in context: even when nothing interrupts it, it no longer gives a complete answer and ends with an ellipsis itself. Given 20-turn histories with every reply cut, the setup from [#3255](https://github.com/sgl-project/sglang-omni/pull/3255), TODO% of final answers ended in an ellipsis.
 
-So TTS can't read everything, and the model has to choose. We also wanted the cascade to call tools: the assistant in the car has to check the weather before it can answer. After thinking it through, we found TTS as a tool to be the best form for both, and TTS became our first tool. We demoted it from a pipeline node to a tool; to the LLM, `tts_start` is no different from a Google search or a weather lookup. The model decides what to say. The system decides when speech must stop and records what the user likely heard. A tool call is the interface between them, and this is our answer, for speaking, to the question the runtime post left open: how much interaction behavior the model should learn, and how much the system should coordinate.
+So TTS can't read everything, and the model has to choose. We also wanted the cascade to call tools: the in-car assistant has to check the weather before it can answer. After thinking it through, we found TTS as a tool to be the best form for both, and TTS became our first tool. We demoted it from a pipeline node to a tool; to the LLM, `tts_start` is no different from a Google search or a weather lookup. The model decides what to say. The system decides when speech must stop and records what the user likely heard. A tool call is the interface between them, and this is our answer, for speaking, to the question the runtime post left open: how much interaction behavior the model should learn, and how much the system should coordinate.
 
-## Design
+## System Design
 
-Three rules, each ruling out one failure:
+The Session, the LLM and the TTS work together under three rules:
 
 - **Only the Session changes state.** The LLM issues actions and the TTS executes them, but only the Session decides whether speech is on. Nodes never message each other, so their views of the state can't drift.
 - **Each action has one owner.** `tts_start` belongs to the LLM and `tts_close` to the Session, so nobody races over who stopped what.
@@ -65,7 +65,7 @@ Every `tts_start` ends in exactly one outcome:
 
 ### Thinking On or Off?
 
-This trade-off is where the design starts. Without thinking, the models generalize poorly to a tool like this: offered `tts_start` as an option, TODO of TODO first prompts called it. With thinking, they call it unforced, and because TTS is a tool, the thinking is never spoken. The cost is latency: writing the whole text took a median of TODO s before any audio. The profiles in this post therefore run with thinking off and force the call ([next section](#making-real-models-use-it)). Making thinking cheap enough to keep on is still open.
+This trade-off is where the design starts. Without thinking, the models generalize poorly to a tool like this (unfortunately, we found that with thinking off, models have almost no zero-shot ability to operate tools): offered `tts_start` as an option, TODO of TODO first prompts called it. With thinking, they call it unforced, and because TTS is a tool, the thinking is never spoken. The cost is latency: writing the whole text took a median of TODO s before any audio. The profiles in this post therefore run with thinking off and force the call ([next section](#making-real-models-use-it)). Making thinking cheap enough to keep on is still open.
 
 | Measure | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
@@ -159,15 +159,19 @@ We ran [four evaluations](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutor
 
 Most of what's open is about where control should sit.
 
-**Thinking.** We want thinking on, but users won't wait for it. One idea is a short filler line while the model thinks, such as "let me check the weather" within half a second.
+**Thinking and tool calls.** We want thinking on, but users won't wait for it, and tool calls take time too. One idea is a short acknowledgment while the model thinks or calls a tool, such as "OK, let me check the weather" within half a second. The hard part is that this line and the speech after the tool returns are two separate syntheses, and they have to sound like one continuous utterance.
 
-**Screen.** The driver should hear "72°F" and see the week. Our profile only speaks; there is no render channel next to `tts_start` yet.
+**Screen.** Someone driving an electric car should hear "72°F" and see the week on the touchscreen. We don't yet have a good answer for rendering: how should the model decide what to render? TTS as a tool has made what gets spoken fairly smart, and it lets what is shown differ from what is spoken; but the demo still shows exactly what it says, and what to render still needs design.
 
 **More tools.** TTS is the only tool so far; Google search and weather lookups are next. Asynchronous tools conflict with "one speech per user input": "let me check, then tell you" needs a second speech. When a result arrives after the speech has ended, who triggers it: a system rule, or a fresh prompt to the model?
 
 **Self-correction.** When should `tts_close` or an edit go back to the model? Only once the model can tell how far its speech has got.
 
 **Steering.** When the user talks while the model is mid tool loop, should the system interrupt at once, or finish the loop and then add the user's words?
+
+**Multiple speakers.** The ASR has no context and doesn't tell speakers apart, so several people's words merge into one. How far to support multiple speakers is still an open question.
+
+**Interruption and speech rejection.** Interruption takes the fast path: the moment VAD detects voice, the Session closes the TTS. The VAD only reports whether someone is speaking, understands nothing of what is said, and its signal never reaches the LLM, so the model cannot judge whether it should stop. Its threshold is also low: background music, someone talking across the room or several people chatting all cut the speech off, while in the same noisy room the ASR often picks out the user's voice and leaves the music out. The system needs speech rejection: when the user says something unrelated to the conversation, or someone else talks, it should know not to stop. That is a semantic judgment, and it may cost some interruption latency. Directions include semantic probes on the VAD, a rejection model that accepts only the target speaker's voice, and a user setting for the VAD threshold.
 
 The Session stops speech today because it sees continuous input and the playback timeline. If future models can use those signals directly, `tts_close` could become a model tool.
 
@@ -197,14 +201,14 @@ This reuses the playback feedback path from the runtime post's appendix ("Commit
 
 ### Usage
 
-The Qwen3.8-27B profile is `qwen3-asr-qwen3.8-27b-vivian-tts-tool`. It needs two GPUs, or one H200 using the memory fractions given in the guide. The Inkling 2 Mini and Inkling 2 Small profiles are `TODO` and `TODO`, and need TODO.
+The Inkling 2 Mini and Inkling 2 Small profiles are `TODO` and `TODO`, and need TODO. The Qwen3.8-27B profile is `qwen3-asr-qwen3.8-27b-vivian-tts-tool`; it needs two GPUs, or one H200 using the memory fractions given in the guide.
 
 ```bash
 hf download Qwen/Qwen3-ASR-1.7B
 hf download wilsonzheng0327/Qwen3-ASR-1.7B-dflash --revision d62bd4051e68282e02f93de774036a35f22f1373
-hf download Qwen/Qwen3.8-27B
 hf download TODO  # Inkling 2 Mini
 hf download TODO  # Inkling 2 Small
+hf download Qwen/Qwen3.8-27B
 hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base
 hf download Qwen/Qwen3-ForcedAligner-0.6B
 ```
@@ -214,10 +218,12 @@ PYTHONPATH=. aligner-venv/bin/python examples/streaming_cascade/alignment_worker
 ```
 
 ```bash
+# Inkling 2 Mini
+sgl-omni serve --config examples/streaming_cascade/profiles/TODO/launch.yaml --enable-realtime --port 8765
+# Inkling 2 Small
+sgl-omni serve --config examples/streaming_cascade/profiles/TODO/launch.yaml --enable-realtime --port 8765
 # Qwen3.8-27B
 sgl-omni serve --config examples/streaming_cascade/profiles/qwen3-asr-qwen3.8-27b-vivian-tts-tool/launch.yaml --enable-realtime --port 8765
-# Inkling 2 Mini / Inkling 2 Small
-sgl-omni serve --config examples/streaming_cascade/profiles/TODO/launch.yaml --enable-realtime --port 8765
 ```
 
 The "A live demo of the reference profile" section of the [Full-Duplex Guide](https://github.com/sgl-project/sglang-omni/blob/main/docs/developer_reference/full_duplex_guide.md), added in [#4473](https://github.com/sgl-project/sglang-omni/pull/4473), covers the aligner environment, the one-H200 layout and the browser demo. The "Speaking Through a Tool" section of the same guide describes the profile in full.
