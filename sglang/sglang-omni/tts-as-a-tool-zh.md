@@ -1,14 +1,16 @@
 # 说话是一种行动：将 TTS 变成 interactive model 的 tool
 
-| 模型 | 打断回放中的残缺回复 | 调用语音工具的首轮 prompt | 三句话请求的首音频延迟 |
+| 模型 | 两种条件下都答对用户听到了什么（历史回放，/32） | 调用语音工具的首轮 prompt（/80） | 三句话请求的首音频延迟 |
 |---|:---:|:---:|:---:|
-| Inkling 2 Mini | TODO → **TODO** | TODO → **TODO** | TODO ms → **TODO ms**（直接文本：TODO ms） |
-| Inkling 2 Small | TODO → **TODO** | TODO → **TODO** | TODO ms → **TODO ms**（直接文本：TODO ms） |
-| Qwen3.8-27B | TODO → **TODO** | TODO → **TODO** | TODO ms → **TODO ms**（直接文本：TODO ms） |
+| Inkling 2 Mini | 24 → **32** | 8 → **80** | 1,866 ms → **540 ms**（直接文本：1,263 ms） |
+| Inkling 2 Small | 27 → **32** | 72 → **80** | 2,403 ms → **535 ms**（直接文本：1,579 ms） |
+| Qwen3.8-27B | 12 → **32** | 1 → **80** | 3,124 ms → **625 ms**（直接文本：2,637 ms） |
+
+所有模型都开着同一档位（low）的 thinking。三个箭头分别是：从截短回复加系统说明，到带 `heard_prefix` 的 `tts_start`；从可选调用，到 `tool_choice: required`；从经过 SGLang parser 的 `tts_start`，到流式参数加预填充开头（预填充开头不生成 thinking）。
 
 ## TL;DR
 
-模型越来越聪明，人与模型之间却仍是一问一答。人和人的交流是 interactive 的：一边感知一边回应，会插话，被打断时会立刻调整。SGLang Omni 用开源模型构建 interactive 系统，第一步是 ASR、LLM、TTS 组成的级联，由一个持续运行交互管理的 Session 统一调度。旧的级联会把 LLM 写出的每个 token 都念出来，于是只剩一个两难：关掉 thinking，模型很笨；打开 thinking，它又啰嗦到没法念出来。我们想在这个级联里接入工具，仔细想过之后，发现最好的形式是让 TTS 本身成为第一个工具：对 LLM 来说，说话就是一次工具调用，和 Google 搜索、查天气没有任何区别。现在 LLM 只把值得说的话传给 `tts_start`；Session 决定语音何时停止，并通过 `heard_prefix` 告诉模型用户听到了多少。在 Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B 上，流式输出工具参数、再预填充调用开头之后，首音频中位延迟平均从 TODO ms 降到 TODO ms，旧的直接文本路径为 TODO ms。
+模型越来越聪明，人与模型之间却仍是一问一答。人和人的交流是 interactive 的：一边感知一边回应，会插话，被打断时会立刻调整。SGLang Omni 用开源模型构建 interactive 系统，第一步是 ASR、LLM、TTS 组成的级联，由一个持续运行交互管理的 Session 统一调度。旧的级联会把 LLM 写出的每个 token 都念出来，于是只剩一个两难：关掉 thinking，模型很笨；打开 thinking，它又啰嗦到没法念出来。我们想在这个级联里接入工具，仔细想过之后，发现最好的形式是让 TTS 本身成为第一个工具：对 LLM 来说，说话就是一次工具调用，和 Google 搜索、查天气没有任何区别。现在 LLM 只把值得说的话传给 `tts_start`；Session 决定语音何时停止，并通过 `heard_prefix` 告诉模型用户听到了多少。在 Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B 上，流式输出工具参数、再预填充调用开头之后，三句话请求的首音频中位延迟平均从 2,464 ms 降到 567 ms，旧的直接文本路径为 1,826 ms。第一个和最后一个数字是 thinking 为 low 时的结果；预填充开头会跳过 thinking。
 
 ## 为什么要做 interactive model
 
@@ -65,13 +67,13 @@ Session、LLM 和 TTS 之间的协作遵循三条规则：
 
 ### 开不开 thinking？
 
-整个设计正是从这个权衡出发的。不开 thinking，模型对这类工具的 zero-shot 泛化很差（很遗憾，我们发现，模型在不开 thinking 的时候，几乎没有 zero-shot 操作工具的能力）：把 `tts_start` 作为可选项时，TODO 个首轮 prompt 中有 TODO 个调用了它。开了 thinking，模型不用强制也会调用，而且因为 TTS 是工具，thinking 的内容永远不会被念出来。代价是延迟：写完整段文本、出第一段音频之前，中位要等 TODO s。因此本文的 profile 仍然关闭 thinking，并强制调用（见[下一节](#让真实模型用起来)）。怎样让 thinking 便宜到可以一直开着，仍是开放问题。
+整个设计正是从这个权衡出发的。不开 thinking，模型对这类工具的 zero-shot 泛化很差（很遗憾，我们发现，模型在不开 thinking 的时候，几乎没有 zero-shot 操作工具的能力）：三个模型里只有 Qwen3.8-27B 能关掉 thinking，关掉之后，把 `tts_start` 作为可选项时，80 个首轮 prompt 中只有 1 个调用了它；在系统 prompt 里加一句"用户只能听到工具说出的内容"，也只有 15 个。开了 thinking，这一句话就够了：在 low 和 medium 两个档位下，三个模型在 80 个 prompt 中有 74 到 80 个调用了工具。如果只靠工具描述自己去推断，只有 Inkling 2 Small 会调用（80 个中的 72 和 73 个），Inkling 2 Mini 和 Qwen3.8-27B 大多直接用纯文本回答。因为 TTS 是工具，thinking 的内容永远不会被念出来。代价是延迟：medium 档位下，写完整段文本、出第一段音频之前，中位要等 1.5 s（Inkling 2 Mini）到 3.5 s（Qwen3.8-27B）。因此发布的 profile 强制调用并预填充调用开头，从而跳过 thinking（见[下一节](#让真实模型用起来)）；Qwen3.8-27B 的 profile 还关掉了 thinking，Inkling 无法关闭，使用 `reasoning_effort` 0.1。怎样让 thinking 便宜到可以一直开着，仍是开放问题。
 
-| 指标 | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| 指标（thinking low / medium） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| 关 thinking：可选的 `tts_start` 被调用 | TODO/TODO | TODO/TODO | TODO/TODO |
-| 开 thinking：可选的 `tts_start` 被调用 | TODO/TODO | TODO/TODO | TODO/TODO |
-| 开 thinking：首音频中位延迟 | TODO s | TODO s | TODO s |
+| 可选的 `tts_start` 被调用，使用发布的系统 prompt（/80） | 8 / 8 | 72 / 73 | 1 / 3 |
+| 可选的 `tts_start` 被调用，多加一句"用户只能听到工具说出的内容"（/80） | 78 / 80 | 80 / 80 | 80 / 74 |
+| medium 档位、一句话请求、SGLang parser 下的首音频中位延迟 | 1.5 s | 2.0 s | 3.5 s |
 
 ### 调用何时得到应答？
 
@@ -99,9 +101,9 @@ Session 把停止位置写进工具结果，并随着播放报告的到达更新
 
 ## 让真实模型用起来
 
-**强制调用。** 设置 `tool_choice: required` 后，TODO 个首轮 prompt 中有 TODO 个调用了 `tts_start`。如果服务端忽略了 `tool_choice`，模型写出了纯文本，这段文本会被当作一次 `tts_start` 调用来朗读，结果也按同样方式上报。
+**强制调用。** 设置 `tool_choice: required` 后，在两个 thinking 档位下，每个模型的 80 个首轮 prompt 全部调用了 `tts_start`。如果服务端忽略了 `tool_choice`，模型写出了纯文本，这段文本会被当作一次 `tts_start` 调用来朗读，结果也按同样方式上报。
 
-**结束一轮。** 如果每个 prompt 都要求调用，模型就无法选择沉默。我们试过给它一个 `silent` 工具：在 Session 的第一次输入上，TODO 个普通问题中有 TODO 个模型选择了沉默；一段语音完成之后，TODO 个样本中有 TODO 个重复了答案（改用 `silent` 动作时为 TODO/TODO）。所以现在系统在每次用户输入、一次成功的语音之后就结束这一轮，并把结果放进下一个 prompt。只有调用被拒绝或语音失败时才会再次 prompt 模型，每次输入最多四次。
+**结束一轮。** 如果每个 prompt 都要求调用，模型就无法选择沉默。我们试过给它一个 `silent` 工具。在 Session 的第一次输入上，模型用得不错：480 个普通问题中只有 12 个选择了沉默（全部来自 Qwen3.8-27B），480 个要求不要回复的输入中有 454 个选择了沉默。但一段语音完成之后就不行了：在没有任何新内容需要回答的情况下再次 prompt，480 个样本中有 130 个又说了一遍话，改用 `silent` 动作时同样是 480 个中的 130 个，其中约五分之四是把同一个答案再说一遍。Inkling 2 Small 在使用 `silent` 工具时，约三分之二的样本会再说一遍。所以现在系统在每次用户输入、一次成功的语音之后就结束这一轮，并把结果放进下一个 prompt。只有调用被拒绝或语音失败时才会再次 prompt 模型，每次输入最多四次。
 
 **首音频延迟。** SGLang 自带的工具调用 parser（Qwen3.8-27B 用 `qwen3_coder`，Inkling 2 Mini 和 Inkling 2 Small 用 `inkling2`）要到闭合标签才释放 text 参数，合成器只能等整段参数写完。我们做了两处改动：
 
@@ -125,16 +127,19 @@ Session 把停止位置写进工具结果，并随着播放报告的到达更新
 
 每种配置、每种回复长度都回放同样的 15 段音频，每个轮次都产出了音频（每种配置、每种回复长度均为 15/15）。表中为中位数，计时从客户端发出包含 VAD 检测到的语音结束的数据包开始，到收到第一个非空音频块为止。三句话请求、thinking 为 low 时，流式输出参数为 Inkling 2 Small 节省了 148 ms，为 Qwen3.8-27B 节省了 417 ms（medium 时为 140 ms 和 374 ms；15 段音频的成对中位数）。它对 Inkling 2 Mini 没有可测的帮助（16 ms 和 12 ms），因为 Mini 在写出第一个词之后约 70 ms 内就写完了整段回复；一句话请求上它对任何模型都没有帮助，因为这时参数本来就只有一句。开着 thinking 时，流式工具路径在 low 下仍比直接文本慢：三句话请求上，Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B 分别慢 712 ms、673 ms 和 161 ms（一句话请求上为 267 ms、425 ms 和 480 ms）。Qwen3.8-27B 在 medium 下的中位数单看意义不大：它的 thinking 耗时随问题不同在 1.4 s 到 7 s 之间，两条路径都是如此，所以 15 段音频的中位数落在两组音频之间。这来自问题本身而不是运行间的噪声：它的直接文本和流式两组配置重跑一遍后，每个中位数都在约 200 ms 以内重现。按音频成对比较，medium 下它的流式工具路径在三句话请求上比直接文本快 115 ms，一句话请求上快 209 ms；两个 Inkling 模型则慢 590 ms 到 1,015 ms。
 
-**失败。** 失败的语音不重试，直接返回 `failed`。这个 profile 的 TTS 超时为 10 s 而不是 120 s。如果合成在播了几句之后失败，响应会带上 `heard_prefix` 和一条说明，让模型只说剩下的部分。没有这条说明时，TODO 个样本中有 TODO 个模型从头重说；加上之后为 TODO/TODO。
+**失败。** 失败的语音不重试，直接返回 `failed`。这个 profile 的 TTS 超时为 10 s 而不是 120 s。如果合成在播了几句之后失败，响应会带上 `heard_prefix` 和一条说明，让模型只说剩下的部分。没有这条说明时，238 个样本中有 231 个模型从第一句重新说起；加上之后为 238 个中的 2 个。
 
-| 行为 | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| 行为（thinking low / medium） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| `tool_choice: required` 下首轮 prompt 调用 `tts_start` | TODO/TODO | TODO/TODO | TODO/TODO |
-| Session 第一次输入时，普通问题选择沉默 | TODO/TODO | TODO/TODO | TODO/TODO |
-| 语音完成后重复答案（`silent` 工具） | TODO/TODO | TODO/TODO | TODO/TODO |
-| 语音完成后重复答案（`silent` 动作） | TODO/TODO | TODO/TODO | TODO/TODO |
-| 合成失败后从头重说（无说明） | TODO/TODO | TODO/TODO | TODO/TODO |
-| 合成失败后从头重说（有说明） | TODO/TODO | TODO/TODO | TODO/TODO |
+| `tool_choice: required` 下首轮 prompt 调用 `tts_start`（/80） | 80 / 80 | 80 / 80 | 80 / 80 |
+| Session 第一次输入时，普通问题选择沉默（/80） | 0 / 0 | 0 / 0 | 3 / 9 |
+| 要求不要回复的输入选择沉默（/80） | 73 / 74 | 74 / 75 | 80 / 78 |
+| 语音完成后又说了一遍话（`silent` 工具，/80） | 11 / 10 | 53 / 51 | 1 / 4 |
+| 语音完成后又说了一遍话（`silent` 动作，/80） | 26 / 38 | 23 / 22 | 6 / 15 |
+| 合成失败后从头重说（无说明，/40） | 39 / 38 | 39 / 39 | 38 / 38 |
+| 合成失败后从头重说（有说明，/40） | 1 / 1 | 0 / 0 | 0 / 0 |
+
+这张表和 thinking 那张表里的计数来自同一组输入，对每个模型都一样：40 个口语问题和 20 个要求不要回复的输入，作为首轮 prompt 发送，使用发布的系统 prompt 和 `tts_start` 工具，开着 thinking，每个输入采样两次，按规则计数。`silent` 工具和 `silent` 动作不在发布的级联里，所以我们各写了两种措辞，把计数相加。措辞最多让一个计数变动 40 个中的 10 个；无论哪种措辞，再说一遍最少的都是 Qwen3.8-27B，使用 `silent` 工具时最多的都是 Inkling 2 Small。Inkling 2 Mini 和 Inkling 2 Small 在 medium 下各有一个失败样本的语音只有一句，未计入，所以这两格的分母是 39。
 
 ## 评估
 

@@ -1,14 +1,16 @@
 # Speaking Is an Action: Turning TTS into a Tool for Interactive Models
 
-| Model | Fragmented replies in interruption replay | First prompts that call the speech tool | First audio on three-sentence requests |
+| Model | Right about what was heard, both conditions (history replay, /32) | First prompts that call the speech tool (/80) | First audio on three-sentence requests |
 |---|:---:|:---:|:---:|
-| Inkling 2 Mini | TODO → **TODO** | TODO → **TODO** | TODO ms → **TODO ms** (direct text: TODO ms) |
-| Inkling 2 Small | TODO → **TODO** | TODO → **TODO** | TODO ms → **TODO ms** (direct text: TODO ms) |
-| Qwen3.8-27B | TODO → **TODO** | TODO → **TODO** | TODO ms → **TODO ms** (direct text: TODO ms) |
+| Inkling 2 Mini | 24 → **32** | 8 → **80** | 1,866 ms → **540 ms** (direct text: 1,263 ms) |
+| Inkling 2 Small | 27 → **32** | 72 → **80** | 2,403 ms → **535 ms** (direct text: 1,579 ms) |
+| Qwen3.8-27B | 12 → **32** | 1 → **80** | 3,124 ms → **625 ms** (direct text: 2,637 ms) |
+
+Every model has thinking on at the same level (low). The arrows go from a trimmed reply with a system note to `tts_start` with `heard_prefix`, from an optional call to `tool_choice: required`, and from `tts_start` through SGLang's parser to a streamed argument with a prefilled opening, which generates no thinking.
 
 ## TL;DR
 
-Models keep getting smarter, yet people still talk to them one turn at a time. Human communication is interactive: people keep perceiving while they respond, cut in, and change course when cut off. SGLang Omni builds interactive systems from open models, starting with a cascade of ASR, LLM and TTS coordinated by a Session that continuously runs interaction management. The old cascade read aloud every token the LLM wrote, which left a bad choice: with thinking off the model is dumb, and with thinking on it is far too verbose to say out loud. We wanted the cascade to use tools, and after thinking it through, the best form was to make TTS itself the first one: to the LLM, speaking is a tool call no different from a Google search or a weather lookup. Now the LLM passes `tts_start` only the words worth saying. The Session decides when speech stops and tells the model, through `heard_prefix`, how much the user heard. Across Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B, streaming the tool argument and prefilling the call opening cut median first audio from TODO ms to TODO ms on average, against TODO ms for the old direct-text path.
+Models keep getting smarter, yet people still talk to them one turn at a time. Human communication is interactive: people keep perceiving while they respond, cut in, and change course when cut off. SGLang Omni builds interactive systems from open models, starting with a cascade of ASR, LLM and TTS coordinated by a Session that continuously runs interaction management. The old cascade read aloud every token the LLM wrote, which left a bad choice: with thinking off the model is dumb, and with thinking on it is far too verbose to say out loud. We wanted the cascade to use tools, and after thinking it through, the best form was to make TTS itself the first one: to the LLM, speaking is a tool call no different from a Google search or a weather lookup. Now the LLM passes `tts_start` only the words worth saying. The Session decides when speech stops and tells the model, through `heard_prefix`, how much the user heard. Across Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B, streaming the tool argument and prefilling the call opening cut median first audio on three-sentence requests from 2,464 ms to 567 ms on average, against 1,826 ms for the old direct-text path. The first and last numbers are with thinking on at low; the prefilled opening skips the thinking.
 
 ## Why Interactive Models
 
@@ -65,13 +67,13 @@ Every `tts_start` ends in exactly one outcome:
 
 ### Thinking On or Off?
 
-This trade-off is where the design starts. Without thinking, the models generalize poorly to a tool like this (unfortunately, we found that with thinking off, models have almost no zero-shot ability to operate tools): offered `tts_start` as an option, TODO of TODO first prompts called it. With thinking, they call it unforced, and because TTS is a tool, the thinking is never spoken. The cost is latency: at medium thinking, writing the whole text took a median of 1.5 s (Inkling 2 Mini) to 3.5 s (Qwen3.8-27B) before any audio. The profiles in this post therefore run with thinking off and force the call ([next section](#making-real-models-use-it)). Making thinking cheap enough to keep on is still open.
+This trade-off is where the design starts. Without thinking, the models generalize poorly to a tool like this (unfortunately, we found that with thinking off, models have almost no zero-shot ability to operate tools): Qwen3.8-27B, the one model here that can turn thinking off, called an optional `tts_start` in 1 of 80 first prompts, and in 15 of 80 when the system prompt added that the user hears only what the tool says. With thinking on, that one sentence was enough: the three models called the tool in 74 to 80 of 80 prompts, at low and at medium. Left to work it out from the tool's description alone, only Inkling 2 Small called it (72 and 73 of 80); Inkling 2 Mini and Qwen3.8-27B mostly answered in plain text. Because TTS is a tool, the thinking is never spoken. The cost is latency: at medium thinking, writing the whole text took a median of 1.5 s (Inkling 2 Mini) to 3.5 s (Qwen3.8-27B) before any audio. The shipped profiles therefore force the call and prefill its opening, which skips the thinking ([next section](#making-real-models-use-it)); Qwen3.8-27B's profile also turns thinking off, and Inkling, which cannot turn it off, runs at `reasoning_effort` 0.1. Making thinking cheap enough to keep on is still open.
 
-| Measure | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| Measure (thinking low / medium) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| Thinking off: optional `tts_start` called | TODO/TODO | TODO/TODO | TODO/TODO |
-| Thinking on: optional `tts_start` called | TODO/TODO | TODO/TODO | TODO/TODO |
-| Thinking on (medium), SGLang's parser: median time to first audio, one sentence | 1.5 s | 2.0 s | 3.5 s |
+| Optional `tts_start` called, shipped system prompt (/80) | 8 / 8 | 72 / 73 | 1 / 3 |
+| Optional `tts_start` called, one more sentence saying the user hears only the tool (/80) | 78 / 80 | 80 / 80 | 80 / 74 |
+| Median time to first audio at medium, one sentence, SGLang's parser | 1.5 s | 2.0 s | 3.5 s |
 
 ### When Does a Call Get Its Answer?
 
@@ -99,9 +101,9 @@ Ours keeps what the model wrote apart from what was played; the call holds every
 
 ## Making Real Models Use It
 
-**Forcing the call.** With `tool_choice: required`, TODO of TODO first prompts called `tts_start`. If a server ignores `tool_choice` and the model writes plain text, that text is spoken as if it were a `tts_start` call and reported the same way.
+**Forcing the call.** With `tool_choice: required`, every model called `tts_start` in 80 of 80 first prompts, at both thinking levels. If a server ignores `tool_choice` and the model writes plain text, that text is spoken as if it were a `tts_start` call and reported the same way.
 
-**Ending a turn.** If every prompt requires a call, the model can't choose silence. We tried a `silent` tool: on a Session's first input the models chose silence for TODO of TODO plain questions, and after a completed speech they repeated their answer in TODO of TODO samples (TODO of TODO with a `silent` action instead). So the system ends the turn after one successful speech per user input and puts the result in the next prompt. The model is prompted again only if its call was refused or the speech failed, at most four times per input.
+**Ending a turn.** If every prompt requires a call, the model can't choose silence. We tried a `silent` tool. On a Session's first input the models used it well: they chose silence for 12 of 480 plain questions (all 12 from Qwen3.8-27B) and for 454 of 480 inputs that asked for no reply. After a completed speech they did not: prompted again with nothing new to answer, they spoke again in 130 of 480 samples, and in 130 of 480 with a `silent` action instead, about four times in five with the same answer. Inkling 2 Small spoke again in about two thirds of its samples with the `silent` tool. So the system ends the turn after one successful speech per user input and puts the result in the next prompt. The model is prompted again only if its call was refused or the speech failed, at most four times per input.
 
 **First-audio latency.** SGLang's stock tool-call parser (`qwen3_coder` for Qwen3.8-27B, `inkling2` for Inkling 2 Mini and Inkling 2 Small) releases the text argument only at its closing tag, so synthesis waits for the whole argument. Two changes fix that:
 
@@ -125,16 +127,19 @@ Every model has thinking on in this table, at the same named level: low and medi
 
 We replayed the same 15 clips per configuration and reply length; every turn produced audio (15 of 15 in each configuration and reply length). The table shows medians from the client sending the packet with the VAD-detected speech end to receiving the first nonempty audio chunk. On three-sentence requests at low thinking, streaming the argument saved 148 ms for Inkling 2 Small and 417 ms for Qwen3.8-27B (140 ms and 374 ms at medium; paired medians over the 15 clips). It saved Inkling 2 Mini nothing measurable (16 ms and 12 ms), because Mini writes its whole reply within about 70 ms of the first word, and it saved no model anything on one-sentence requests, where the argument is one sentence either way. With thinking on, the streamed tool path is still slower than direct text at low: by 712 ms, 673 ms and 161 ms on three-sentence requests for Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B (267 ms, 425 ms and 480 ms on one-sentence requests). Qwen3.8-27B's medians at medium say little on their own: its thinking takes from 1.4 s to 7 s depending on the question, on both paths, so the median of 15 clips falls between two groups of clips. This is the questions and not run-to-run noise, since a second run of its direct-text and streamed arms reproduced every median within about 200 ms. Paired by clip, its streamed tool path at medium was 115 ms faster than direct text on three-sentence requests and 209 ms faster on one-sentence requests, while both Inkling models were 590 ms to 1,015 ms slower.
 
-**Failure.** Failed speech isn't retried; it returns `failed`. The profile's TTS timeout is 10 s instead of 120 s. If synthesis fails after some sentences have played, the response carries `heard_prefix` and a note telling the model to say only the rest. Without the note, the models restarted from the beginning in TODO of TODO samples; with it, TODO of TODO.
+**Failure.** Failed speech isn't retried; it returns `failed`. The profile's TTS timeout is 10 s instead of 120 s. If synthesis fails after some sentences have played, the response carries `heard_prefix` and a note telling the model to say only the rest. Without the note, the models started over from the first sentence in 231 of 238 samples; with it, in 2 of 238.
 
-| Behavior | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| Behavior (thinking low / medium) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| First prompts calling `tts_start` under `tool_choice: required` | TODO/TODO | TODO/TODO | TODO/TODO |
-| Plain questions answered with silence on a Session's first input | TODO/TODO | TODO/TODO | TODO/TODO |
-| Answer repeated after a completed speech (`silent` tool) | TODO/TODO | TODO/TODO | TODO/TODO |
-| Answer repeated after a completed speech (`silent` action) | TODO/TODO | TODO/TODO | TODO/TODO |
-| Restarted from the beginning after a failure (no note) | TODO/TODO | TODO/TODO | TODO/TODO |
-| Restarted from the beginning after a failure (with note) | TODO/TODO | TODO/TODO | TODO/TODO |
+| First prompts calling `tts_start` under `tool_choice: required` (/80) | 80 / 80 | 80 / 80 | 80 / 80 |
+| Plain questions answered with silence on a Session's first input (/80) | 0 / 0 | 0 / 0 | 3 / 9 |
+| Inputs asking for no reply answered with silence (/80) | 73 / 74 | 74 / 75 | 80 / 78 |
+| Spoke again after a completed speech (`silent` tool, /80) | 11 / 10 | 53 / 51 | 1 / 4 |
+| Spoke again after a completed speech (`silent` action, /80) | 26 / 38 | 23 / 22 | 6 / 15 |
+| Started over after a failure (no note, /40) | 39 / 38 | 39 / 39 | 38 / 38 |
+| Started over after a failure (with note, /40) | 1 / 1 | 0 / 0 | 0 / 0 |
+
+The counts in this table and in the thinking table come from one set of inputs, the same for every model: 40 spoken questions and 20 inputs that ask for no reply, sent as first prompts with the shipped system prompt and `tts_start` tool, thinking on, two samples each, and counted by rule. The `silent` tool and the `silent` action are not part of the shipped cascade, so we wrote each in two wordings and added the counts. Wording moved a count by up to 10 of 40; under either wording Qwen3.8-27B spoke again least and, with the `silent` tool, Inkling 2 Small most. One failure sample each of Inkling 2 Mini and Inkling 2 Small at medium had a one-sentence speech and is left out, so those two cells are out of 39.
 
 ## Evaluation
 
