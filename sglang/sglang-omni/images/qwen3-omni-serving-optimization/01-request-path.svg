@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+<title id="title">Follow the request from input to first audio</title><desc id="desc">Data dependencies connect preprocessing, optional image and audio encoders, Thinker, text decode, Talker with its internal Predictor, and Code2Wav. Text reception defines TTFT; reception of the first validated nonempty PCM chunk defines TTFA. Ready, wait, execute, and deliver are distinct events, not measured durations.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="900" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Follow the request from input to first audio</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Seven configured stages; optional encoders run only when their input modality is present.</text>
+<rect x="38" y="200" width="205" height="130" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="234" class="label" text-anchor="start" style="">1. preprocessing</text>
+<text x="56" y="265" class="small muted" text-anchor="start" style="">Parse request</text>
+<text x="56" y="292" class="small muted" text-anchor="start" style="">Prepare inputs</text>
+<rect x="300" y="140" width="230" height="95" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="318" y="174" class="label" text-anchor="start" style="">2. image_encoder</text>
+<text x="318" y="205" class="small muted" text-anchor="start" style="">Optional image input</text>
+<rect x="300" y="277" width="230" height="95" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="318" y="311" class="label" text-anchor="start" style="">3. audio_encoder</text>
+<text x="318" y="342" class="small muted" text-anchor="start" style="">Optional audio input</text>
+<path d="M243 265H274V188H291" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M274 265V324H291" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M140 200V115H705V171" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="409" y="109" class="small muted" text-anchor="start" style="">Text tokens</text>
+<rect x="590" y="180" width="230" height="150" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="608" y="214" class="label" text-anchor="start" style="">4. thinker</text>
+<text x="608" y="245" class="small muted" text-anchor="start" style="">Understand inputs</text>
+<text x="608" y="272" class="small muted" text-anchor="start" style="">Generate text</text>
+<text x="608" y="299" class="small muted" text-anchor="start" style="">Produce hidden state</text>
+<path d="M530 188H562V224H581" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M530 324H562V280H581" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="890" y="139" width="272" height="95" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="908" y="173" class="label" text-anchor="start" style="">5. decode</text>
+<text x="908" y="204" class="small muted" text-anchor="start" style="">Decode text tokens</text>
+<path d="M820 224H852V187H881" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="890" y="278" width="272" height="85" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="908" y="312" class="label" text-anchor="start" style="">Client receives text</text>
+<text x="908" y="341" class="small" text-anchor="start" style="fill:#346657;">First text → TTFT</text>
+<path d="M1026 234L1026 269" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="728" y="371" class="small" text-anchor="start" style="fill:#376781;">Hidden-state</text>
+<text x="728" y="397" class="small" text-anchor="start" style="fill:#376781;">stream</text>
+<path d="M705 330L705 411" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="590" y="420" width="230" height="174" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="608" y="454" class="label" text-anchor="start" style="">6. talker_ar</text>
+<text x="608" y="485" class="small muted" text-anchor="start" style="">Generate one frame</text>
+<text x="608" y="512" class="small muted" text-anchor="start" style="">Internal Predictor:</text>
+<text x="608" y="539" class="small muted" text-anchor="start" style="">fill other codebooks</text>
+<path d="M612 558H791V539" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="623" y="582" class="small muted" text-anchor="start" style="">Repeat per frame</text>
+<text x="826" y="443" class="small muted" text-anchor="start" style="">Codec</text>
+<text x="826" y="469" class="small muted" text-anchor="start" style="">frames</text>
+<path d="M820 490L881 490" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="890" y="420" width="272" height="164" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="908" y="454" class="label" text-anchor="start" style="">7. code2wav</text>
+<text x="908" y="485" class="small muted" text-anchor="start" style="">Accumulate window</text>
+<text x="908" y="512" class="small muted" text-anchor="start" style="">Use left context</text>
+<text x="908" y="539" class="small muted" text-anchor="start" style="">Decode codes to PCM</text>
+<rect x="890" y="616" width="272" height="66" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="908" y="643" class="label" text-anchor="start" style="">Client receives PCM</text>
+<text x="908" y="669" class="small" text-anchor="start" style="fill:#346657;">First valid chunk → TTFA</text>
+<path d="M1026 584L1026 607" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="38" y="433" width="492" height="159" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="467" class="label" text-anchor="start" style="">Streaming continues after the first chunk</text>
+<text x="56" y="498" class="small muted" text-anchor="start" style="">Talker produces more codec frames.</text>
+<text x="56" y="525" class="small muted" text-anchor="start" style="">Code2Wav delivers further PCM chunks.</text>
+<text x="56" y="552" class="small muted" text-anchor="start" style="">The request completes after its final output.</text>
+<text x="38" y="706" class="label" text-anchor="start" style="">Four different questions at each boundary</text>
+<rect x="38" y="731" width="266" height="108" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="765" class="label" text-anchor="start" style="">READY</text>
+<text x="56" y="796" class="small muted" text-anchor="start" style="">Are the required</text>
+<text x="56" y="823" class="small muted" text-anchor="start" style="">inputs available?</text>
+<rect x="324" y="731" width="266" height="108" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="342" y="765" class="label" text-anchor="start" style="">WAIT</text>
+<text x="342" y="796" class="small muted" text-anchor="start" style="">Is work queued or</text>
+<text x="342" y="823" class="small muted" text-anchor="start" style="">awaiting a dependency?</text>
+<rect x="610" y="731" width="266" height="108" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="628" y="765" class="label" text-anchor="start" style="">EXECUTE</text>
+<text x="628" y="796" class="small muted" text-anchor="start" style="">When does the stage</text>
+<text x="628" y="823" class="small muted" text-anchor="start" style="">perform its work?</text>
+<rect x="896" y="731" width="266" height="108" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="914" y="765" class="label" text-anchor="start" style="">DELIVER</text>
+<text x="914" y="796" class="small muted" text-anchor="start" style="">When does the consumer</text>
+<text x="914" y="823" class="small muted" text-anchor="start" style="">receive the result?</text>
+<path d="M38 845H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="875" class="small muted" text-anchor="start" style="">Dependency schematic, not GPU placement or measured timing. TTFA excludes playback-device delay.</text></svg>

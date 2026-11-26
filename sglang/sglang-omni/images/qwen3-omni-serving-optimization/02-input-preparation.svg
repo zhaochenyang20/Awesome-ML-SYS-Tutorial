@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="810" viewBox="0 0 1200 810" role="img" aria-labelledby="title desc">
+<title id="title">Prepare input metadata once, then operate across the batch</title><desc id="desc">Before: a nested request-by-modality loop checks a GPU mask with any or sum.item, waits for a scalar on the CPU, and scatters features. After: request construction records CPU placeholder positions; batch preparation assembles indices and position metadata; GPU gather and scatter operate across the batch.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="810" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Prepare input metadata once, then operate across the batch</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Move repeated device-scalar decisions out of the model execution path.</text>
+<rect x="38" y="119" width="1124" height="274" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="60" y="154" class="label" text-anchor="start" style="fill:#9c6344;">BEFORE · repeat host decisions inside a nested loop</text>
+<rect x="60" y="185" width="247" height="126" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="78" y="219" class="label" text-anchor="start" style="">Nested loop</text>
+<text x="78" y="250" class="small muted" text-anchor="start" style="">For each request</text>
+<text x="78" y="277" class="small muted" text-anchor="start" style="">For each modality</text>
+<rect x="337" y="185" width="247" height="126" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="355" y="219" class="label" text-anchor="start" style="">GPU mask</text>
+<text x="355" y="250" class="small muted" text-anchor="start" style="">any()</text>
+<text x="355" y="277" class="small muted" text-anchor="start" style="">sum().item()</text>
+<rect x="614" y="185" width="247" height="126" rx="8" fill="#fbf2ec" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="632" y="219" class="label" text-anchor="start" style="">CPU waits</text>
+<text x="632" y="250" class="small muted" text-anchor="start" style="">Receive scalar</text>
+<text x="632" y="277" class="small muted" text-anchor="start" style="">Choose next action</text>
+<rect x="891" y="185" width="247" height="126" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="909" y="219" class="label" text-anchor="start" style="">Scatter features</text>
+<text x="909" y="250" class="small muted" text-anchor="start" style="">Update this request</text>
+<text x="909" y="277" class="small muted" text-anchor="start" style="">Then repeat the loop</text>
+<path d="M307 248L328 248" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M584 248L605 248" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M861 248L882 248" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1014 311V362H184V320" fill="none" stroke="#9c6344" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="360" y="353" class="small" text-anchor="start" style="fill:#9c6344;">A device-to-host dependency can recur for every pair.</text>
+<rect x="38" y="431" width="1124" height="276" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="60" y="466" class="label" text-anchor="start" style="fill:#346657;">AFTER · prepare indices on the CPU, execute tensor work in batches</text>
+<rect x="60" y="497" width="312" height="153" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="78" y="531" class="label" text-anchor="start" style="">Request build · CPU</text>
+<text x="78" y="562" class="small muted" text-anchor="start" style="">Record placeholder positions</text>
+<text x="78" y="589" class="small muted" text-anchor="start" style="">Keep request metadata</text>
+<text x="78" y="616" class="small muted" text-anchor="start" style="">with the prepared input</text>
+<rect x="429" y="497" width="312" height="153" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="447" y="531" class="label" text-anchor="start" style="">Batch preparation · CPU</text>
+<text x="447" y="562" class="small muted" text-anchor="start" style="">Assemble gather/scatter indices</text>
+<text x="447" y="589" class="small muted" text-anchor="start" style="">Prepare position metadata</text>
+<text x="447" y="616" class="small muted" text-anchor="start" style="">across the admitted batch</text>
+<rect x="798" y="497" width="340" height="153" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="816" y="531" class="label" text-anchor="start" style="">Batch operation · GPU</text>
+<text x="816" y="562" class="small muted" text-anchor="start" style="">Gather encoder features</text>
+<text x="816" y="589" class="small muted" text-anchor="start" style="">Scatter into input embeddings</text>
+<text x="816" y="616" class="small muted" text-anchor="start" style="">Use vectorized positions</text>
+<path d="M372 573L420 573" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M741 573L789 573" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="60" y="683" class="small" text-anchor="start" style="fill:#346657;">Input-dependent work remains; the forward path avoids repeated scalar round trips.</text>
+<path d="M38 755H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="785" class="small muted" text-anchor="start" style="">Mechanism schematic · Sources: #1161 (multimodal merge) and #1160 (MRoPE vectorization).</text></svg>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+<title id="title">Consume ready data with fewer handoff boundaries</title><desc id="desc">Before: each ready outbox message causes an executor wakeup, one get, and delivery. After: one blocking get is followed by nonblocking drain of ready messages, with a maximum of 64 messages per batch before yielding. FIFO and termination semantics remain. Separately, the speech path removes mm_aggregate and lets Thinker and Talker each join their required inputs. The text path retains mm_aggregate.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="900" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Consume ready data with fewer handoff boundaries</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Drain an existing backlog; let each speech consumer join only the inputs it requires.</text>
+<text x="38" y="132" class="label" text-anchor="start" style="">A · Ready outbox messages</text>
+<text x="38" y="171" class="small" text-anchor="start" style="fill:#9c6344;">BEFORE · each message crosses the executor boundary</text>
+<rect x="38" y="192" width="222" height="110" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="226" class="label" text-anchor="start" style="">Producer ready</text>
+<text x="56" y="257" class="small muted" text-anchor="start" style="">M1 · M2 · M3 …</text>
+<text x="56" y="284" class="small muted" text-anchor="start" style="">Already in the outbox</text>
+<rect x="310" y="192" width="264" height="110" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="328" y="226" class="label" text-anchor="start" style="">Executor wakeup</text>
+<text x="328" y="257" class="small muted" text-anchor="start" style="">Resume the reader</text>
+<text x="328" y="284" class="small muted" text-anchor="start" style="">for this one message</text>
+<rect x="624" y="192" width="220" height="110" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="642" y="226" class="label" text-anchor="start" style="">Get one message</text>
+<text x="642" y="257" class="small muted" text-anchor="start" style="">Take M1</text>
+<text x="642" y="284" class="small muted" text-anchor="start" style="">Preserve FIFO order</text>
+<rect x="894" y="192" width="268" height="110" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="912" y="226" class="label" text-anchor="start" style="">Deliver M1</text>
+<text x="912" y="257" class="small muted" text-anchor="start" style="">Return to the loop</text>
+<text x="912" y="284" class="small muted" text-anchor="start" style="">Wake again for M2</text>
+<path d="M260 247L301 247" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M574 247L615 247" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M844 247L885 247" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1028 302V327H442V311" fill="none" stroke="#9c6344" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="622" y="320" class="small" text-anchor="start" style="fill:#9c6344;">Repeat for the next ready message</text>
+<text x="38" y="361" class="small" text-anchor="start" style="fill:#346657;">AFTER · one blocking get, then consume what is ready</text>
+<rect x="38" y="382" width="222" height="114" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="416" class="label" text-anchor="start" style="">Producer ready</text>
+<text x="56" y="447" class="small muted" text-anchor="start" style="">M1 · M2 · M3 …</text>
+<text x="56" y="474" class="small muted" text-anchor="start" style="">Same existing backlog</text>
+<rect x="310" y="382" width="264" height="114" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="328" y="416" class="label" text-anchor="start" style="">Blocking get once</text>
+<text x="328" y="447" class="small muted" text-anchor="start" style="">Wait for the first item</text>
+<text x="328" y="474" class="small muted" text-anchor="start" style="">when the outbox is empty</text>
+<rect x="624" y="382" width="266" height="114" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="642" y="416" class="label" text-anchor="start" style="">Nonblocking drain</text>
+<text x="642" y="447" class="small muted" text-anchor="start" style="">Read ready items in order</text>
+<text x="642" y="474" class="small muted" text-anchor="start" style="">At most 64 per batch</text>
+<rect x="940" y="382" width="222" height="114" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="958" y="416" class="label" text-anchor="start" style="">Yield</text>
+<text x="958" y="447" class="small muted" text-anchor="start" style="">Let other work run</text>
+<text x="958" y="474" class="small muted" text-anchor="start" style="">Then begin next batch</text>
+<path d="M260 439L301 439" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M574 439L615 439" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M890 439L931 439" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="38" y="533" class="small muted" text-anchor="start" style="">No wait for future batch members. Preserve FIFO, termination, and cancellation semantics.</text>
+<path d="M38 559H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="594" class="label" text-anchor="start" style="">B · Move the speech-path join to each consumer</text>
+<rect x="38" y="620" width="250" height="73" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="654" class="label" text-anchor="start" style="">Required inputs</text>
+<text x="56" y="685" class="small muted" text-anchor="start" style="">Previous speech path</text>
+<rect x="359" y="620" width="338" height="73" rx="8" fill="#fbf2ec" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="377" y="654" class="label" text-anchor="start" style="">mm_aggregate</text>
+<text x="377" y="685" class="small muted" text-anchor="start" style="">Wait, then relay the inputs</text>
+<rect x="768" y="620" width="394" height="73" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="786" y="654" class="label" text-anchor="start" style="">Downstream consumer</text>
+<text x="786" y="685" class="small muted" text-anchor="start" style="">Receive the relayed inputs</text>
+<path d="M288 657L350 657" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M697 657L759 657" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="38" y="734" class="small" text-anchor="start" style="fill:#346657;">Consumer-side join · each stage waits for its own required set</text>
+<rect x="38" y="751" width="249" height="71" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="785" class="label" text-anchor="start" style="">Thinker inputs</text>
+<text x="56" y="816" class="small muted" text-anchor="start" style="">Request-specific set</text>
+<rect x="350" y="751" width="222" height="71" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="368" y="785" class="label" text-anchor="start" style="">Thinker</text>
+<text x="368" y="816" class="small muted" text-anchor="start" style="">Join when ready</text>
+<path d="M287 787L341 787" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="628" y="751" width="249" height="71" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="646" y="785" class="label" text-anchor="start" style="">Talker inputs</text>
+<text x="646" y="816" class="small muted" text-anchor="start" style="">Request-specific set</text>
+<rect x="940" y="751" width="222" height="71" rx="8" fill="#edf3e8" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="958" y="785" class="label" text-anchor="start" style="">Talker</text>
+<text x="958" y="816" class="small muted" text-anchor="start" style="">Join when ready</text>
+<path d="M877 787L931 787" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M38 845H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="875" class="small muted" text-anchor="start" style="">Text path retains mm_aggregate. Symbolic order only; sources: #1384 (drain), #1548 (consumer-side join).</text></svg>

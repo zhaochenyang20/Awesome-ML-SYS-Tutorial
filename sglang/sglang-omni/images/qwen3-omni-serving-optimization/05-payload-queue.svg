@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="950" viewBox="0 0 1200 950" role="img" aria-labelledby="title desc">
+<title id="title">Send only what the next stage needs</title><desc id="desc">Preserve conditioning semantics, choose the transport path, and keep queued chunks intact.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="950" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Send only what the next stage needs</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Preserve conditioning semantics, choose the transport path, and keep queued chunks intact.</text>
+<text x="38" y="133" class="label" text-anchor="start" style="">Payloads have different consumers</text>
+<rect x="38" y="153" width="548" height="118" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="187" class="label" text-anchor="start" style="">Prompt conditioning</text>
+<text x="56" y="218" class="small muted" text-anchor="start" style="">Multimodal hidden rows condition the Talker.</text>
+<text x="56" y="245" class="small muted" text-anchor="start" style="">Keep prefill embeddings as tensors.</text>
+<rect x="614" y="153" width="548" height="118" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="632" y="187" class="label" text-anchor="start" style="">Assistant token stream</text>
+<text x="632" y="218" class="small muted" text-anchor="start" style="">Keep one assistant tensor: embedding,</text>
+<text x="632" y="245" class="small muted" text-anchor="start" style="">or hidden state as a fallback.</text>
+<text x="38" y="315" class="label" text-anchor="start" style="">Route by payload size and metadata</text>
+<rect x="38" y="356" width="256" height="70" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="166" y="399" class="label" text-anchor="middle" style="">Incoming payload</text>
+<path d="M304 391L331 391" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<polygon points="553,329 763,391 553,453 343,391" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="553" y="381" class="small" text-anchor="middle" style="">CPU chunk ≤ 16 KiB</text>
+<text x="553" y="409" class="small" text-anchor="middle" style="">AND no tensor metadata?</text>
+<path d="M773 391H813V366H851" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="794" y="351" class="small" text-anchor="start" style="fill:#346657;">Yes</text>
+<path d="M553 463V483H813V444H851" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="756" y="472" class="small" text-anchor="start" style="fill:#65746c;">No</text>
+<rect x="863" y="333" width="299" height="66" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1012" y="374" class="label" text-anchor="middle" style="">Inline control message</text>
+<rect x="863" y="411" width="299" height="66" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1012" y="452" class="label" text-anchor="middle" style="">Data channel</text>
+<text x="38" y="506" class="label" text-anchor="start" style="">Pending text: append without copying the backlog</text>
+<rect x="38" y="528" width="548" height="325" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="58" y="566" class="label" text-anchor="start" style="">Concatenate on every append</text>
+<rect x="62" y="593" width="265" height="57" rx="8" fill="#f4ece3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="194" y="628" class="small" text-anchor="middle" style="">unconsumed old rows</text>
+<text x="349" y="628" class="" text-anchor="middle" style="">+</text>
+<rect x="375" y="593" width="185" height="57" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="467" y="628" class="small" text-anchor="middle" style="">new chunk</text>
+<path d="M311 660L311 702" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="62" y="714" width="498" height="60" rx="8" fill="#f4ece3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="311" y="751" class="" text-anchor="middle" style="">cat([unconsumed old, new])</text>
+<text x="62" y="808" class="small muted" text-anchor="start" style="">Old rows are copied again at every append.</text>
+<rect x="614" y="528" width="548" height="325" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="634" y="566" class="label" text-anchor="start" style="">Device chunk FIFO + cursor</text>
+<rect x="638" y="606" width="150" height="62" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="713" y="644" class="small" text-anchor="middle" style="">chunk A</text>
+<rect x="812" y="606" width="150" height="62" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="887" y="644" class="small" text-anchor="middle" style="">chunk B</text>
+<rect x="986" y="606" width="150" height="62" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1061" y="644" class="small" text-anchor="middle" style="">new C</text>
+<path d="M793 637L806 637" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M967 637L980 637" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M708 730L708 678" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="708" y="760" class="small" text-anchor="middle" style="">read cursor</text>
+<text x="638" y="801" class="small muted" text-anchor="start" style="">Consume in order; advance the cursor.</text>
+<text x="638" y="829" class="small muted" text-anchor="start" style="">Appending does not recopy old rows.</text>
+<path d="M38 895H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="925" class="small muted" text-anchor="start" style="">Mechanisms: SGLang-Omni #1574 (payloads) and #1611 (pending-text FIFO).</text></svg>

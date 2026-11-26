@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="930" viewBox="0 0 1200 930" role="img" aria-labelledby="title desc">
+<title id="title">Reuse state across the audio-frame loop</title><desc id="desc">Update request state when its inputs change; express shared K/V without expanding it.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#346657"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#23332e;font-size:23px}.muted{fill:#65746c}.small{font-size:20px}.title{font-size:33px;font-weight:700}.label{font-size:23px;font-weight:700}</style>
+<rect width="1200" height="930" fill="#f7f8f3"/>
+<text x="38" y="49" class="title" text-anchor="start" style="">Reuse state across the audio-frame loop</text>
+<text x="38" y="84" class="small muted" text-anchor="start" style="">Update request state when its inputs change; express shared K/V without expanding it.</text>
+<text x="38" y="136" class="label" text-anchor="start" style="">One codec frame, then the next</text>
+<rect x="38" y="162" width="240" height="115" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="196" class="label" text-anchor="start" style="">Talker AR step</text>
+<text x="56" y="227" class="small muted" text-anchor="start" style="">Generate the first code</text>
+<rect x="326" y="162" width="240" height="115" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="344" y="196" class="label" text-anchor="start" style="">Predictor</text>
+<text x="344" y="227" class="small muted" text-anchor="start" style="">Internal codebook steps</text>
+<rect x="614" y="162" width="240" height="115" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="632" y="196" class="label" text-anchor="start" style="">Codec frame</text>
+<text x="632" y="227" class="small muted" text-anchor="start" style="">Completed codebooks</text>
+<rect x="902" y="162" width="240" height="115" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="920" y="196" class="label" text-anchor="start" style="">Next frame</text>
+<text x="920" y="227" class="small muted" text-anchor="start" style="">Feedback into Talker</text>
+<path d="M283 219L318 219" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M571 219L606 219" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M859 219L894 219" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1022 284V320H158V284" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="7 5"/>
+<text x="600" y="351" class="small muted" text-anchor="middle" style="">The same request continues through repeated frame steps.</text>
+<text x="38" y="400" class="label" text-anchor="start" style="">Build state only when its dependencies change</text>
+<rect x="38" y="421" width="548" height="138" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="56" y="455" class="label" text-anchor="start" style="">Stable batch and request state</text>
+<text x="56" y="486" class="small muted" text-anchor="start" style="">Reuse sampling state, masks and metadata</text>
+<text x="56" y="513" class="small muted" text-anchor="start" style="">across ordinary frame steps.</text>
+<rect x="614" y="421" width="548" height="138" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="632" y="455" class="label" text-anchor="start" style="">Requests, parameters or ownership change</text>
+<text x="632" y="486" class="small muted" text-anchor="start" style="">Rebuild when the batch or requests change,</text>
+<text x="632" y="513" class="small muted" text-anchor="start" style="">or when parameters or ownership change.</text>
+<text x="38" y="607" class="label" text-anchor="start" style="">Inside Predictor attention</text>
+<rect x="38" y="628" width="548" height="194" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="58" y="665" class="label" text-anchor="start" style="">Explicit K/V expansion</text>
+<rect x="58" y="686" width="97" height="79" rx="8" fill="#edf0e9" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="76" y="720" class="label" text-anchor="start" style="">K/V</text>
+<path d="M164 725L210 725" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="222" y="685" width="337" height="80" rx="8" fill="#f4ece3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="390" y="719" class="" text-anchor="middle" style="">K/V  |  K/V  |  K/V</text>
+<text x="390" y="748" class="small muted" text-anchor="middle" style="">temporary repeated tensor</text>
+<text x="58" y="799" class="small muted" text-anchor="start" style="">Expand heads, then execute attention.</text>
+<rect x="614" y="628" width="548" height="194" rx="8" fill="#ffffff" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="634" y="665" class="label" text-anchor="start" style="">Native grouped-query attention</text>
+<rect x="634" y="686" width="97" height="79" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="652" y="720" class="label" text-anchor="start" style="">K/V</text>
+<rect x="872" y="687" width="260" height="39" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1002" y="714" class="small" text-anchor="middle" style="">Q group 1</text>
+<path d="M739 725H801V707H862" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="872" y="733" width="260" height="39" rx="8" fill="#e5eee3" stroke="#c8d5cc" stroke-width="1.5"/>
+<text x="1002" y="760" class="small" text-anchor="middle" style="">Q group 2</text>
+<path d="M739 725H801V753H862" fill="none" stroke="#346657" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="634" y="799" class="small muted" text-anchor="start" style="">The backend expresses K/V sharing.</text>
+<text x="38" y="853" class="small muted" text-anchor="start" style="">Predictor is already graphed: this removes memory work inside replay.</text>
+<path d="M38 875H1162" fill="none" stroke="#d9e1d7" stroke-width="2"/>
+<text x="38" y="905" class="small muted" text-anchor="start" style="">Mechanisms: SGLang-Omni #1043 (sampling state reuse) and #1164 (native GQA).</text></svg>
