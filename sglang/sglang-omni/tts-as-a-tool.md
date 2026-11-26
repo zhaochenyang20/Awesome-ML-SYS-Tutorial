@@ -65,13 +65,13 @@ Every `tts_start` ends in exactly one outcome:
 
 ### Thinking On or Off?
 
-This trade-off is where the design starts. Without thinking, the models generalize poorly to a tool like this (unfortunately, we found that with thinking off, models have almost no zero-shot ability to operate tools): offered `tts_start` as an option, TODO of TODO first prompts called it. With thinking, they call it unforced, and because TTS is a tool, the thinking is never spoken. The cost is latency: writing the whole text took a median of TODO s before any audio. The profiles in this post therefore run with thinking off and force the call ([next section](#making-real-models-use-it)). Making thinking cheap enough to keep on is still open.
+This trade-off is where the design starts. Without thinking, the models generalize poorly to a tool like this (unfortunately, we found that with thinking off, models have almost no zero-shot ability to operate tools): offered `tts_start` as an option, TODO of TODO first prompts called it. With thinking, they call it unforced, and because TTS is a tool, the thinking is never spoken. The cost is latency: at medium thinking, writing the whole text took a median of 1.5 s (Inkling 2 Mini) to 3.5 s (Qwen3.8-27B) before any audio. The profiles in this post therefore run with thinking off and force the call ([next section](#making-real-models-use-it)). Making thinking cheap enough to keep on is still open.
 
 | Measure | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
 | Thinking off: optional `tts_start` called | TODO/TODO | TODO/TODO | TODO/TODO |
 | Thinking on: optional `tts_start` called | TODO/TODO | TODO/TODO | TODO/TODO |
-| Thinking on: median time to first audio | 1.5 s | 2.0 s | 3.4 s |
+| Thinking on (medium), SGLang's parser: median time to first audio, one sentence | 1.5 s | 2.0 s | 3.5 s |
 
 ### When Does a Call Get Its Answer?
 
@@ -111,11 +111,11 @@ Ours keeps what the model wrote apart from what was played; the call holds every
 | Thinking on (one / three sentences requested) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
 | Low, TTS reads the model's text (old pipeline) | 890 / 1,263 ms | 1,265 / 1,579 ms | 2,192 / 2,637 ms |
-| Low, `tts_start`, SGLang's parser | TODO / TODO ms | TODO / TODO ms | TODO / TODO ms |
-| Low, `tts_start`, streamed argument | 1,168 / 1,872 ms | 1,870 / 2,252 ms | 3,097 / 2,715 ms |
+| Low, `tts_start`, SGLang's parser | 1,191 / 1,866 ms | 1,828 / 2,403 ms | 3,304 / 3,124 ms |
+| Low, `tts_start`, streamed argument | 1,168 / 1,872 ms | 1,870 / 2,252 ms | 3,308 / 2,717 ms |
 | Medium, TTS reads the model's text (old pipeline) | 914 / 1,313 ms | 1,464 / 1,718 ms | 4,827 / 5,701 ms |
-| Medium, `tts_start`, SGLang's parser | TODO / TODO ms | TODO / TODO ms | TODO / TODO ms |
-| Medium, `tts_start`, streamed argument | 1,494 / 1,998 ms | 2,021 / 2,648 ms | 3,441 / 3,175 ms |
+| Medium, `tts_start`, SGLang's parser | 1,455 / 2,033 ms | 2,027 / 2,923 ms | 3,536 / 3,783 ms |
+| Medium, `tts_start`, streamed argument | 1,494 / 1,998 ms | 2,021 / 2,648 ms | 3,525 / 3,345 ms |
 
 Every model has thinking on in this table, at the same named level: low and medium are `reasoning_effort` 0.2 and 0.7 for Inkling and `low` and `medium` for Qwen3.8-27B. There is no prefilled opening in it, because the opening starts the reply at the spoken text and leaves no room to think. With the prefilled opening no model generates thinking, and first audio arrives at:
 
@@ -123,7 +123,7 @@ Every model has thinking on in this table, at the same named level: low and medi
 |---|---:|---:|---:|
 | `tts_start`, streamed argument and prefilled opening | 544 / 540 ms | 608 / 535 ms | 918 / 622 ms |
 
-We replayed the same 15 clips per configuration and reply length; every turn produced audio (15 of 15 in each configuration and reply length). The table shows medians from the client sending the packet with the VAD-detected speech end to receiving the first nonempty audio chunk. On three-sentence requests, streaming saved TODO ms and prefill another TODO ms (paired medians), and the final tool path is TODO ms slower than direct text (TODO ms on one-sentence requests).
+We replayed the same 15 clips per configuration and reply length; every turn produced audio (15 of 15 in each configuration and reply length). The table shows medians from the client sending the packet with the VAD-detected speech end to receiving the first nonempty audio chunk. On three-sentence requests at low thinking, streaming the argument saved 148 ms for Inkling 2 Small and 417 ms for Qwen3.8-27B (140 ms and 374 ms at medium; paired medians over the 15 clips). It saved Inkling 2 Mini nothing measurable (16 ms and 12 ms), because Mini writes its whole reply within about 70 ms of the first word, and it saved no model anything on one-sentence requests, where the argument is one sentence either way. With thinking on, the streamed tool path is still slower than direct text at low: by 712 ms, 673 ms and 161 ms on three-sentence requests for Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B (267 ms, 425 ms and 480 ms on one-sentence requests). Qwen3.8-27B's medians at medium are unstable: its thinking takes from 1.4 s to 7 s depending on the question, on both paths, and a second run of its four direct-text and streamed arms reproduced the medians within about 200 ms. Paired by clip, its streamed tool path at medium was 115 ms faster than direct text on three-sentence requests and 209 ms faster on one-sentence requests, while both Inkling models were 590 ms to 1,015 ms slower.
 
 **Failure.** Failed speech isn't retried; it returns `failed`. The profile's TTS timeout is 10 s instead of 120 s. If synthesis fails after some sentences have played, the response carries `heard_prefix` and a note telling the model to say only the rest. Without the note, the models restarted from the beginning in TODO of TODO samples; with it, TODO of TODO.
 
