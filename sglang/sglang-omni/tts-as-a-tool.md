@@ -28,7 +28,7 @@ Imagine you are driving an electric car and ask its in-car assistant what the we
 
 Our cascade did not work this way. ASR, the LLM and TTS were nodes at the same level, and TTS read every token the LLM wrote. The surface problem was tokens TTS can't read: emoji, Markdown asterisks, tables. We filtered those out. The real problem is that open LLMs are trained for coding and talk like it: long, structured, thousands of tokens at a time. Turn thinking off and the model gets dumb: its answers go wrong and it handles tools poorly. Turn thinking on and it gets smart, but nobody wants to hear everything it writes.
 
-Reading every token also hides what the user actually heard. When the user cut in, the old cascade trimmed the reply in the history to the played part, ended it with "…" and added a system note. The model then picks up this broken output in context: even when nothing interrupts it, it no longer gives a complete answer and ends with an ellipsis itself. Given 20-turn histories with every reply cut, the setup from [#3255](https://github.com/sgl-project/sglang-omni/pull/3255), TODO% of final answers ended in an ellipsis.
+Reading every token also hides what the user actually heard. When the user cut in, the old cascade trimmed the reply in the history to the played part, ended it with "…" and added a system note. The model then picks up this broken output in context: even when nothing interrupts it, it no longer gives a complete answer and ends with an ellipsis itself. Given 20-turn histories with every reply cut, the setup from [#3255](https://github.com/sgl-project/sglang-omni/pull/3255), Qwen3.8-27B with thinking off, as the old cascade ran it, ended 12.5% of its final answers in an ellipsis (16 of 128). With thinking on, none of the three models did ([Evaluation](#evaluation)).
 
 So TTS can't read everything, and the model has to choose. We also wanted the cascade to call tools: the in-car assistant has to check the weather before it can answer. After thinking it through, we found TTS as a tool to be the best form for both, and TTS became our first tool. We demoted it from a pipeline node to a tool; to the LLM, `tts_start` is no different from a Google search or a weather lookup. The model decides what to say. The system decides when speech must stop and records what the user likely heard. A tool call is the interface between them, and this is our answer, for speaking, to the question the runtime post left open: how much interaction behavior the model should learn, and how much the system should coordinate.
 
@@ -140,20 +140,20 @@ We replayed the same 15 clips per configuration and reply length; every turn pro
 
 We ran [four evaluations](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/pull/311#issuecomment-7124364587) with Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B on [SGLang Omni at `02e5103`](https://github.com/sgl-project/sglang-omni/tree/02e5103ce0428b8a37e2339116b96a516c0eb36f), Qwen3.8-27B on one H200, Inkling 2 Mini on one H200 and Inkling 2 Small on four H200s (`--tp 4`). The Inkling runs use [SGLang Omni at `21a6d22`](https://github.com/sgl-project/sglang-omni/tree/21a6d229c), which adds Inkling's streamed arguments and prefilled opening ([#4495](https://github.com/sgl-project/sglang-omni/pull/4495)); Inkling 2 Small runs behind the same chat service inside its own serving image. The text gives the mean over the three models and the tables give each model. Latency is covered above.
 
-**Full-Duplex-Bench.** We ran the direct-text and tool paths at four concurrent sessions on 100 v1.5 pairs (25 per category) and 30 v1.0 samples (10 per public subset). The local Qwen judge labeled TODO/25 direct-text backchannel cases as resuming the original speech, against TODO/25 for the tool path. Cases labeled as responding went from TODO/25 to TODO/25, and v1.5 mean response latency from TODO s to TODO s. These are single runs, and the licensed CANDOR subsets are left for later.
+**Full-Duplex-Bench.** We ran the direct-text and tool paths at four concurrent sessions on 100 v1.5 pairs (25 per category) and 30 v1.0 samples (10 per public subset), twice per configuration. Averaged over the three models, both thinking levels and both runs, the local Qwen judge labeled 19.5 of 25 direct-text backchannel cases as resuming the original speech, against 15.2 of 25 for the tool path. Cases labeled as responding went from 0.2 to 1.9 of 25, and v1.5 mean response latency from 1.79 s to 1.86 s. The licensed CANDOR subsets are left for later.
 
-| Direct text → tool path, thinking on | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| Direct text → tool path, thinking on, two runs added | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| Low: backchannels judged as resuming the original speech (/25) | 24 → 14 | 25 → 15 | 12 → 10 |
-| Low: cases judged as responding (/25) | 0 → 7 | 0 → 2 | 0 → 0 |
-| Low: v1.5 mean response latency | 1.54 s → 1.57 s | 1.42 s → 1.39 s | 1.98 s → 2.21 s |
-| Medium: backchannels judged as resuming the original speech (/25) | 20 → 14 | 25 → 18 | 8 → 12 |
-| Medium: cases judged as responding (/25) | 0 → 2 | 0 → 2 | 0 → 0 |
-| Medium: v1.5 mean response latency | 1.90 s → 2.16 s | 1.73 s → 1.61 s | 2.25 s → 2.24 s |
+| Low: backchannels judged as resuming the original speech (/50) | 46 → 29 | 48 → 31 | 30 → 26 |
+| Low: cases judged as responding (/50) | 1 → 10 | 0 → 4 | 0 → 1 |
+| Low: v1.5 mean response latency | 1.52 s → 1.57 s | 1.40 s → 1.38 s | 1.97 s → 2.21 s |
+| Medium: backchannels judged as resuming the original speech (/50) | 43 → 31 | 48 → 37 | 19 → 28 |
+| Medium: cases judged as responding (/50) | 0 → 4 | 1 → 3 | 0 → 1 |
+| Medium: v1.5 mean response latency | 1.91 s → 2.11 s | 1.73 s → 1.60 s | 2.22 s → 2.28 s |
 
-Every model has thinking on at the same named level on both paths, so the tool path here streams the argument without the prefilled opening. A single run moves by several cases: an earlier Qwen3.8-27B run of the same four configurations gave 18 → 13 and 12 → 14 resumed backchannels.
+Every model has thinking on at the same named level on both paths, so the tool path here streams the argument without the prefilled opening. Both Inkling models resumed after fewer backchannels on the tool path in every run, by 4 to 10 of 25 cases, and their two runs agree within 3 cases. Qwen3.8-27B's counts are less stable: the same configuration moved by up to 6 cases between runs, and the judge left 16% to 52% of its backchannel cases uncertain, against 0% to 28% for the Inkling models. Its tool path resumed after 2 fewer cases than direct text at low in both runs and after 4 and 5 more at medium. Response latency repeated within about 0.1 s in every configuration.
 
-**Fragments after repeated interruptions.** We rebuilt four 20-turn conversations from the topics in [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments), marked the first 30% of each prior reply as heard, and sampled 32 final answers per conversation and history format. Trimmed replies with a system note: TODO/128 answers ended in an ellipsis (TODO%). An English inline note: TODO/128. `tts_start` with `heard_prefix`: TODO/128.
+**Fragments after repeated interruptions.** We rebuilt four 20-turn conversations from the topics in [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments), marked the first 30% of each prior reply as heard, and sampled 32 final answers per conversation and history format, 128 per format. With thinking on, no answer of any model ended in an ellipsis under any of the three history formats, at either level.
 
 | History format (answers ending in an ellipsis, /128; thinking low / medium) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
@@ -161,9 +161,9 @@ Every model has thinking on at the same named level on both paths, so the tool p
 | English inline note | 0 / 0 | 0 / 0 | 0 / 0 |
 | `tts_start` with `heard_prefix` | 0 / 0 | 0 / 0 | 0 / 0 |
 
-With thinking on, no model ended an answer in an ellipsis under any history format. The fragments appear with thinking off: the same requests gave Qwen3.8-27B 16/128 for the trimmed reply and 0/128 for the other two formats (12/128 in the original run).
+The fragments appear with thinking off: the same requests gave Qwen3.8-27B 16/128 (12.5%) for the trimmed reply and 0/128 for the other two formats (12/128 in the original run).
 
-**History replay.** In both conditions the tool argument held a random code; the heard condition also had it in `heard_prefix`. Asked whether they had read the code, the models answered correctly in both conditions for TODO of 32 pairs and put the right code in their next `tts_start` in TODO of 64 cases. These are direct chat requests with a supplied playback history: they test how the model uses the record, not live playback alignment.
+**History replay.** In both conditions the tool argument held a random code; the heard condition also had it in `heard_prefix`. Asked whether they had read the code, every model answered correctly in both conditions for all 32 pairs with `tts_start` and `heard_prefix`, at both thinking levels, and put the right code in its next `tts_start` in 58 to 64 of 64 cases. With a trimmed reply they were right in both conditions for 12 to 29 of the 32 pairs, and with an inline note for 5 to 11. These are direct chat requests with a supplied playback history: they test how the model uses the record, not live playback alignment.
 
 | Measure (thinking low / medium) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
@@ -226,7 +226,7 @@ This reuses the playback feedback path from the runtime post's appendix ("Commit
 
 ### Usage
 
-The Inkling 2 Mini profile is `qwen3-asr-inkling-2-mini-vivian-tts-tool`; its chat service runs in its own environment, installed with `examples/streaming_cascade/inkling_chat_service.sh install`. Inkling 2 Small has no profile yet (TODO); we ran it with the Mini profile pointed at a chat service started inside the Inkling 2 Small serving image. The Qwen3.8-27B profile is `qwen3-asr-qwen3.8-27b-vivian-tts-tool`; it needs two GPUs, or one H200 using the memory fractions given in the guide.
+The Inkling 2 Mini profile is `qwen3-asr-inkling-2-mini-vivian-tts-tool`; its chat service runs in its own environment, installed with `examples/streaming_cascade/inkling_chat_service.sh install`. Inkling 2 Small has no profile of its own yet; we ran it with a copy of the Mini profile whose LLM model is `thinkingmachines/Inkling-2-Small`, pointed at the same chat service started inside the Inkling 2 Small serving image. The Qwen3.8-27B profile is `qwen3-asr-qwen3.8-27b-vivian-tts-tool`; it needs two GPUs, or one H200 using the memory fractions given in the guide.
 
 ```bash
 hf download Qwen/Qwen3-ASR-1.7B
@@ -245,8 +245,8 @@ PYTHONPATH=. aligner-venv/bin/python examples/streaming_cascade/alignment_worker
 ```bash
 # Inkling 2 Mini
 sgl-omni serve --config examples/streaming_cascade/profiles/qwen3-asr-inkling-2-mini-vivian-tts-tool/launch.yaml --enable-realtime --port 8765
-# Inkling 2 Small
-sgl-omni serve --config examples/streaming_cascade/profiles/TODO/launch.yaml --enable-realtime --port 8765
+# Inkling 2 Small: a copy of the Mini profile with the LLM model and base_url changed (no profile of its own yet)
+sgl-omni serve --config inkling-2-small-tts-tool/launch.yaml --enable-realtime --port 8765
 # Qwen3.8-27B
 sgl-omni serve --config examples/streaming_cascade/profiles/qwen3-asr-qwen3.8-27b-vivian-tts-tool/launch.yaml --enable-realtime --port 8765
 ```
