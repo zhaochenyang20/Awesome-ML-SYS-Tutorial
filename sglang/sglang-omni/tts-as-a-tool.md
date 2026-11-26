@@ -103,7 +103,7 @@ Ours keeps what the model wrote apart from what was played; the call holds every
 
 **Forcing the call.** With `tool_choice: required`, every model called `tts_start` in 80 of 80 first prompts, at both thinking levels. If a server ignores `tool_choice` and the model writes plain text, that text is spoken as if it were a `tts_start` call and reported the same way.
 
-**Ending a turn.** If every prompt requires a call, the model can't choose silence. We tried a `silent` tool. On a Session's first input the models used it well: they chose silence for 12 of 480 plain questions (all 12 from Qwen3.8-27B) and for 454 of 480 inputs that asked for no reply. After a completed speech they did not: prompted again with nothing new to answer, they spoke again in 130 of 480 samples, and in 130 of 480 with a `silent` action instead, about four times in five with the same answer. Inkling 2 Small spoke again in about two thirds of its samples with the `silent` tool. So the system ends the turn after one successful speech per user input and puts the result in the next prompt. The model is prompted again only if its call was refused or the speech failed, at most four times per input.
+**Ending a turn.** If every prompt requires a call, the model can't choose silence. We tried a `silent` tool. On a Session's first input the models used it well: they chose silence for 12 of 480 plain questions (all 12 from Qwen3.8-27B) and for 454 of 480 inputs that asked for no reply. After a completed speech they did not: prompted again with nothing new to answer, the three models together spoke again in 130 of 480 samples, 109 of them with the same answer. So the system ends the turn after one successful speech per user input and puts the result in the next prompt. The model is prompted again only if its call was refused or the speech failed, at most four times per input.
 
 **First-audio latency.** SGLang's stock tool-call parser (`qwen3_coder` for Qwen3.8-27B, `inkling2` for Inkling 2 Mini and Inkling 2 Small) releases the text argument only at its closing tag, so synthesis waits for the whole argument. Two changes fix that:
 
@@ -134,12 +134,10 @@ We replayed the same 15 clips per configuration and reply length; every turn pro
 | First prompts calling `tts_start` under `tool_choice: required` (/80) | 80 / 80 | 80 / 80 | 80 / 80 |
 | Plain questions answered with silence on a Session's first input (/80) | 0 / 0 | 0 / 0 | 3 / 9 |
 | Inputs asking for no reply answered with silence (/80) | 73 / 74 | 74 / 75 | 80 / 78 |
-| Spoke again after a completed speech (`silent` tool, /80) | 11 / 10 | 53 / 51 | 1 / 4 |
-| Spoke again after a completed speech (`silent` action, /80) | 26 / 38 | 23 / 22 | 6 / 15 |
 | Started over after a failure (no note, /40) | 39 / 38 | 39 / 39 | 38 / 38 |
 | Started over after a failure (with note, /40) | 1 / 1 | 0 / 0 | 0 / 0 |
 
-The counts in this table and in the thinking table come from one set of inputs, the same for every model: 40 spoken questions and 20 inputs that ask for no reply, sent as first prompts with the shipped system prompt and `tts_start` tool, thinking on, two samples each, and counted by rule. The `silent` tool and the `silent` action are not part of the shipped cascade, so we wrote each in two wordings and added the counts. Wording moved a count by up to 10 of 40; under either wording Qwen3.8-27B spoke again least and, with the `silent` tool, Inkling 2 Small most. One failure sample each of Inkling 2 Mini and Inkling 2 Small at medium had a one-sentence speech and is left out, so those two cells are out of 39.
+The counts in this table and the tool-call counts in the thinking table come from one set of inputs, the same for every model: 40 spoken questions and 20 inputs that ask for no reply, sent with the shipped system prompt and `tts_start` tool, thinking on, 80 samples per test (40 for the failure tests), and counted by rule. The `silent` tool is not part of the shipped cascade, so we wrote it in two wordings and added the counts; wording moved a count by up to 9 of 40. One failure sample each of Inkling 2 Mini and Inkling 2 Small at medium had a one-sentence speech and is left out, so their medium failure cells are out of 39.
 
 ## Evaluation
 
