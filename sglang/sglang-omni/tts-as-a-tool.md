@@ -95,7 +95,7 @@ The Session writes the stop position into the tool result and updates it as play
 | Put an interruption note in the user message | The heard text, inside the user's account of the interruption |
 | Keep the call, put `heard_prefix` in the tool response (ours) | The generated text in the call, the heard text in its result |
 
-Ours keeps what the model wrote apart from what was played; the call holds everything the model had written when it was cut. In one replay with Qwen3.8-27B, the call said "The parcel code is V2P2." and `heard_prefix` ended at "The pickup desk is next to the main entrance." Asked whether it had read the code aloud, the model's next `tts_start` said "Not yet read. The code is V2P2." TODO: the same replay with Inkling 2 Mini and Inkling 2 Small.
+Ours keeps what the model wrote apart from what was played; the call holds everything the model had written when it was cut. In one replay with Qwen3.8-27B, the call said "The parcel code is V2P2." and `heard_prefix` ended at "The pickup desk is next to the main entrance." Asked whether it had read the code aloud, the model's next `tts_start` said "Not yet read. The code is V2P2." In the same replay Inkling 2 Mini said "Not yet read; the code is V2P2." and Inkling 2 Small said "Not yet read. Your code is V2P2." (all three with thinking at low).
 
 ## Making Real Models Use It
 
@@ -144,14 +144,14 @@ We ran [four evaluations](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutor
 
 | Direct text → tool path, thinking on | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| Low: backchannels judged as resuming the original speech (/25) | 24 → 14 | 24 → 15 | 18 → 13 |
-| Low: cases judged as responding (/25) | 0 → 7 | 0 → 2 | 0 → 1 |
-| Low: v1.5 mean response latency | 1.54 s → 1.57 s | 1.33 s → 1.39 s | 2.00 s → 2.09 s |
-| Medium: backchannels judged as resuming the original speech (/25) | 20 → 14 | 23 → 18 | 12 → 14 |
-| Medium: cases judged as responding (/25) | 0 → 2 | 0 → 2 | 0 → 1 |
-| Medium: v1.5 mean response latency | 1.90 s → 2.16 s | 1.71 s → 1.61 s | 2.20 s → 2.19 s |
+| Low: backchannels judged as resuming the original speech (/25) | 24 → 14 | 25 → 15 | 12 → 10 |
+| Low: cases judged as responding (/25) | 0 → 7 | 0 → 2 | 0 → 0 |
+| Low: v1.5 mean response latency | 1.54 s → 1.57 s | 1.42 s → 1.39 s | 1.98 s → 2.21 s |
+| Medium: backchannels judged as resuming the original speech (/25) | 20 → 14 | 25 → 18 | 8 → 12 |
+| Medium: cases judged as responding (/25) | 0 → 2 | 0 → 2 | 0 → 0 |
+| Medium: v1.5 mean response latency | 1.90 s → 2.16 s | 1.73 s → 1.61 s | 2.25 s → 2.24 s |
 
-Every model has thinking on at the same named level on both paths, so the tool path here streams the argument without the prefilled opening.
+Every model has thinking on at the same named level on both paths, so the tool path here streams the argument without the prefilled opening. A single run moves by several cases: an earlier Qwen3.8-27B run of the same four configurations gave 18 → 13 and 12 → 14 resumed backchannels.
 
 **Fragments after repeated interruptions.** We rebuilt four 20-turn conversations from the topics in [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments), marked the first 30% of each prior reply as heard, and sampled 32 final answers per conversation and history format. Trimmed replies with a system note: TODO/128 answers ended in an ellipsis (TODO%). An English inline note: TODO/128. `tts_start` with `heard_prefix`: TODO/128.
 
@@ -196,13 +196,21 @@ The Session stops speech today because it sees continuous input and the playback
 
 ### Streaming Tool-Call Parsers
 
-SGLang 0.5.23's `qwen3_coder` parser, used for Qwen3.8-27B, releases a string parameter only at its closing tag, so a reply's text arrived all at once, TODO s in. `sglang_omni.models.streaming_cascade.chat_service` is `sglang.launch_server` with a parser that subclasses SGLang's detector and releases string arguments as they are written; with it, the first sentence was complete at TODO s. Because the chat service depends on SGLang internals, a test checks that it produces the same calls as SGLang's detector.
+SGLang 0.5.23's `qwen3_coder` parser, used for Qwen3.8-27B, releases a string parameter only at its closing tag, so a reply's text arrives all at once. `sglang_omni.models.streaming_cascade.chat_service` is `sglang.launch_server` with a parser that subclasses SGLang's detector and releases string arguments as they are written. Because the chat service depends on SGLang internals, a test checks that it produces the same calls as SGLang's detector. Inkling 2 Mini and Inkling 2 Small use SGLang's `inkling2` parser, which also releases the text when the call ends; their chat service streams it the same way.
 
-Inkling 2 Mini and Inkling 2 Small use SGLang's `inkling2` parser; TODO ( when a reply's text arrived with it, and when the first sentence was complete with streaming).
+We timed the language model alone: 12 questions asked twice with `tool_choice: required` at temperature 0, medians from sending the request to the named piece of the `text` argument.
+
+| Thinking low / medium | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+|---|---:|---:|---:|
+| SGLang's parser: the whole text arrives | 631 / 893 ms | 1,066 / 1,040 ms | 1,838 / 1,780 ms |
+| Streamed argument: first text | 563 / 850 ms | 776 / 810 ms | 1,032 / 934 ms |
+| Streamed argument: first sentence complete | 636 / 902 ms | 892 / 938 ms | 1,442 / 1,284 ms |
+
+Streaming completes the first sentence about 400 to 500 ms earlier for Qwen3.8-27B and 100 to 175 ms earlier for Inkling 2 Small. Inkling 2 Mini gains nothing here: its replies to these questions are one sentence, written within about 70 ms of the first text. With the prefilled opening no thinking is generated, and the first text arrives after 36 ms, 46 ms and 66 ms and the first sentence is complete after 147 ms, 186 ms and 330 ms (Inkling 2 Mini, Inkling 2 Small, Qwen3.8-27B).
 
 ### Continuing the Call Opening
 
-When a prompt requires a call, the `llm` node sends the call opening as an assistant message with `continue_final_message: true` and `tool_choice: auto`. The chat service puts the opening in front of the first streamed delta, so the reply still arrives as a streamed `tts_start` call. SGLang's own server would return the rest of the call as content, closing tags included, and the dialog would speak them, so this option needs the chat service. With the opening, the first sentence matched the unprefilled reply in TODO of TODO pairs for Inkling 2 Mini, TODO of TODO for Inkling 2 Small and TODO of TODO for Qwen3.8-27B.
+When a prompt requires a call, the `llm` node sends the call opening as an assistant message with `continue_final_message: true` and `tool_choice: auto`. The chat service puts the opening in front of the first streamed delta, so the reply still arrives as a streamed `tts_start` call. SGLang's own server would return the rest of the call as content, closing tags included, and the dialog would speak them, so this option needs the chat service. The opening skips the thinking, and that changes the reply. On the [24 question pairs of #4472](https://github.com/sgl-project/sglang-omni/pull/4472), against the unprefilled reply with thinking on (low / medium), the first sentence was the same in 4 / 4 pairs for Inkling 2 Mini, 4 / 3 for Inkling 2 Small and 6 / 6 for Qwen3.8-27B. Against Qwen3.8-27B with thinking off, where neither reply thinks, it was the same in 21 of 24.
 
 ### Computing `heard_prefix`
 
