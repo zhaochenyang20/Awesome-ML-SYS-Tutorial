@@ -106,7 +106,7 @@ Ours keeps what the model wrote apart from what was played; the call holds every
 **First-audio latency.** SGLang's stock tool-call parser (`qwen3_coder` for Qwen3.8-27B, `inkling2` for Inkling 2 Mini and Inkling 2 Small) releases the text argument only at its closing tag, so synthesis waits for the whole argument. Two changes fix that:
 
 1. Our chat service streams the `text` argument as the model writes it, so the first sentence is synthesized while the rest is still being written.
-2. We [prefill the call opening](https://github.com/sgl-project/sglang-omni/pull/4472) as an assistant message for the model to continue (`continue_final_message: true`, `tool_choice: auto`), so decoding starts at the spoken text. For Qwen3.8-27B the opening is the 14 tokens `<tool_call>\n<function=tts_start>\n<parameter=text>\n`; for Inkling 2 Mini and Inkling 2 Small it is the 42 tokens `<|message_model|><|content_thinking|>The user asked something; I answer it rather than repeat it.<|end_message|><|message_model|>tts_start<|content_invoke_tool_json|>{"name":"tts_start","args":{"text":"`, which also writes the thinking block, so no thinking is generated on this path.
+2. We [prefill the call opening](https://github.com/sgl-project/sglang-omni/pull/4472) as an assistant message for the model to continue (`continue_final_message: true`, `tool_choice: auto`), so decoding starts at the spoken text. For Qwen3.8-27B the opening is the 14 tokens `<tool_call>\n<function=tts_start>\n<parameter=text>\n`; for Inkling 2 Mini and Inkling 2 Small it is a one-sentence thought followed by the tokens with which Inkling opens a `tts_start` call, `<|message_model|><|content_thinking|>The user asked something; I answer it rather than repeat it.<|end_message|><|message_model|>tts_start<|content_invoke_tool_json|>{"name":"tts_start","args":{"text":"`, which also writes the thinking block, so no thinking is generated on this path.
 
 | Thinking on (one / three sentences requested) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
@@ -155,18 +155,22 @@ Every model has thinking on at the same named level on both paths, so the tool p
 
 **Fragments after repeated interruptions.** We rebuilt four 20-turn conversations from the topics in [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments), marked the first 30% of each prior reply as heard, and sampled 32 final answers per conversation and history format. Trimmed replies with a system note: TODO/128 answers ended in an ellipsis (TODO%). An English inline note: TODO/128. `tts_start` with `heard_prefix`: TODO/128.
 
-| History format (answers ending in an ellipsis, /128) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| History format (answers ending in an ellipsis, /128; thinking low / medium) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| Trimmed reply with a system note | TODO | TODO | TODO |
-| English inline note | TODO | TODO | TODO |
-| `tts_start` with `heard_prefix` | TODO | TODO | TODO |
+| Trimmed reply with a system note | 0 / 0 | 0 / 0 | 0 / 0 |
+| English inline note | 0 / 0 | 0 / 0 | 0 / 0 |
+| `tts_start` with `heard_prefix` | 0 / 0 | 0 / 0 | 0 / 0 |
+
+With thinking on, no model ended an answer in an ellipsis under any history format. The fragments appear with thinking off: the same requests gave Qwen3.8-27B 16/128 for the trimmed reply and 0/128 for the other two formats (12/128 in the original run).
 
 **History replay.** In both conditions the tool argument held a random code; the heard condition also had it in `heard_prefix`. Asked whether they had read the code, the models answered correctly in both conditions for TODO of 32 pairs and put the right code in their next `tts_start` in TODO of 64 cases. These are direct chat requests with a supplied playback history: they test how the model uses the record, not live playback alignment.
 
-| Measure | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| Measure (thinking low / medium) | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| Correct in both conditions (/32 pairs) | TODO | TODO | TODO |
-| Right code in the next `tts_start` (/64) | TODO | TODO | TODO |
+| `tts_start` with `heard_prefix`: correct in both conditions (/32 pairs) | 32 / 32 | 32 / 32 | 32 / 32 |
+| Trimmed reply with a system note: correct in both conditions (/32 pairs) | 24 / 29 | 27 / 28 | 12 / 19 |
+| English inline note: correct in both conditions (/32 pairs) | 11 / 8 | 10 / 11 | 5 / 8 |
+| Right code in the next `tts_start` (/64) | 62 / 60 | 64 / 64 | 63 / 58 |
 
 ## Limitations and Open Questions
 
