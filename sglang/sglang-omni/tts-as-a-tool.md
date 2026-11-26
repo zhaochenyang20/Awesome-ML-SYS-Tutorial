@@ -1,16 +1,10 @@
 # Speaking Is an Action: Turning TTS into a Tool for Interactive Models
 
-| Model | Right about what was heard, both conditions (history replay, /32) | First prompts that call the speech tool (/80) | First audio on three-sentence requests |
-|---|:---:|:---:|:---:|
-| Inkling 2 Mini | 24 → **32** | 8 → **80** | 1,866 ms → **540 ms** (direct text: 1,263 ms) |
-| Inkling 2 Small | 27 → **32** | 72 → **80** | 2,403 ms → **535 ms** (direct text: 1,579 ms) |
-| Qwen3.8-27B | 12 → **32** | 1 → **80** | 3,124 ms → **625 ms** (direct text: 2,637 ms) |
-
-Every model has thinking on at the same level (low). The arrows go from a trimmed reply with a system note to `tts_start` with `heard_prefix`, from an optional call to `tool_choice: required`, and from `tts_start` through SGLang's parser to a streamed argument with a prefilled opening, which generates no thinking.
-
 ## TL;DR
 
-Models keep getting smarter, yet people still talk to them one turn at a time. Human communication is interactive: people keep perceiving while they respond, cut in, and change course when cut off. SGLang Omni builds interactive systems from open models, starting with a cascade of ASR, LLM and TTS coordinated by a Session that continuously runs interaction management. The old cascade read aloud every token the LLM wrote, which left a bad choice: with thinking off the model is dumb, and with thinking on it is far too verbose to say out loud. We wanted the cascade to use tools, and after thinking it through, the best form was to make TTS itself the first one: to the LLM, speaking is a tool call no different from a Google search or a weather lookup. Now the LLM passes `tts_start` only the words worth saying. The Session decides when speech stops and tells the model, through `heard_prefix`, how much the user heard. Across Inkling 2 Mini, Inkling 2 Small and Qwen3.8-27B, streaming the tool argument and prefilling the call opening cut median first audio on three-sentence requests from 2,464 ms to 567 ms on average, against 1,826 ms for the old direct-text path. The first and last numbers are with thinking on at low; the prefilled opening skips the thinking.
+Models keep getting smarter, yet people still talk to them one turn at a time, while human communication is interactive. SGLang Omni builds interactive systems from open models, starting with a cascade of ASR, LLM and TTS. The old cascade read aloud every token the LLM wrote, which left a bad choice: with thinking off the model is dumb, and with thinking on it is too verbose to say out loud. We already wanted the cascade to use tools, and after thinking it through, the best form was to make TTS itself the first one: to the LLM, speaking is a tool call no different from a Google search or a weather lookup. The model decides what to say; the system decides when to stop and tells the model, through `heard_prefix`, how much the user heard. Compared with the old design, the new one streams the tool argument and skips the thinking with a prefilled call opening, cutting median first audio on three-sentence requests from 1,826 ms to 567 ms on average across three models.
+
+[![SGLang Omni Cascade Demo: TTS as a Tool](https://img.youtube.com/vi/BAXd3yOU7Ag/hqdefault.jpg)](https://youtu.be/BAXd3yOU7Ag)
 
 ## Why Interactive Models
 

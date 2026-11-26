@@ -1,16 +1,10 @@
 # 说话是一种行动：将 TTS 变成 interactive model 的 tool
 
-| 模型 | 两种条件下都答对用户听到了什么（历史回放，/32） | 调用语音工具的首轮 prompt（/80） | 三句话请求的首音频延迟 |
-|---|:---:|:---:|:---:|
-| Inkling 2 Mini | 24 → **32** | 8 → **80** | 1,866 ms → **540 ms**（直接文本：1,263 ms） |
-| Inkling 2 Small | 27 → **32** | 72 → **80** | 2,403 ms → **535 ms**（直接文本：1,579 ms） |
-| Qwen3.8-27B | 12 → **32** | 1 → **80** | 3,124 ms → **625 ms**（直接文本：2,637 ms） |
-
-所有模型都开着同一档位（low）的 thinking。三个箭头分别是：从截短回复加系统说明，到带 `heard_prefix` 的 `tts_start`；从可选调用，到 `tool_choice: required`；从经过 SGLang parser 的 `tts_start`，到流式参数加预填充开头（预填充开头不生成 thinking）。
-
 ## TL;DR
 
-模型越来越聪明，人与模型之间却仍是一问一答。人和人的交流是 interactive 的：一边感知一边回应，会插话，被打断时会立刻调整。SGLang Omni 用开源模型构建 interactive 系统，第一步是 ASR、LLM、TTS 组成的级联，由一个持续运行交互管理的 Session 统一调度。旧的级联会把 LLM 写出的每个 token 都念出来，于是只剩一个两难：关掉 thinking，模型很笨；打开 thinking，它又啰嗦到没法念出来。我们想在这个级联里接入工具，仔细想过之后，发现最好的形式是让 TTS 本身成为第一个工具：对 LLM 来说，说话就是一次工具调用，和 Google 搜索、查天气没有任何区别。现在 LLM 只把值得说的话传给 `tts_start`；Session 决定语音何时停止，并通过 `heard_prefix` 告诉模型用户听到了多少。在 Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B 上，流式输出工具参数、再预填充调用开头之后，三句话请求的首音频中位延迟平均从 2,464 ms 降到 567 ms，旧的直接文本路径为 1,826 ms。第一个和最后一个数字是 thinking 为 low 时的结果；预填充开头会跳过 thinking。
+模型越来越聪明，人与模型之间却仍是一问一答，而人和人的交流是 interactive 的。SGLang Omni 用开源模型构建 interactive 系统，第一步是 ASR、LLM、TTS 的级联。旧的级联会把 LLM 写出的每个 token 都念出来，于是陷入两难：关掉 thinking，模型很笨；打开 thinking，它又啰嗦到没法念。我们本来就想让级联调用工具，想清楚之后发现，最好的形式是让 TTS 本身成为第一个工具：对 LLM 来说，说话和 Google 搜索、查天气没有任何区别，都是一次工具调用。模型决定说什么，系统决定何时停，并通过 `heard_prefix` 告诉模型用户听到了多少。相较于之前念出每个 token 的设计，新的设计流式输出工具参数，并用预填充的调用开头跳过 thinking，把三个模型在三句话请求上的首音频中位延迟从平均 1,826 ms 降到了 567 ms。
+
+[![SGLang Omni Cascade Demo: TTS as a Tool](https://img.youtube.com/vi/BAXd3yOU7Ag/hqdefault.jpg)](https://youtu.be/BAXd3yOU7Ag)
 
 ## 为什么要做 interactive model
 
