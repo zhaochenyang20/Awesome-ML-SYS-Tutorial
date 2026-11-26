@@ -28,7 +28,7 @@
 
 我们之前的级联不是这样工作的。ASR、LLM、TTS 是同一层级的节点，LLM 写出的每个 token 都会被 TTS 念出来。表面上的问题是有些 token TTS 根本念不对：表情符号、Markdown 的星号、表格。这些可以过滤掉。本质问题在于，开源 LLM 大多是为 coding 训练的，说起话来也像写代码：又长又有结构，一开口就是成千上万个 token。关掉 thinking，模型就变笨，说的内容要么不对，要么调不好工具；打开 thinking，模型变聪明了，可没有人想听完它写的每一个字。
 
-把每个 token 都念出来，还会让模型不知道用户到底听到了什么。用户插话时，旧的级联会把历史里的回复截断到已播放的部分，以"…"结尾，再加一条系统说明。模型会在上下文里学到这种错误的输出方式：即便这一轮没有被打断，它也给不出完整的回答，而是以省略号结尾。沿用 [#3255](https://github.com/sgl-project/sglang-omni/pull/3255) 的设置，给模型输入每条回复都被打断的 20 轮历史，TODO% 的最终回答以省略号结尾。
+把每个 token 都念出来，还会让模型不知道用户到底听到了什么。用户插话时，旧的级联会把历史里的回复截断到已播放的部分，以"…"结尾，再加一条系统说明。模型会在上下文里学到这种错误的输出方式：即便这一轮没有被打断，它也给不出完整的回答，而是以省略号结尾。沿用 [#3255](https://github.com/sgl-project/sglang-omni/pull/3255) 的设置，给模型一段 20 轮、每条回复都被打断的历史：按旧级联的方式关掉 thinking 时，Qwen3.8-27B 有 12.5% 的最终回答以省略号结尾（128 个中的 16 个）；开着 thinking 时，三个模型都没有出现（见[评估](#评估)）。
 
 所以 TTS 不能什么都念，得由模型来挑。与此同时，我们本来就想让级联系统能调用工具：车里那个智能助手，得先查到天气才能回答。仔细想过之后，我们认为 TTS as a Tool 是同时解决这两件事的最好形式，于是 TTS 成了我们的第一个工具。我们把 TTS 从流水线中的一个节点降级为一个工具；对 LLM 来说，`tts_start` 和 Google 搜索、查天气没有任何区别。模型决定说什么；系统决定语音何时必须停止，并记录用户大概听到了什么。两者之间的接口是一次工具调用。这也是我们在"说话"这件事上，对运行时那篇文章留下的问题给出的回答：交互行为有多少该由模型学会，有多少该由系统来协调。
 
@@ -95,7 +95,7 @@ Session 把停止位置写进工具结果，并随着播放报告的到达更新
 | 在用户消息中加入打断说明 | 已听到的文本，夹在用户对这次打断的描述里 |
 | 保留调用，把 `heard_prefix` 放进工具响应（我们的方案） | 生成的文本在调用里，已听到的文本在调用结果里 |
 
-我们的方案把模型写了什么和实际播了什么分开记录，调用里保留模型被打断时已经写出的全部文本。在 Qwen3.8-27B 的一次回放中，调用里写的是 "The parcel code is V2P2."（取件码是 V2P2。），`heard_prefix` 停在 "The pickup desk is next to the main entrance."（取件台在正门旁边。）。被问到是否已经念过取件码时，模型下一次 `tts_start` 说的是 "Not yet read. The code is V2P2."（还没念。取件码是 V2P2。）TODO：Inkling 2 Mini 和 Inkling 2 Small 的同一回放。
+我们的方案把模型写了什么和实际播了什么分开记录，调用里保留模型被打断时已经写出的全部文本。在 Qwen3.8-27B 的一次回放中，调用里写的是 "The parcel code is V2P2."（取件码是 V2P2。），`heard_prefix` 停在 "The pickup desk is next to the main entrance."（取件台在正门旁边。）。被问到是否已经念过取件码时，模型下一次 `tts_start` 说的是 "Not yet read. The code is V2P2."（还没念。取件码是 V2P2。）同一回放中，Inkling 2 Mini 说的是 "Not yet read; the code is V2P2."，Inkling 2 Small 说的是 "Not yet read. Your code is V2P2."（三个模型的 thinking 均为 low）。
 
 ## 让真实模型用起来
 
@@ -103,19 +103,27 @@ Session 把停止位置写进工具结果，并随着播放报告的到达更新
 
 **结束一轮。** 如果每个 prompt 都要求调用，模型就无法选择沉默。我们试过给它一个 `silent` 工具：在 Session 的第一次输入上，TODO 个普通问题中有 TODO 个模型选择了沉默；一段语音完成之后，TODO 个样本中有 TODO 个重复了答案（改用 `silent` 动作时为 TODO/TODO）。所以现在系统在每次用户输入、一次成功的语音之后就结束这一轮，并把结果放进下一个 prompt。只有调用被拒绝或语音失败时才会再次 prompt 模型，每次输入最多四次。
 
-**首音频延迟。** SGLang 自带的工具调用 parser（Qwen3.8-27B 用 `qwen3_coder`，Inkling 2 Mini 和 Inkling 2 Small 用 TODO）要到闭合标签才释放 text 参数，合成器只能等整段参数写完。我们做了两处改动：
+**首音频延迟。** SGLang 自带的工具调用 parser（Qwen3.8-27B 用 `qwen3_coder`，Inkling 2 Mini 和 Inkling 2 Small 用 `inkling2`）要到闭合标签才释放 text 参数，合成器只能等整段参数写完。我们做了两处改动：
 
 1. 我们的 chat service 在模型书写的同时流式输出 `text` 参数，模型还在写后面的内容时，第一句已经在合成了。
-2. 我们[预填充调用开头](https://github.com/sgl-project/sglang-omni/pull/4472)，作为一条让模型续写的 assistant 消息（`continue_final_message: true`，`tool_choice: auto`），解码直接从要说出的文本开始。Qwen3.8-27B 的开头是 14 个 token 的 `<tool_call>\n<function=tts_start>\n<parameter=text>\n`；Inkling 2 Mini 和 Inkling 2 Small 的开头为 TODO。
+2. 我们[预填充调用开头](https://github.com/sgl-project/sglang-omni/pull/4472)，作为一条让模型续写的 assistant 消息（`continue_final_message: true`，`tool_choice: auto`），解码直接从要说出的文本开始。Qwen3.8-27B 的开头是 14 个 token 的 `<tool_call>\n<function=tts_start>\n<parameter=text>\n`；Inkling 2 Mini 和 Inkling 2 Small 的开头是一句话的 thought，加上 Inkling 发起 `tts_start` 调用的那几个 token：`<|message_model|><|content_thinking|>The user asked something; I answer it rather than repeat it.<|end_message|><|message_model|>tts_start<|content_invoke_tool_json|>{"name":"tts_start","args":{"text":"`。这段开头把 thinking 块也写好了，所以这条路径上不再生成 thinking。
 
-| 配置（请求一句 / 三句） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| 开 thinking（请求一句 / 三句） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| TTS 朗读模型的文本（旧流水线） | TODO / TODO ms | TODO / TODO ms | TODO / TODO ms |
-| `tts_start`，SGLang 的 parser | TODO / TODO ms | TODO / TODO ms | TODO / TODO ms |
-| `tts_start`，流式参数 | TODO / TODO ms | TODO / TODO ms | TODO / TODO ms |
-| `tts_start`，流式参数 + 预填充开头 | TODO / TODO ms | TODO / TODO ms | TODO / TODO ms |
+| Low，TTS 朗读模型的文本（旧流水线） | 890 / 1,263 ms | 1,265 / 1,579 ms | 2,192 / 2,637 ms |
+| Low，`tts_start`，SGLang 的 parser | 1,191 / 1,866 ms | 1,828 / 2,403 ms | 3,304 / 3,124 ms |
+| Low，`tts_start`，流式参数 | 1,168 / 1,872 ms | 1,870 / 2,252 ms | 3,308 / 2,717 ms |
+| Medium，TTS 朗读模型的文本（旧流水线） | 914 / 1,313 ms | 1,464 / 1,718 ms | 4,827 / 5,701 ms |
+| Medium，`tts_start`，SGLang 的 parser | 1,455 / 2,033 ms | 2,027 / 2,923 ms | 3,536 / 3,783 ms |
+| Medium，`tts_start`，流式参数 | 1,494 / 1,998 ms | 2,021 / 2,648 ms | 3,525 / 3,345 ms |
 
-每种配置、每种回复长度都回放同样的 15 段音频，TODO 个轮次中有 TODO 个产出了音频。表中为中位数，计时从客户端发出包含 VAD 检测到的语音结束的数据包开始，到收到第一个非空音频块为止。三句话请求上，流式节省了 TODO ms，预填充又节省了 TODO ms（成对中位数）；最终的工具路径比直接文本慢 TODO ms（一句话请求上慢 TODO ms）。
+表中每个模型都开着 thinking，且处于同一个命名档位：low 和 medium 对 Inkling 是 `reasoning_effort` 0.2 和 0.7，对 Qwen3.8-27B 是 `low` 和 `medium`。表中没有预填充开头，因为开头让回复直接从要说的文本开始，没有思考的余地。使用预填充开头时，所有模型都不生成 thinking，首音频延迟为：
+
+| 不生成 thinking（请求一句 / 三句） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+|---|---:|---:|---:|
+| `tts_start`，流式参数 + 预填充开头 | 544 / 540 ms | 608 / 535 ms | 894 / 625 ms |
+
+每种配置、每种回复长度都回放同样的 15 段音频，每个轮次都产出了音频（每种配置、每种回复长度均为 15/15）。表中为中位数，计时从客户端发出包含 VAD 检测到的语音结束的数据包开始，到收到第一个非空音频块为止。三句话请求、thinking 为 low 时，流式输出参数为 Inkling 2 Small 节省了 148 ms，为 Qwen3.8-27B 节省了 417 ms（medium 时为 140 ms 和 374 ms；15 段音频的成对中位数）。它对 Inkling 2 Mini 没有可测的帮助（16 ms 和 12 ms），因为 Mini 在写出第一个词之后约 70 ms 内就写完了整段回复；一句话请求上它对任何模型都没有帮助，因为这时参数本来就只有一句。开着 thinking 时，流式工具路径在 low 下仍比直接文本慢：三句话请求上，Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B 分别慢 712 ms、673 ms 和 161 ms（一句话请求上为 267 ms、425 ms 和 480 ms）。Qwen3.8-27B 在 medium 下的中位数单看意义不大：它的 thinking 耗时随问题不同在 1.4 s 到 7 s 之间，两条路径都是如此，所以 15 段音频的中位数落在两组音频之间。这来自问题本身而不是运行间的噪声：它的直接文本和流式两组配置重跑一遍后，每个中位数都在约 200 ms 以内重现。按音频成对比较，medium 下它的流式工具路径在三句话请求上比直接文本快 115 ms，一句话请求上快 209 ms；两个 Inkling 模型则慢 590 ms 到 1,015 ms。
 
 **失败。** 失败的语音不重试，直接返回 `failed`。这个 profile 的 TTS 超时为 10 s 而不是 120 s。如果合成在播了几句之后失败，响应会带上 `heard_prefix` 和一条说明，让模型只说剩下的部分。没有这条说明时，TODO 个样本中有 TODO 个模型从头重说；加上之后为 TODO/TODO。
 
@@ -130,30 +138,39 @@ Session 把停止位置写进工具结果，并随着播放报告的到达更新
 
 ## 评估
 
-我们用 Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B，基于 [SGLang Omni `02e5103`](https://github.com/sgl-project/sglang-omni/tree/02e5103ce0428b8a37e2339116b96a516c0eb36f) 运行了[四项评估](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/pull/311#issuecomment-7124364587)：Qwen3.8-27B 跑在一张 H200 上，Inkling 模型跑在 TODO 上。正文数字取三个模型的平均，表格列出每个模型。延迟结果见上一节。
+我们用 Inkling 2 Mini、Inkling 2 Small 和 Qwen3.8-27B 运行了[四项评估](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/pull/311#issuecomment-7124364587)：Qwen3.8-27B 跑在一张 H200 上，Inkling 2 Mini 跑在一张 H200 上，Inkling 2 Small 跑在四张 H200 上（`--tp 4`）。延迟和 Full-Duplex-Bench 的运行基于 [SGLang Omni `21a6d22`](https://github.com/sgl-project/sglang-omni/tree/21a6d229c)，它加入了 Inkling 的流式参数和预填充开头（[#4495](https://github.com/sgl-project/sglang-omni/pull/4495)）；Inkling 2 Small 在它自己的 serving 镜像里跑同一个 chat service。所有模型都开着 thinking，且处于同一个命名档位：low 和 medium 对 Inkling 是 `reasoning_effort` 0.2 和 0.7，对 Qwen3.8-27B 是 `low` 和 `medium`。正文数字取三个模型的平均，表格列出每个模型。延迟结果见上一节。
 
-**Full-Duplex-Bench。** 在 4 个并发 session 下运行直接文本路径和预填充工具路径，使用 100 个 v1.5 样本对（每类 25 个）和 30 个 v1.0 样本（每个公开子集 10 个）。本地 Qwen 评判模型把直接文本路径中 TODO/25 的 backchannel 用例判为"继续原来的讲话"，工具路径为 TODO/25。判为"做出回应"的用例从 TODO/25 变为 TODO/25，v1.5 的平均响应延迟从 TODO s 变为 TODO s。以上均为单次运行，需要授权的 CANDOR 子集留待以后。
+**Full-Duplex-Bench。** 在 4 个并发 session 下运行直接文本路径和工具路径，使用 100 个 v1.5 样本对（每类 25 个）和 30 个 v1.0 样本（每个公开子集 10 个），每种配置跑两遍。对三个模型、两个 thinking 档位和两遍运行取平均，本地 Qwen 评判模型把直接文本路径中 19.5/25 的 backchannel 用例判为"继续原来的讲话"，工具路径为 15.2/25。判为"做出回应"的用例从 0.2/25 变为 1.9/25，v1.5 的平均响应延迟从 1.79 s 变为 1.86 s。需要授权的 CANDOR 子集留待以后。
 
-| 直接文本 → 工具路径 | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+| 直接文本 → 工具路径，开 thinking，两遍运行相加 | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| 判为"继续原来的讲话"的 backchannel（/25） | TODO → TODO | TODO → TODO | TODO → TODO |
-| 判为"做出回应"的用例（/25） | TODO → TODO | TODO → TODO | TODO → TODO |
-| v1.5 平均响应延迟 | TODO s → TODO s | TODO s → TODO s | TODO s → TODO s |
+| Low：判为"继续原来的讲话"的 backchannel（/50） | 46 → 29 | 48 → 31 | 30 → 26 |
+| Low：判为"做出回应"的用例（/50） | 1 → 10 | 0 → 4 | 0 → 1 |
+| Low：v1.5 平均响应延迟 | 1.52 s → 1.57 s | 1.40 s → 1.38 s | 1.97 s → 2.21 s |
+| Medium：判为"继续原来的讲话"的 backchannel（/50） | 43 → 31 | 48 → 37 | 19 → 28 |
+| Medium：判为"做出回应"的用例（/50） | 0 → 4 | 1 → 3 | 0 → 1 |
+| Medium：v1.5 平均响应延迟 | 1.91 s → 2.11 s | 1.73 s → 1.60 s | 2.22 s → 2.28 s |
 
-**多次打断后的残缺率。** 按 [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments) 的话题重建四段 20 轮对话，把此前每条回复的前 30% 标记为已听到，每段对话、每种历史格式采样 32 个最终回答。截短回复加系统说明：TODO/128 个回答以省略号结尾（TODO%）；英文内联说明：TODO/128；带 `heard_prefix` 的 `tts_start`：TODO/128。
+两条路径上每个模型都开着同一档位的 thinking，所以这里的工具路径是流式参数、不带预填充开头。两个 Inkling 模型在每一遍运行中，工具路径上继续讲话的 backchannel 都更少，少 4 到 10 个（共 25 个），两遍运行之间相差不超过 3 个。Qwen3.8-27B 的计数没那么稳定：同一配置在两遍运行之间最多相差 6 个，评判模型对它 16% 到 52% 的 backchannel 用例给不出确定判断，Inkling 模型为 0% 到 28%。它的工具路径在 low 下两遍都比直接文本少 2 个，在 medium 下多 4 个和 5 个。响应延迟在每种配置下两遍相差都在约 0.1 s 以内。
 
-| 历史格式（以省略号结尾的回答，/128） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+**多次打断后的残缺率。** 按 [#3255](https://github.com/sgl-project/sglang-omni/pull/3255#experiments) 的话题重建四段 20 轮对话，把此前每条回复的前 30% 标记为已听到，每段对话、每种历史格式采样 32 个最终回答，每种格式共 128 个。开着 thinking 时，在三种历史格式、两个档位下，没有任何模型的回答以省略号结尾。
+
+| 历史格式（以省略号结尾的回答，/128；thinking low / medium） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| 截短回复加系统说明 | TODO | TODO | TODO |
-| 英文内联说明 | TODO | TODO | TODO |
-| 带 `heard_prefix` 的 `tts_start` | TODO | TODO | TODO |
+| 截短回复加系统说明 | 0 / 0 | 0 / 0 | 0 / 0 |
+| 英文内联说明 | 0 / 0 | 0 / 0 | 0 / 0 |
+| 带 `heard_prefix` 的 `tts_start` | 0 / 0 | 0 / 0 | 0 / 0 |
 
-**历史回放。** 两种条件下，工具参数里都有一个随机编码；"已听到"条件还把它放进了 `heard_prefix`。被问到是否念过这个编码时，模型在 32 对中有 TODO 对两种条件下都回答正确，64 个用例中有 TODO 个在下一次 `tts_start` 里给出了正确编码。这些是带预设播放历史的直接 chat 请求，测的是模型如何使用这份记录，而不是实时播放的对齐。
+残缺出现在关掉 thinking 的时候：同样的请求下，Qwen3.8-27B 在截短回复格式上为 16/128（12.5%），另外两种格式为 0/128（原始运行中为 12/128）。
 
-| 指标 | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+**历史回放。** 两种条件下，工具参数里都有一个随机编码；"已听到"条件还把它放进了 `heard_prefix`。被问到是否念过这个编码时，使用带 `heard_prefix` 的 `tts_start` 格式，每个模型在两个 thinking 档位下的全部 32 对中都两种条件均回答正确，并在 64 个用例中的 58 到 64 个里，于下一次 `tts_start` 给出了正确编码。使用截短回复时，两种条件都答对的为 32 对中的 12 到 29 对；使用内联说明时为 5 到 11 对。这些是带预设播放历史的直接 chat 请求，测的是模型如何使用这份记录，而不是实时播放的对齐。
+
+| 指标（thinking low / medium） | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
 |---|---:|---:|---:|
-| 两种条件下都回答正确（/32 对） | TODO | TODO | TODO |
-| 下一次 `tts_start` 给出正确编码（/64） | TODO | TODO | TODO |
+| 带 `heard_prefix` 的 `tts_start`：两种条件下都回答正确（/32 对） | 32 / 32 | 32 / 32 | 32 / 32 |
+| 截短回复加系统说明：两种条件下都回答正确（/32 对） | 24 / 29 | 27 / 28 | 12 / 19 |
+| 英文内联说明：两种条件下都回答正确（/32 对） | 11 / 8 | 10 / 11 | 5 / 8 |
+| 下一次 `tts_start` 给出正确编码（/64） | 62 / 60 | 64 / 64 | 63 / 58 |
 
 ## 局限与开放问题
 
@@ -179,13 +196,21 @@ Session 把停止位置写进工具结果，并随着播放报告的到达更新
 
 ### 流式工具调用 Parser
 
-SGLang 0.5.23 的 `qwen3_coder` parser（Qwen3.8-27B 使用）只在闭合标签处释放字符串参数，回复的文本要到 TODO s 才一次性到达。`sglang_omni.models.streaming_cascade.chat_service` 就是 `sglang.launch_server` 加上一个继承 SGLang detector 的 parser，在模型书写的同时释放字符串参数；换用后，第一句在 TODO s 时就已完整。由于 chat service 依赖 SGLang 的内部实现，有一个测试专门检查它产出的调用与 SGLang 的 detector 一致。
+SGLang 0.5.23 的 `qwen3_coder` parser（Qwen3.8-27B 使用）只在闭合标签处释放字符串参数，回复的文本会一次性到达。`sglang_omni.models.streaming_cascade.chat_service` 就是 `sglang.launch_server` 加上一个继承 SGLang detector 的 parser，在模型书写的同时释放字符串参数。由于 chat service 依赖 SGLang 的内部实现，有一个测试专门检查它产出的调用与 SGLang 的 detector 一致。Inkling 2 Mini 和 Inkling 2 Small 使用 SGLang 的 `inkling2` parser，它同样要到调用结束才释放文本；它们的 chat service 以同样的方式流式输出。
 
-Inkling 2 Mini 和 Inkling 2 Small：TODO（使用的 SGLang parser、用它时回复文本何时到达、流式后第一句何时完整）。
+我们单独对语言模型计时：12 个问题各问两遍，`tool_choice: required`，temperature 为 0，取从发出请求到 `text` 参数相应部分到达的中位数。
+
+| Thinking low / medium | Inkling 2 Mini | Inkling 2 Small | Qwen3.8-27B |
+|---|---:|---:|---:|
+| SGLang 的 parser：整段文本到达 | 631 / 893 ms | 1,066 / 1,040 ms | 1,838 / 1,780 ms |
+| 流式参数：第一段文本 | 563 / 850 ms | 776 / 810 ms | 1,032 / 934 ms |
+| 流式参数：第一句完整 | 636 / 902 ms | 892 / 938 ms | 1,442 / 1,284 ms |
+
+流式让 Qwen3.8-27B 的第一句提前约 400 到 500 ms 完整，让 Inkling 2 Small 提前 100 到 175 ms。Inkling 2 Mini 在这里没有收益：它对这些问题的回复只有一句，在第一段文本之后约 70 ms 内就写完了。使用预填充开头时不生成 thinking，第一段文本在 36 ms、46 ms 和 66 ms 后到达，第一句在 147 ms、186 ms 和 330 ms 后完整（依次为 Inkling 2 Mini、Inkling 2 Small、Qwen3.8-27B）。
 
 ### 续写调用开头
 
-prompt 要求调用时，`llm` 节点把调用开头作为 assistant 消息发送，并设置 `continue_final_message: true` 和 `tool_choice: auto`。chat service 把这段开头拼在第一个流式 delta 前面，所以回复仍以流式 `tts_start` 调用的形式到达。SGLang 自己的 server 会把调用剩余部分（连同闭合标签）作为 content 返回，dialog 会把它们也念出来，所以这个选项需要配合 chat service。加上开头后，第一句与不加开头时一致的样本对：Inkling 2 Mini 为 TODO/TODO，Inkling 2 Small 为 TODO/TODO，Qwen3.8-27B 为 TODO/TODO。
+prompt 要求调用时，`llm` 节点把调用开头作为 assistant 消息发送，并设置 `continue_final_message: true` 和 `tool_choice: auto`。chat service 把这段开头拼在第一个流式 delta 前面，所以回复仍以流式 `tts_start` 调用的形式到达。SGLang 自己的 server 会把调用剩余部分（连同闭合标签）作为 content 返回，dialog 会把它们也念出来，所以这个选项需要配合 chat service。开头跳过了 thinking，回复也随之改变。在 [#4472 的 24 对问题](https://github.com/sgl-project/sglang-omni/pull/4472)上，与开着 thinking（low / medium）、不加开头的回复相比，第一句一致的样本对：Inkling 2 Mini 为 4 / 4，Inkling 2 Small 为 4 / 3，Qwen3.8-27B 为 6 / 6。与关掉 thinking 的 Qwen3.8-27B 相比（两边都不思考），24 对中有 21 对一致。
 
 ### 计算 `heard_prefix`
 
@@ -201,13 +226,13 @@ prompt 要求调用时，`llm` 节点把调用开头作为 assistant 消息发�
 
 ### 使用
 
-Inkling 2 Mini 和 Inkling 2 Small 的 profile 分别为 `TODO` 和 `TODO`，需要 TODO。Qwen3.8-27B 的 profile 名为 `qwen3-asr-qwen3.8-27b-vivian-tts-tool`，需要两张 GPU，或者一张 H200 并使用指南中给出的显存比例。
+Inkling 2 Mini 的 profile 名为 `qwen3-asr-inkling-2-mini-vivian-tts-tool`，它的 chat service 跑在单独的环境里，用 `examples/streaming_cascade/inkling_chat_service.sh install` 安装。Inkling 2 Small 还没有自己的 profile；我们用的是 Mini profile 的一份拷贝，把 LLM 的模型改为 `thinkingmachines/Inkling-2-Small`，并指向在 Inkling 2 Small serving 镜像里启动的同一个 chat service。Qwen3.8-27B 的 profile 名为 `qwen3-asr-qwen3.8-27b-vivian-tts-tool`，需要两张 GPU，或者一张 H200 并使用指南中给出的显存比例。
 
 ```bash
 hf download Qwen/Qwen3-ASR-1.7B
 hf download wilsonzheng0327/Qwen3-ASR-1.7B-dflash --revision d62bd4051e68282e02f93de774036a35f22f1373
-hf download TODO  # Inkling 2 Mini
-hf download TODO  # Inkling 2 Small
+hf download thinkingmachines/Inkling-2-Mini --revision b85c3cfa615fc413cc9af3379f491b963f3b586a  # Inkling 2 Mini
+hf download thinkingmachines/Inkling-2-Small  # Inkling 2 Small
 hf download Qwen/Qwen3.8-27B
 hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base
 hf download Qwen/Qwen3-ForcedAligner-0.6B
@@ -219,9 +244,9 @@ PYTHONPATH=. aligner-venv/bin/python examples/streaming_cascade/alignment_worker
 
 ```bash
 # Inkling 2 Mini
-sgl-omni serve --config examples/streaming_cascade/profiles/TODO/launch.yaml --enable-realtime --port 8765
-# Inkling 2 Small
-sgl-omni serve --config examples/streaming_cascade/profiles/TODO/launch.yaml --enable-realtime --port 8765
+sgl-omni serve --config examples/streaming_cascade/profiles/qwen3-asr-inkling-2-mini-vivian-tts-tool/launch.yaml --enable-realtime --port 8765
+# Inkling 2 Small：Mini profile 的一份拷贝，改了 LLM 的模型和 base_url（还没有自己的 profile）
+sgl-omni serve --config inkling-2-small-tts-tool/launch.yaml --enable-realtime --port 8765
 # Qwen3.8-27B
 sgl-omni serve --config examples/streaming_cascade/profiles/qwen3-asr-qwen3.8-27b-vivian-tts-tool/launch.yaml --enable-realtime --port 8765
 ```
